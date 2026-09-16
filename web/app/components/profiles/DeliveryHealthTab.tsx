@@ -179,7 +179,7 @@ export default function DeliveryHealthTab({ refKey, type }: { refKey: string; ty
                 <h2 className="text-[11px] font-black text-gray-800 uppercase tracking-[0.15em]">
                   Most Common Errors
                 </h2>
-                <Info className="w-3.5 h-3.5 text-gray-400 cursor-help hover:text-gray-600 transition-colors" title={data.most_common_errors?.description || "Which error messages surface most frequently for this entity."} />
+                <span title={data.most_common_errors?.description || "Which error messages surface most frequently for this entity."}><Info className="w-3.5 h-3.5 text-gray-400 cursor-help hover:text-gray-600 transition-colors" /></span>
               </div>
               
               <div className="p-4">

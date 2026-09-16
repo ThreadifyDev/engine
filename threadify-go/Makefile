@@ -1,9 +1,9 @@
 .PHONY: help install generate-graphql \
 	build build-api build-archiver \
-	build-image build-web-api build-web-ui build-docs \
+	build-image build-web-api build-docs \
 	run run-api run-archiver run-docker \
 	push publish-engine push-archiver publish-archiver \
-	push-web-api publish-web-api push-web-ui publish-web-ui push-docs \
+	push-web-api publish-web-api push-docs \
 	test-engine-integration test-engine-coverage \
 	test-archiver test-archiver-coverage \
 	test-api test-api-integration \
@@ -20,7 +20,6 @@ DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
 ENGINE_IMAGE ?= $(DOCKER_NAMESPACE)/th-engine
 ARCHIVER_IMAGE ?= $(DOCKER_NAMESPACE)/th-archiver
 WEB_API_IMAGE ?= $(DOCKER_NAMESPACE)/th_web_api
-WEB_UI_IMAGE ?= $(DOCKER_NAMESPACE)/th_web_ui
 
 define publish-multiarch
 	docker buildx build --platform $(DOCKER_PLATFORMS) -f $(1) \
@@ -89,8 +88,11 @@ test-engine-integration: ## Run engine integration tests
 	@echo "Running engine integration tests..."
 	@cd tests && $(GO) test -v ./engine/... -count=1
 
-.PHONY: test-e2e test-e2e-live
-test-e2e: build ## Run compiled-binary E2E with disposable PostgreSQL and Valkey (Docker required)
+.PHONY: test-e2e test-e2e-live check-dashboard
+check-dashboard: ## Verify CI-built dashboard assets are staged
+	@python3 scripts/check-dashboard.py
+
+test-e2e: check-dashboard build ## Run compiled-binary E2E with disposable PostgreSQL and Valkey (Docker required)
 	@cd tests && THREADIFY_LIVE_DIR= THREADIFY_E2E_BINARY="$(CURDIR)/bin/threadify" $(GO) test -v ./e2e/... -count=1 -timeout=5m
 
 test-e2e-live: ## Run E2E against the explicit local config directory in THREADIFY_LIVE_DIR
@@ -203,9 +205,6 @@ build-archiver: ## Build archiver Docker image
 build-web-api: ## Build Web API Docker image
 	docker build -f Dockerfile.api -t $(WEB_API_IMAGE):$(VERSION) .
 
-build-web-ui: ## Build Web UI Docker image
-	docker build -f Dockerfile.web_ui -t $(WEB_UI_IMAGE):$(VERSION) ../web
-
 build-docs: ## Build Documentation Docker image
 	cd ../documentation && docker build -t intelijence/th-docs:$(VERSION) .
 
@@ -226,12 +225,6 @@ push-web-api: ## Push Web API Docker image
 
 publish-web-api: ## Build and push multi-architecture Web API images
 	$(call publish-multiarch,Dockerfile.api,$(WEB_API_IMAGE),.)
-
-push-web-ui: ## Push Web UI Docker image
-	docker push $(WEB_UI_IMAGE):$(VERSION)
-
-publish-web-ui: ## Build and push multi-architecture Web UI images
-	$(call publish-multiarch,Dockerfile.web_ui,$(WEB_UI_IMAGE),../web)
 
 push-docs: ## Push Documentation Docker image
 	docker push intelijence/th-docs:$(VERSION)

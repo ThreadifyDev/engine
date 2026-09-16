@@ -29,6 +29,9 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 # Copy source code
 COPY . .
 
+# CI supplies static dashboard assets before this source build.
+RUN test -s internal/dashboard/dist/index.html
+
 # Build the application with optimizations
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \

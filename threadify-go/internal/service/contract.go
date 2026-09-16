@@ -86,7 +86,7 @@ func NewContractServiceWithValidator(
 }
 
 func (s *ContractService) CountContractsByCompany(ctx context.Context, companyID string) (int, error) {
-	return s.repo.CountByOwner(ctx, companyID)
+	return s.repo.CountByCompany(ctx, companyID)
 }
 
 func (s *ContractService) enforceCredits(ctx context.Context, companyID string) (int, interface{}) {
@@ -196,8 +196,8 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 	}
 }
 
-func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerID, createdBy, contractYAML string) (int, interface{}) {
-	existingContract, err := s.repo.GetByIDAndOwner(ctx, contractID, ownerID)
+func (s *ContractService) UpdateContract(ctx context.Context, contractID, companyID, createdBy, contractYAML string) (int, interface{}) {
+	existingContract, err := s.repo.GetByIDAndCompany(ctx, contractID, companyID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found or you don't have permission to update it"}
 	}
@@ -289,13 +289,13 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, ownerI
 	}
 }
 
-func (s *ContractService) GetContract(ctx context.Context, contractID, requesterID string, version *int) (int, interface{}) {
+func (s *ContractService) GetContract(ctx context.Context, contractID, companyID string, version *int) (int, interface{}) {
 	contract, err := s.repo.GetByID(ctx, contractID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found"}
 	}
 
-	isOwner := contract.OwnerID == requesterID
+	isOwner := contract.CompanyID != "" && contract.CompanyID == companyID
 	if !contract.IsPublic && !isOwner {
 		return 403, map[string]string{"message": "Access denied. This contract is private."}
 	}
@@ -322,8 +322,8 @@ func (s *ContractService) GetContract(ctx context.Context, contractID, requester
 	}
 }
 
-func (s *ContractService) DeleteContract(ctx context.Context, contractID, ownerID string) (int, interface{}) {
-	contract, err := s.repo.GetByIDAndOwner(ctx, contractID, ownerID)
+func (s *ContractService) DeleteContract(ctx context.Context, contractID, companyID string) (int, interface{}) {
+	contract, err := s.repo.GetByIDAndCompany(ctx, contractID, companyID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found or you don't have permission to delete it"}
 	}
@@ -339,8 +339,8 @@ func (s *ContractService) DeleteContract(ctx context.Context, contractID, ownerI
 	return 200, map[string]string{"message": "Contract deleted successfully"}
 }
 
-func (s *ContractService) GetAllContracts(ctx context.Context, ownerID string, search string, limit, offset int) (int, interface{}) {
-	result, err := s.repo.GetAllByOwner(ctx, ownerID, domain.ContractListOptions{
+func (s *ContractService) GetAllContracts(ctx context.Context, companyID string, search string, limit, offset int) (int, interface{}) {
+	result, err := s.repo.GetAllByCompany(ctx, companyID, domain.ContractListOptions{
 		Search: search,
 		Limit:  limit,
 		Offset: offset,
@@ -355,13 +355,13 @@ func (s *ContractService) GetAllContracts(ctx context.Context, ownerID string, s
 	}
 }
 
-func (s *ContractService) GetAllContractVersions(ctx context.Context, contractID, requesterID string, limit, offset int) (int, interface{}) {
+func (s *ContractService) GetAllContractVersions(ctx context.Context, contractID, companyID string, limit, offset int) (int, interface{}) {
 	contract, err := s.repo.GetByID(ctx, contractID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found"}
 	}
 
-	isOwner := contract.OwnerID == requesterID
+	isOwner := contract.CompanyID != "" && contract.CompanyID == companyID
 	if !contract.IsPublic && !isOwner {
 		return 403, map[string]string{"message": "Access denied. This contract is private."}
 	}
@@ -402,13 +402,13 @@ func (s *ContractService) GetAllContractVersions(ctx context.Context, contractID
 	}
 }
 
-func (s *ContractService) GetContractVersion(ctx context.Context, contractID string, version int, requesterID string) (int, interface{}) {
+func (s *ContractService) GetContractVersion(ctx context.Context, contractID string, version int, companyID string) (int, interface{}) {
 	contract, err := s.repo.GetByID(ctx, contractID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found"}
 	}
 
-	isOwner := contract.OwnerID == requesterID
+	isOwner := contract.CompanyID != "" && contract.CompanyID == companyID
 	if !contract.IsPublic && !isOwner {
 		return 403, map[string]string{"message": "Access denied. This contract is private."}
 	}
@@ -426,8 +426,8 @@ func (s *ContractService) GetContractVersion(ctx context.Context, contractID str
 	return 200, versionDTO
 }
 
-func (s *ContractService) DeleteContractVersion(ctx context.Context, contractID string, version int, ownerID string) (int, interface{}) {
-	if _, err := s.repo.GetByIDAndOwner(ctx, contractID, ownerID); err != nil {
+func (s *ContractService) DeleteContractVersion(ctx context.Context, contractID string, version int, companyID string) (int, interface{}) {
+	if _, err := s.repo.GetByIDAndCompany(ctx, contractID, companyID); err != nil {
 		return 404, map[string]string{"message": "Contract not found or you don't have permission"}
 	}
 

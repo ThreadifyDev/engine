@@ -1,18 +1,11 @@
 import { useState } from 'react';
-import type { MetaFunction } from "@remix-run/node";
-import { useNavigate, useParams } from '@remix-run/react';
+import { useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import YamlEditor from '~/components/YamlEditor';
 import Alert from '~/components/Alert';
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "Contract Details - Threadify" },
-    { name: "description", content: "View and manage contract details" },
-  ];
-};
 
 export default function ContractDetail() {
   const navigate = useNavigate();
@@ -108,7 +101,7 @@ export default function ContractDetail() {
   return (
     <AppLayout>
       <div className="overflow-auto">
-        <div className="p-8">
+        <div className="min-w-0 p-4 sm:p-6 lg:p-8">
           {/* Header */}
           <div className="mb-12">
             <button

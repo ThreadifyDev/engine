@@ -42,6 +42,7 @@ export class ValidationError extends Error {
 
 export interface SignupData {
   company_name?: string;
+  principal_type?: "user" | "service_account";
   email: string;
   password: string;
   full_name: string;
@@ -75,6 +76,7 @@ export interface ResetPasswordData {
 export interface User {
   id: string;
   company_id: string;
+  company_name?: string;
   email: string;
   full_name?: string;
   job_role?: string;
@@ -153,13 +155,9 @@ export interface GetCurrentPlanResponse {
 }
 
 class ApiClient {
-  // Resolve at request time so SSR imports need no browser configuration.
-  // The engine owns contracts; account management remains on the Web API.
+  // Every dashboard request goes to the connected Engine.
   private getUrl(endpoint: string): string {
-    const { apiUrl, engineUrl } = getConfig();
-    const isEngineRoute = /^\/(?:contracts|users|engine)(?:[/?]|$)/.test(endpoint);
-    const base = (isEngineRoute ? engineUrl : apiUrl).replace(/\/+$/, '');
-    return `${base}${isEngineRoute ? '/v1' : '/api'}${endpoint}`;
+    return `${getConfig().engineUrl.replace(/\/+$/, '')}/v1${endpoint}`;
   }
 
   private async request<T = any>(
@@ -480,9 +478,12 @@ class ApiClient {
   }
 
   async updateServiceAccount(id: string, data: { name?: string; description?: string; is_active?: boolean }): Promise<any> {
+    const {service_account: current} = await this.getServiceAccount(id);
+    const updated = {name: current.name, description: current.description || '', is_active: current.is_active, ...data};
+
     return this.request(`/service-accounts/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: JSON.stringify(updated),
     });
   }
 
@@ -580,7 +581,8 @@ class ApiClient {
   }
 
   async getCodeSamples(codeType: string): Promise<{ code_type: string; samples: Record<string, string> }> {
-    return this.request(`/code-samples?codeType=${codeType}`);
+    const result = await this.request<{code_type: string; samples: Record<string,string>}>(`/code-samples?codeType=${encodeURIComponent(codeType)}`);
+    return {...result, samples: Object.fromEntries(Object.entries(result.samples).map(([language, sample]) => [language, sample.replaceAll('YOUR_ENGINE_URL', getConfig().engineUrl)]))};
   }
 
   async getBillingInfo(): Promise<GetCurrentPlanResponse> {
@@ -737,7 +739,7 @@ export interface EntityProfile {
   refKey: string;
   companyId: string;
   profileTypeId: string;
-  profileType?: EntityProfileType;
+  profileType?: { name: string; type: string[]; description?: string; metricsConfig?: Array<{ name?: string; templateId?: string; parameters?: Record<string, unknown> }> };
   name: string;
   createdAt: string;
   lastActiveAt: string;

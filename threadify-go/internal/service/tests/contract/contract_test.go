@@ -154,7 +154,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			yaml: "yaml",
 			want: 404,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(nil, errors.New("nope"))
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(nil, errors.New("nope"))
 			},
 		},
 		{
@@ -162,7 +162,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			yaml: "yaml",
 			want: 400,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(1, nil), nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: false, Errors: []validator.ValidationError{{Message: "bad"}}})
 			},
 		},
@@ -171,7 +171,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			yaml: "yaml",
 			want: 400,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(2, nil), nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(2, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 			},
@@ -181,7 +181,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			yaml: "yaml",
 			want: 402,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(1, nil), nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(service.ErrInsufficientCredit)
 			},
@@ -191,7 +191,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			yaml: "yaml",
 			want: 500,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(1, nil), nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("", "", errors.New("boom"))
@@ -203,7 +203,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			want: 400,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
 				unchanged := calculateContentHash(`{"a":"b"}`)
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(1, &unchanged), nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, &unchanged), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", `{"a":"b"}`, nil)
@@ -214,7 +214,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			yaml: "yaml",
 			want: 500,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(1, nil), nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{bad-json", nil)
@@ -226,7 +226,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			yaml: "yaml",
 			want: 200,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(1, nil), nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2, Description: "d"}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
@@ -243,7 +243,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			yaml: "yaml",
 			want: 500,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(1, nil), nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2, Description: "d"}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
@@ -256,7 +256,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			yaml: "yaml",
 			want: 200,
 			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), contractID, ownerID).Return(baseExisting(1, nil), nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
 				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2, Description: "d"}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
@@ -277,7 +277,7 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			svc := deps.NewContractService()
 			tc.setup(t, deps, tc.yaml)
 
-			status, _ := svc.UpdateContract(context.Background(), contractID, ownerID, createdBy, tc.yaml)
+			status, _ := svc.UpdateContract(context.Background(), contractID, companyID, createdBy, tc.yaml)
 			require.Equal(t, tc.want, status)
 		})
 	}
@@ -306,7 +306,7 @@ func TestContractService_GetContract_AccessControlAndVersionLookup(t *testing.T)
 				reqID = "o1"
 			}
 
-			contract := &domain.Contract{ID: "cid", OwnerID: "o1", IsPublic: tc.public}
+			contract := &domain.Contract{ID: "cid", CompanyID: "o1", OwnerID: "creator", IsPublic: tc.public}
 			deps.ContractRepo.EXPECT().GetByID(gomock.Any(), "cid").Return(contract, nil)
 
 			if tc.want == 200 {
@@ -334,21 +334,21 @@ func TestContractService_DeleteContract_Table(t *testing.T) {
 			name: "not found",
 			want: 404,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(nil, errors.New("nope"))
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), "cid", "o1").Return(nil, errors.New("nope"))
 			},
 		},
 		{
 			name: "already deleted",
 			want: 400,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{IsDeleted: true}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), "cid", "o1").Return(&domain.Contract{IsDeleted: true}, nil)
 			},
 		},
 		{
 			name: "soft delete error",
 			want: 500,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
 				deps.ContractRepo.EXPECT().SoftDelete(gomock.Any(), "cid").Return(errors.New("db"))
 			},
 		},
@@ -356,7 +356,7 @@ func TestContractService_DeleteContract_Table(t *testing.T) {
 			name: "success",
 			want: 200,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
 				deps.ContractRepo.EXPECT().SoftDelete(gomock.Any(), "cid").Return(nil)
 			},
 		},
@@ -378,7 +378,7 @@ func TestContractService_GetContractVersion_GraphParseFallback(t *testing.T) {
 	deps := common.NewMockDeps(t)
 	defer deps.Ctrl.Finish()
 
-	contract := &domain.Contract{ID: "cid", OwnerID: "o1", IsPublic: true, Name: "c"}
+	contract := &domain.Contract{ID: "cid", CompanyID: "o1", OwnerID: "creator", IsPublic: true, Name: "c"}
 	deps.ContractRepo.EXPECT().GetByID(gomock.Any(), "cid").Return(contract, nil)
 
 	// invalid json in graph field -> mapper passes it through as raw message
@@ -397,7 +397,7 @@ func TestContractService_GetContractVersion_ParsesGraphAndShapesResponse(t *test
 	deps := common.NewMockDeps(t)
 	defer deps.Ctrl.Finish()
 
-	contract := &domain.Contract{ID: "cid", OwnerID: "o1", IsPublic: true, Name: "c"}
+	contract := &domain.Contract{ID: "cid", CompanyID: "o1", OwnerID: "creator", IsPublic: true, Name: "c"}
 	deps.ContractRepo.EXPECT().GetByID(gomock.Any(), "cid").Return(contract, nil)
 
 	graph := &domain.ContractGraph{Graph: domain.Graph{Nodes: map[string]domain.GraphNode{"s1": {ID: "s1"}}}}
@@ -426,14 +426,14 @@ func TestContractService_DeleteContractVersion_Table(t *testing.T) {
 			name: "not owner",
 			want: 404,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(nil, shderrors.ErrContractNotFound)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), "cid", "o1").Return(nil, shderrors.ErrContractNotFound)
 			},
 		},
 		{
 			name: "version not found",
 			want: 404,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
 				deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(nil, shderrors.ErrContractNotFound)
 			},
 		},
@@ -441,7 +441,7 @@ func TestContractService_DeleteContractVersion_Table(t *testing.T) {
 			name: "already deleted",
 			want: 400,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
 				deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&domain.ContractVersion{IsDeleted: true}, nil)
 			},
 		},
@@ -449,7 +449,7 @@ func TestContractService_DeleteContractVersion_Table(t *testing.T) {
 			name: "soft delete fails",
 			want: 500,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
 				deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&domain.ContractVersion{}, nil)
 				deps.ContractRepo.EXPECT().SoftDeleteVersion(gomock.Any(), "cid", 1).Return(errors.New("db"))
 			},
@@ -458,7 +458,7 @@ func TestContractService_DeleteContractVersion_Table(t *testing.T) {
 			name: "success",
 			want: 200,
 			setup: func(deps *common.MockedDependencies) {
-				deps.ContractRepo.EXPECT().GetByIDAndOwner(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
+				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), "cid", "o1").Return(&domain.Contract{}, nil)
 				deps.ContractRepo.EXPECT().GetVersion(gomock.Any(), "cid", 1).Return(&domain.ContractVersion{ID: "v1", Version: 1, ContractID: "cid"}, nil)
 				deps.ContractRepo.EXPECT().SoftDeleteVersion(gomock.Any(), "cid", 1).Return(nil)
 			},
@@ -473,6 +473,27 @@ func TestContractService_DeleteContractVersion_Table(t *testing.T) {
 			svc := deps.NewContractService()
 			status, _ := svc.DeleteContractVersion(context.Background(), "cid", 1, "o1")
 			require.Equal(t, tc.want, status)
+		})
+	}
+}
+
+func TestPrivateContractRejectsOtherCompany(t *testing.T) {
+	for _, operation := range []string{"contract", "versions", "version"} {
+		t.Run(operation, func(t *testing.T) {
+			deps := common.NewMockDeps(t)
+			defer deps.Ctrl.Finish()
+			deps.ContractRepo.EXPECT().GetByID(gomock.Any(), "cid").Return(&domain.Contract{ID: "cid", CompanyID: "company-a", OwnerID: "creator"}, nil)
+			svc := deps.NewContractService()
+			var status int
+			switch operation {
+			case "contract":
+				status, _ = svc.GetContract(context.Background(), "cid", "company-b", nil)
+			case "versions":
+				status, _ = svc.GetAllContractVersions(context.Background(), "cid", "company-b", 20, 0)
+			case "version":
+				status, _ = svc.GetContractVersion(context.Background(), "cid", 1, "company-b")
+			}
+			require.Equal(t, 403, status)
 		})
 	}
 }

@@ -1,15 +1,8 @@
 import { TabBar } from '~/components/TabBar';
-import { useParams, useNavigate } from '@remix-run/react';
-import type { MetaFunction } from "@remix-run/node";
+import { useParams, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { graphqlClient, type Thread, type StepStateInfo, type ValidationResultInfo, type StepHistory, type ThreadNotification, type NotificationSummary } from '~/lib/graphql';
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "Thread Details - Threadify" },
-    { name: "description", content: "View thread execution details" },
-  ];
-};
 import { formatDistanceToNow } from 'date-fns';
 import {
   CheckCircle2,
@@ -53,7 +46,7 @@ import { StepValidationResultsView } from '~/components/thread/StepValidationRes
 import { NotificationDetailView } from '~/components/thread/NotificationDetailView';
 
 type TabType = 'timeline' | 'graph' | 'gantt';
-type SidebarView = 'step' | 'participants' | 'validations' | 'stepValidations' | 'step-violations' | null;
+type SidebarView = 'step' | 'participants' | 'validations' | 'step-validations' | 'step-violations' | null;
 
 // Helper function to calculate execution time from startedAt and finishedAt
 function calculateExecutionTime(startedAt?: string, finishedAt?: string): string | null {

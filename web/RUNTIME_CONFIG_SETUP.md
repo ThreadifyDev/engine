@@ -1,105 +1,19 @@
-# Runtime Configuration Setup
+# Dashboard runtime configuration
 
-To enable runtime configuration (change API URL without rebuilding), follow these steps:
+The embedded dashboard uses `window.location.origin` for Engine requests.
+A binary built in CI works at different deployment addresses without rebuilding
+its JavaScript. There is no server-side JavaScript configuration injection.
 
-## 1. Update `app/root.tsx`
+Serve the Engine at the root of its hostname. Set `registry.browser_origin` to
+the public HTTPS origin when a reverse proxy terminates TLS, and set
+`server.public_url` to the advertised client address. See
+[Engine connection](ENGINE_CONNECTION.md).
 
-Add this to your root loader to inject environment variables:
+For local UI development, set `THREADIFY_DEV_ENGINE_URL` when starting Vite.
+The development proxy forwards authentication, REST, GraphQL and WebSocket
+requests while keeping browser cookies on the UI origin.
 
-```typescript
-import { getConfig } from './config.server';
-
-export const loader = async () => {
-  const config = getConfig();
-  
-  return json({
-    ENV: {
-      API_URL: config.apiUrl,
-    },
-  });
-};
-
-export default function App() {
-  const data = useLoaderData<typeof loader>();
-  
-  return (
-    <html lang="en">
-      <head>
-        {/* ... existing head content ... */}
-      </head>
-      <body>
-        {/* Inject ENV into window */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `window.__ENV__ = ${JSON.stringify(data.ENV)}`,
-          }}
-        />
-        <Outlet />
-        {/* ... existing body content ... */}
-      </body>
-    </html>
-  );
-}
-```
-
-## 2. Update `app/lib/api.ts`
-
-Replace the hardcoded API URL:
-
-```typescript
-// OLD:
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-
-// NEW:
-import { getConfig } from '../config.client';
-
-const getApiBaseUrl = () => {
-  if (typeof window !== 'undefined') {
-    return getConfig().apiUrl + '/api';
-  }
-  return 'http://localhost:3001/api'; // SSR fallback
-};
-
-const API_BASE_URL = getApiBaseUrl();
-```
-
-## 3. Update `app/lib/graphql.ts`
-
-Replace the hardcoded API URL (around line 185-187):
-
-```typescript
-// OLD:
-const apiUrl = typeof window !== 'undefined' 
-  ? (import.meta.env.VITE_API_URL || 'http://localhost:3001')
-  : 'http://localhost:3001';
-
-// NEW:
-import { getConfig } from '../config.client';
-
-const apiUrl = typeof window !== 'undefined' 
-  ? getConfig().apiUrl
-  : 'http://localhost:3001';
-```
-
-## 4. Build and Deploy
-
-Now you can:
-
-```bash
-# Build ONCE
-docker build -f threadify-go/Dockerfile.web_ui -t intelijence/th_web_ui:latest .
-
-# Deploy to different environments with different API URLs
-# Development:
-docker run -e API_URL=http://localhost:3001 -p 3000:3000 intelijence/th_web_ui:latest
-
-# Production:
-docker run -e API_URL=https://web.threadify.dev -p 3000:3000 intelijence/th_web_ui:latest
-```
-
-Or in docker-compose, just change the `.env` file:
-```bash
-API_URL=https://web.threadify.dev
-```
-
-No rebuild needed! 🎉
+A custom separately served shell can explicitly set `window.__ENV__.ENGINE_URL`
+before loading the app. This is an optional integration override,
+not required by the embedded app. Cross-host cookie authentication still requires
+a same-origin proxy; see [browser authentication](../threadify-go/docs/BROWSER_AUTH.md).

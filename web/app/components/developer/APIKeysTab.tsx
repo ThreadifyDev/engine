@@ -3,7 +3,7 @@ import { Key, Check } from 'lucide-react';
 import { api } from '~/lib/api';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
 import Alert, { isCreditError } from '~/components/Alert';
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 
 export function APIKeysTab() {
   const navigate = useNavigate();
@@ -81,8 +81,8 @@ export function APIKeysTab() {
       setExpiresIn('never');
       setCreateServiceAccount(true);
       setSelectedServiceAccountId('');
-      setServiceAccountRole('developer');
-      await fetchAPIKeys();
+      setServiceAccountRole('standard_service');
+      await Promise.all([fetchAPIKeys(), fetchServiceAccounts()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create API key');
     } finally {
@@ -171,7 +171,7 @@ export function APIKeysTab() {
           </button>
         </div>
       ) : (
-        <div className="border border-gray-200 rounded overflow-hidden">
+        <div className="max-w-full border border-gray-200 rounded overflow-x-auto">
           <table className="w-full">
             <thead className="border-b border-gray-200 bg-gray-50">
               <tr>

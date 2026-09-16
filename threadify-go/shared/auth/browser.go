@@ -112,6 +112,16 @@ func VerifyBrowserSession(ctx context.Context, token string) (*TokenClaims, erro
 	}
 	return s.Authenticate(ctx, token)
 }
+
+// VerifyLocalAPIKey checks current membership and revocation for Engine SDK requests.
+func VerifyLocalAPIKey(ctx context.Context, key string) (*TokenClaims, error) {
+	s := currentBrowser.Load()
+	if s == nil {
+		return nil, ErrBrowserAuth
+	}
+	return s.AuthenticateAPIKey(ctx, key)
+}
+
 func randomBrowserToken() string {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {

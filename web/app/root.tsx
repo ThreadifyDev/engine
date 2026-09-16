@@ -1,63 +1,43 @@
-import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  useLoaderData,
-} from "@remix-run/react";
-import type { LinksFunction } from "@remix-run/node";
-import { json } from "@remix-run/node";
-import stylesheet from "~/styles/tailwind.css?url";
-import { QueryProvider } from "~/lib/query-client";
-import { getConfig } from "./config.server";
+import { Component, Suspense, useEffect, type ReactNode } from 'react';
+import { Link, Navigate, Route, Routes, useParams } from 'react-router';
+import { QueryProvider } from '~/lib/query-client';
+import { pages, redirects, type Page } from './routes';
 
-export const links: LinksFunction = () => [
-  { rel: "stylesheet", href: stylesheet },
-  { rel: "icon", type: "image/svg+xml", href: "/favicon-black.svg" },
-];
+function PageView({ page }: { page: Page }) {
+  const params = useParams();
+  const title = typeof page.title === 'function' ? page.title(params) : page.title;
+  useEffect(() => { document.title = `${title} - Threadify`; }, [title]);
+  const Content = page.component;
+  return <Content />;
+}
 
-export const loader = async () => {
-  const config = getConfig();
-  
-  return json({
-    ENV: {
-      API_URL: config.apiUrl,
-      ENGINE_URL: config.engineUrl,
-    },
-  });
-};
+function PricingRedirect() {
+  useEffect(() => { window.location.replace('https://threadify.dev/pricing'); }, []);
+  return <a href="https://threadify.dev/pricing">View Threadify pricing</a>;
+}
 
-export function Layout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <head>
-        <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <Meta />
-        <Links />
-      </head>
-      <body className="bg-background text-foreground font-sans antialiased">
-        {children}
-        <ScrollRestoration />
-        <Scripts />
-      </body>
-    </html>
-  );
+class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (this.state.failed) return <div role="alert" className="p-8 text-sm">Unable to load this page. <a href={window.location.href} className="underline">Reload</a></div>;
+    return this.props.children;
+  }
 }
 
 export default function App() {
-  const data = useLoaderData<typeof loader>();
-  
   return (
-    <QueryProvider>
-      {/* Inject ENV into window for client-side access */}
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `window.__ENV__ = ${JSON.stringify(data.ENV)}`,
-        }}
-      />
-      <Outlet />
-    </QueryProvider>
+    <AppErrorBoundary>
+      <QueryProvider>
+        <Suspense fallback={<div role="status" className="p-8 text-sm text-gray-500">Loading Threadify…</div>}>
+          <Routes>
+            {pages.map(page => <Route key={page.path} path={page.path} element={<PageView page={page} />} />)}
+            {Object.entries(redirects).map(([path, to]) => <Route key={path} path={path} element={<Navigate to={to} replace />} />)}
+            <Route path="/pricing" element={<PricingRedirect />} />
+            <Route path="*" element={<div className="p-8 text-sm">Page not found. <Link to="/u/dashboard" className="underline">Open dashboard</Link></div>} />
+          </Routes>
+        </Suspense>
+      </QueryProvider>
+    </AppErrorBoundary>
   );
 }

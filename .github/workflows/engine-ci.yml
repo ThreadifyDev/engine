@@ -11,6 +11,8 @@ on:
       - '.github/actions/setup-engine-go/**'
       - '.github/scripts/*engine*'
       - 'install.sh'
+      - 'web/**'
+      - '.nvmrc'
   # Main/tag pushes are validated by Engine release through this same workflow.
   workflow_call:
 
@@ -23,6 +25,36 @@ env:
   GOFLAGS: '-p=2 -trimpath'
 
 jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - name: Test browser routing
+        run: |
+          npm run typecheck
+          npm run test:routes
+          npm run test:engine-routing
+        working-directory: web
+      - name: Build and test static dashboard
+        run: npm run test:auth
+        working-directory: web
+      - name: Stage embedded assets
+        run: |
+          cp -R web/build/client/. threadify-go/internal/dashboard/dist/
+          python3 threadify-go/scripts/check-dashboard.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: engine-dashboard
+          path: threadify-go/internal/dashboard/dist
+          if-no-files-found: error
   valkey:
     strategy:
       matrix:
@@ -45,7 +77,7 @@ jobs:
           path: threadify-go/bundle
           if-no-files-found: error
   validate:
-    needs: valkey
+    needs: [valkey, dashboard]
     runs-on: ubuntu-latest
     timeout-minutes: 35
     services:
@@ -71,6 +103,10 @@ jobs:
           pattern: valkey-*
           path: threadify-go/bundle
           merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: engine-dashboard
+          path: threadify-go/internal/dashboard/dist
       - run: chmod 755 bundle/*/valkey-server
       - uses: ./.github/actions/setup-engine-go
       - name: Test engine release versioning

@@ -4,7 +4,8 @@
 persistence workers in one process. Linux/macOS releases also start a bundled
 Valkey child process. PostgreSQL remains external. Windows connects to an external
 Valkey server. See [managed and shared Valkey](docs/MANAGED_VALKEY.md).
-The dashboard and Web API remain separate applications. Fused Registry provisions
+The dashboard is embedded in release binaries and served on the Engine port.
+Fused Registry provisions
 the licensed account and supplies Threadify bandwidth, rate, and entity-profile
 limits. Thread creation, event size, and token counts do not consume credits.
 
@@ -55,7 +56,7 @@ Embedded NATS data defaults to `data/jetstream` beside the executable. Set an
 absolute `nats.store_dir` in YAML if you want a separate persistent data location.
 The Linux/macOS installer also installs `libexec/valkey-server` beside the Engine.
 Managed Valkey data defaults to `data/valkey`; an absolute `redis.store_dir` can
-select a persistent volume. PostgreSQL, the Web API and dashboard are separate.
+select a persistent volume. Open `http://localhost:8081` to use the bundled dashboard.
 
 ## Manage an Engine from the CLI
 
@@ -71,7 +72,7 @@ threadify-cli profile-types create --file customers.yaml
 Use `threadify-cli help` or the [CLI guide](docs/CLI.md) for API-key setup, explicit
 profiles, thread references, integrity verification and logout. Client commands
 connect to your Engine without starting the server. Browser login requires the
-updated external UI and its configured `registry.browser_origin`.
+bundled dashboard and the correct `registry.browser_origin`.
 
 ## Public Engine URL
 
@@ -95,9 +96,9 @@ WebSocket and GraphQL routes. OTLP/HTTP and MCP addresses appear in collapsed
 setup sections. Reverse-proxy path prefixes are supported;
 the proxy must strip the prefix before forwarding requests to the Engine.
 The public URL is an advertised client address. It does not configure DNS, TLS,
-the listener, browser authentication origins or the external UI's connection.
-Configure the UI's `ENGINE_URL` separately and use `registry.browser_origin` for
-the public UI origin. See [browser deployment](docs/BROWSER_AUTH.md).
+the listener or browser authentication origins. The embedded dashboard uses its
+serving origin; set `registry.browser_origin` to the public HTTPS origin behind a
+TLS-terminating proxy. The dashboard requires hosting at the root of its hostname. See [browser deployment](docs/BROWSER_AUTH.md).
 
 `GET /v1/engine/settings` returns the effective address, its config default,
 source (`config`, `ui`, or `unset`) and client endpoints. Administrators use
@@ -107,6 +108,13 @@ to save, or `DELETE /v1/engine/settings` to restore the config default.
 ## Engine CI and releases
 
 The engine uses `.github/workflows/engine-ci.yml` and `engine-release.yml`.
+CI builds the Vite/React dashboard once on Node 24 and shares the static artifact
+between validation and publication. Go embeds those files in all three binaries;
+the Docker wrapper inherits the same UI. Generated assets are not committed.
+GoReleaser rejects a release without a complete dashboard. Dashboard changes
+participate in Engine release versioning; the public homepage stays independent.
+For local source/Docker builds, prepare assets using [the dashboard instructions](../web/README.md).
+
 Engine pull requests run the shared and engine unit suites, release-version
 script and installer tests, GoReleaser validation, and compiled-binary E2E tests against
 throwaway PostgreSQL and Valkey containers. The E2E suite includes entity
@@ -218,8 +226,7 @@ Edit the deployed configuration before starting:
   local credit prices no longer control admission. Registry limits remain in memory.
 - Review HTTP host and port. The standard configuration has no CORS or local
   rate-limit fields; the incoming request allowance comes from Registry.
-  UI bundling remains a separate change. Until then, serve the browser UI and
-  its API routes through a same-origin reverse proxy.
+  The Engine serves its bundled dashboard and API routes on the same listener.
 
 YAML strings of the form `$NAME:default` use the named environment variable or
 the supplied default; `$NAME` requires you to supply that value. Environment
@@ -363,8 +370,9 @@ docker exec threadify /app/threadify --healthcheck
 ```
 
 The healthcheck command exits nonzero when the service is unavailable. Container
-healthchecks use `CONFIG_PATH=/app/config/config.yaml`. The UI and Web API are
-still deployed and upgraded separately.
+healthchecks use `CONFIG_PATH=/app/config/config.yaml`. Upgrading the binary also
+upgrades the dashboard. The dashboard calls Engine management routes directly;
+no separate Web API is required.
 
 ## Verification
 

@@ -1,9 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import type { MetaFunction } from '@remix-run/node';
 import { api, type EngineUser } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 
-export const meta: MetaFunction = () => [{ title: 'Team - Threadify' }];
 const roles = ['admin', 'member', 'viewer'];
 const errorMessages: Record<string, string> = {
   last_active_admin_required: 'Keep at least one active administrator.',

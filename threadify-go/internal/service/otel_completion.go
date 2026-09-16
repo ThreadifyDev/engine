@@ -13,10 +13,10 @@ import (
 // trace completion and late-span ingestion. Explicit workflow targets retain
 // their existing lifecycle and terminal-write protections.
 func isOwnedOTelThread(thread *domain.Thread, companyID, traceID string) bool {
-	return traceID != "" && thread.CompanyID == companyID && thread.ContractName == "" &&
-		(thread.ContractID == nil || *thread.ContractID == "") &&
-		thread.Refs["otel_trace_id"] == traceID &&
-		thread.ID == uuid.NewSHA1(uuid.NameSpaceOID, []byte(companyID+":"+traceID)).String()
+	if traceID == "" || thread.CompanyID != companyID || thread.ContractName != "" || (thread.ContractID != nil && *thread.ContractID != "") { return false }
+	// Shared work remains open until the exporter explicitly marks the run complete.
+	if ref := thread.Refs["threadify.external_ref"]; ref != "" { return thread.ID == correlatedThreadID(companyID, externalCorrelationID(ref)) }
+	return thread.Refs["otel_trace_id"] == traceID && thread.ID == uuid.NewSHA1(uuid.NameSpaceOID, []byte(companyID+":"+traceID)).String()
 }
 
 // CompleteTraceForIngestion records execution completion, not business success.

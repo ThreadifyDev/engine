@@ -53,7 +53,7 @@ func (s *BrowserService) Wrap(next http.Handler) http.Handler {
 				return
 			}
 			// Service principals can inspect their own session without impersonating a human profile.
-			if claims.PrincipalType == "service_account" && r.URL.Path == "/api/user/profile" && r.Method == http.MethodGet {
+			if claims.PrincipalType == "service_account" && (r.URL.Path == "/api/user/profile" || r.URL.Path == "/v1/user/profile") && r.Method == http.MethodGet {
 				browserJSON(w, 200, map[string]any{"user": s.profile(r, claims)})
 				return
 			}

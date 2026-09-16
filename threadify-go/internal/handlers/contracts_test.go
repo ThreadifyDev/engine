@@ -28,7 +28,7 @@ func TestContractHandler_GetAllContracts(t *testing.T) {
 			authIDs: AuthIDs{UserID: testUserID, CompanyID: testCompanyID},
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
-					GetAllContracts(gomock.Any(), testUserID, gomock.Any(), gomock.Any(), gomock.Any()).
+					GetAllContracts(gomock.Any(), testCompanyID, gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(http.StatusOK, map[string]interface{}{"contracts": []interface{}{}})
 			},
 			wantStatus: http.StatusOK,
@@ -44,7 +44,7 @@ func TestContractHandler_GetAllContracts(t *testing.T) {
 			authIDs: AuthIDs{UserID: testUserID, CompanyID: testCompanyID},
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
-					GetAllContracts(gomock.Any(), testUserID, gomock.Any(), gomock.Any(), gomock.Any()).
+					GetAllContracts(gomock.Any(), testCompanyID, gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(http.StatusInternalServerError, map[string]string{"error": "internal error"})
 			},
 			wantStatus: http.StatusInternalServerError,
@@ -136,7 +136,7 @@ func TestContractHandler_GetContract(t *testing.T) {
 			authIDs:    AuthIDs{UserID: testUserID, CompanyID: testCompanyID},
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
-					GetContract(gomock.Any(), testContractID, testUserID, nil).
+					GetContract(gomock.Any(), testContractID, testCompanyID, nil).
 					Return(http.StatusOK, map[string]string{"id": testContractID})
 			},
 			wantStatus: http.StatusOK,
@@ -147,7 +147,7 @@ func TestContractHandler_GetContract(t *testing.T) {
 			authIDs:    AuthIDs{UserID: testUserID, CompanyID: testCompanyID},
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
-					GetContract(gomock.Any(), "missing_123", testUserID, nil).
+					GetContract(gomock.Any(), "missing_123", testCompanyID, nil).
 					Return(http.StatusNotFound, map[string]string{"error": "not found"})
 			},
 			wantStatus: http.StatusNotFound,
@@ -158,7 +158,7 @@ func TestContractHandler_GetContract(t *testing.T) {
 			authIDs:    AuthIDs{UserID: testUserID, CompanyID: testCompanyID},
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
-					GetContract(gomock.Any(), testContractID, testUserID, nil).
+					GetContract(gomock.Any(), testContractID, testCompanyID, nil).
 					Return(http.StatusInternalServerError, map[string]string{"error": "internal error"})
 			},
 			wantStatus: http.StatusInternalServerError,

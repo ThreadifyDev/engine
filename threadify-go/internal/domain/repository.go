@@ -18,16 +18,16 @@ type ContractRepository interface {
 
 	// GetByID is the canonical single-contract lookup by primary key.
 	GetByID(ctx context.Context, contractID string) (*Contract, error)
-	GetByIDAndOwner(ctx context.Context, contractID, ownerID string) (*Contract, error)
+	GetByIDAndCompany(ctx context.Context, contractID, companyID string) (*Contract, error)
 
 	GetByName(ctx context.Context, name string) (*Contract, error)
 	// GetByNameSummary returns a contract with only basic fields populated (ID, Name, OwnerID).
 	GetByNameSummary(ctx context.Context, name string) (*Contract, error)
 	GetByNameAndCompany(ctx context.Context, name, companyID string) (*Contract, error)
 
-	GetAllByOwner(ctx context.Context, ownerID string, opts ContractListOptions) (ContractListResult, error)
+	GetAllByCompany(ctx context.Context, companyID string, opts ContractListOptions) (ContractListResult, error)
 
-	CountByOwner(ctx context.Context, ownerID string) (int, error)
+	CountByCompany(ctx context.Context, companyID string) (int, error)
 
 	SoftDelete(ctx context.Context, contractID string) error
 

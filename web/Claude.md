@@ -12,7 +12,7 @@ Then when you create a thread, you can assign a contract to it. Then as you inst
 
 *PROJECT DETAILS:*
 The application must follow a black and white theme with Block font
-We are using Remix with golang for backend (using gin).
+The dashboard uses Vite and React Router, with a Go/Gin backend. CI embeds the static UI in the Engine binary.
 Postges for DB = URL ("postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable")
 
 
@@ -220,9 +220,9 @@ Follow these rules when implementing this application:
    - Return consistent error response format: `{"error": {"code": "ERROR_CODE", "message": "Human readable message"}}`
    - Paginate list endpoints (default 20 items per page)
 
-4. *Frontend (Remix)*
-   - Use Remix loaders for data fetching (SSR)
-   - Use Remix actions for form submissions
+4. *Frontend (Vite/React)*
+   - Use browser API clients and React Query for data fetching
+   - Use Engine API calls with cookie and CSRF protection for form submissions
    - Implement proper loading and error states
    - Follow the black and white theme with Block font consistently
    - Use proper form validation with clear error messages

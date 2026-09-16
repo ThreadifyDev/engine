@@ -1,16 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { MetaFunction } from "@remix-run/node";
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { api, type User } from '~/lib/api';
 import { CheckCircle, XCircle } from 'lucide-react';
 import AppLayout from '~/components/AppLayout';
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: "Dashboard - Threadify" },
-    { name: "description", content: "Your Threadify dashboard" },
-  ];
-};
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -50,7 +43,7 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
-      <div className="p-8">
+      <div className="min-w-0 p-4 sm:p-6 lg:p-8">
         {/* Welcome Section */}
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-black mb-2">

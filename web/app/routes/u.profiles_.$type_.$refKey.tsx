@@ -1,7 +1,6 @@
 import { TabBar } from '~/components/TabBar';
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useParams, useNavigate, useSearchParams } from '@remix-run/react';
-import type { MetaFunction } from "@remix-run/node";
+import { useParams, useNavigate, useSearchParams } from 'react-router';
 import { api, type EntityProfile } from '~/lib/api';
 import { graphqlClient, type Thread } from '~/lib/graphql';
 import AppLayout from '~/components/AppLayout';
@@ -32,12 +31,6 @@ function getIdentifierBadgeStyle(identifier: string) {
   return IDENTIFIER_BADGE_STYLES[colorIndex];
 }
 
-export const meta: MetaFunction = ({ params }) => {
-  return [
-    { title: `Profile ${params.refKey} - Threadify` },
-    { name: "description", content: "View entity profile metrics" },
-  ];
-};
 
 export default function EntityProfileDetail() {
   const params = useParams();

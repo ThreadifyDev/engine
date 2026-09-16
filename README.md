@@ -6,7 +6,7 @@ Threadify turns activity across your services, partners, and agents into a share
 execution history. Follow an order from payment to delivery, validate each step
 against a contract, and see where a customer's experience breaks down.
 
-[Website](https://threadify.dev) · [Documentation](https://docs.threadify.dev) · [Get a license](https://usefused.com/signup)
+[Website](https://threadify.dev) · [Documentation](https://docs.threadify.dev) · [Get a license](https://threadify.dev/signup)
 
 ## What you can do
 
@@ -26,8 +26,8 @@ connects to an external Valkey server.
 
 ### 1. Get your license
 
-[Register with Fused Registry](https://usefused.com/signup), select **Threadify** and
-**License key only**, and save your key. One account can enable Threadify, Fused, or both.
+[Create your Threadify account](https://threadify.dev/signup), verify your email,
+and save your Threadify license key.
 
 ### 2. Install
 
@@ -80,7 +80,7 @@ main configuration file; `$ENV_VAR` references are also supported for secrets.
 threadify --config "${XDG_CONFIG_HOME:-$HOME/.config}/threadify/config.yaml"
 ```
 
-The Engine is ready at `http://localhost:8081`. Point your SDK's Engine URL here,
+Open `http://localhost:8081` for the built-in dashboard. Point your SDK's Engine URL here,
 or send OTLP/HTTP traces to `/v1/traces` with a Threadify API key.
 
 ## Build your first workflow
@@ -94,10 +94,15 @@ or send OTLP/HTTP traces to `/v1/traces` with a Threadify API key.
 | Connect the dashboard | [Browser setup](threadify-go/docs/BROWSER_AUTH.md) |
 | Deploy with Docker or configure storage | [Self-hosting guide](threadify-go/SELF_HOSTING.md) |
 
-The dashboard and CLI are installed separately. The Docker image is
+The dashboard ships inside the Engine binary. The CLI is installed separately.
+The Docker image is
 `ghcr.io/creativejoe007/threadify-engine:latest`.
 
 [Engine development and tests](threadify-go/README.md)
+
+The [public website](homepage/README.md) builds and deploys from `homepage/`.
+The [dashboard](web/README.md) lives in `web/`, separately from marketing and
+Registry signup. CI builds its static assets and embeds them in the Engine.
 
 The SDKs and CLI are maintained in their linked repositories. Local checkouts in
 `threadify-sdk`, `threadify-sdk-go`, `threadify-sdk-python`, and `threadify-cli` are

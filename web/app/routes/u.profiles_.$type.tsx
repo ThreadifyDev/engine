@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, Link } from '@remix-run/react';
-import type { MetaFunction } from '@remix-run/node';
+import { useNavigate, useParams, Link } from 'react-router';
 import AppLayout from '~/components/AppLayout';
 import { api } from '~/lib/api';
 import type { EntityProfileType, MetricsTemplateResponse } from '~/lib/api';
@@ -9,10 +8,6 @@ import { ChevronLeft, ChevronRight, UserCircle, Search, X, Activity, Loader2, Se
 import { formatDistanceToNow } from 'date-fns';
 import { ProfileTypeModal } from '~/components/profiles/ProfileTypeModal';
 
-export const meta: MetaFunction = ({ params }) => [
-  { title: `${params.type ?? 'Profiles'} · Entity Profiles — Threadify` },
-  { name: 'description', content: 'Entity profiles under this profile type' },
-];
 
 const PAGE_SIZE = 20;
 

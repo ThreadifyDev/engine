@@ -2,6 +2,16 @@
 
 `make test-e2e` in `threadify-go` builds the engine and runs the tests with
 disposable PostgreSQL/Valkey and embedded NATS. The Registry fixture is local.
+Prepare the static dashboard first using [the dashboard build instructions](../../../web/README.md),
+or set `THREADIFY_E2E_BINARY` to a release binary. CI supplies the dashboard artifact.
+
+`TestEmbeddedDashboard` checks static assets, deep-link refreshes, API route
+isolation, same-origin cookie sign-in, authenticated GraphQL and CSRF rejection.
+It also exercises profile-type configuration, profile/company updates, API keys,
+service accounts, immediate key revocation, and management permission checks. Workflow tests verify that company users can
+open contracts created by a different service identity.
+Frontend route matching and session clients are also tested in `web/tests`.
+
 
 Disposable top-level scenarios run concurrently, with separate services and data.
 CI uses `-parallel=3`; pass `-parallel=1` to limit local resource use. Existing

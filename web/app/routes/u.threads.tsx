@@ -1,22 +1,12 @@
-import { useNavigate, useSearchParams } from '@remix-run/react';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useState, useEffect } from 'react';
 import { Search, Filter, ChevronDown, ChevronUp, X, Calendar, Hash, FileText, ChevronLeft, ChevronRight, PlusCircle } from 'lucide-react';
 import AppLayout from '~/components/AppLayout';
 import { graphqlClient, type Thread } from '~/lib/graphql';
 import { api } from '~/lib/api';
 import { formatDistanceToNow } from 'date-fns';
-import type { MetaFunction } from '@remix-run/node';
 
-export const meta: MetaFunction = () => {
-  return [
-    { title: 'Threads - Threadify' },
-    { name: 'description', content: 'Search and browse workflow execution threads' },
-  ];
-};
 
-export async function loader() {
-  return null;
-}
 
 interface RefFilter {
   key: string;
