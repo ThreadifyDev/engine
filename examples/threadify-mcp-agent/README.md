@@ -12,7 +12,7 @@ supports it and uses a newer project format. Upgrade the CLI and its matching
 runtime together; check `harnest add mcp --help` before creating a connection.
 
 ```sh
-export THREADIFY_MCP_URL=http://127.0.0.1:8081/sse
+export THREADIFY_MCP_URL=http://127.0.0.1:8086/sse
 export THREADIFY_API_KEY='<service-account-api-key-with-read-permissions>'
 export OPENAI_BASE_URL=http://127.0.0.1:11434/v1
 export OPENAI_MODEL='<your-installed-model>'
@@ -24,8 +24,8 @@ harnest compile examples/threadify-mcp-agent --output ./threadify-mcp-agent-buil
 harnest serve examples/threadify-mcp-agent --host 127.0.0.1 --port 8122
 ```
 
-Harnest serves its own chat playground. For the dedicated local test engine,
-use `http://127.0.0.1:8083/sse`. Despite the `/sse` name, this endpoint uses
+Harnest serves its own chat playground. The connection defaults to the installed
+local Engine at `http://127.0.0.1:8086/sse`. Despite the `/sse` name, this endpoint uses
 **Streamable HTTP**. It accepts `X-API-Key`, not the browser's local bearer JWT.
 The key stays in the agent process environment, never in prompts or chat.
 
@@ -49,7 +49,7 @@ The example was scaffolded with these real CLI commands:
 harnest init my-threadify-agent --minimal
 harnest add mcp threadify \
   --project my-threadify-agent \
-  --url http://127.0.0.1:8081/sse \
+  --url http://127.0.0.1:8086/sse \
   --transport streamable-http \
   --token-env THREADIFY_API_KEY \
   --token-header X-API-Key \
