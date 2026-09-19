@@ -19,6 +19,7 @@ import (
 func TestGherkinPreviewPersistenceAndRuntimeChecks(t *testing.T) {
 	source, err := os.ReadFile("../../../../examples/payment.feature")
 	require.NoError(t, err)
+	source = append(source, []byte("  And content \"reference\" must match regex \"^r[0-9]+$\"\n")...)
 	svc := service.NewContractService(nil, nil, zap.NewNop())
 	compiled, preview, result, err := svc.PreviewContract(string(source))
 	require.NoError(t, err)
@@ -40,6 +41,7 @@ func TestGherkinPreviewPersistenceAndRuntimeChecks(t *testing.T) {
 	node := loaded.Graph.Nodes["charge"]
 	require.NoError(t, validation.ValidateStepContext(context.Background(), node, map[string]string{"amount": "12.50", "currency": "GBP", "reference": "r1"}))
 	for _, content := range []map[string]string{
+		{"amount": "12.50", "currency": "GBP", "reference": "invalid-reference"},
 		{"amount": "0", "currency": "GBP", "reference": "r1"},
 		{"amount": "12.50", "currency": "XXX", "reference": "r1"},
 		{"amount": "NaN", "currency": "GBP", "reference": "r1"},

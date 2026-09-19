@@ -28,6 +28,7 @@ Rule: A valid charge
  Then owner must be "processor"
  And content "amount" must be a number greater than 0
  And content "currency" must be one of "GBP", "USD"
+ And content "reference" must match regex "^PAY-[0-9]{8}$"
  And this step is an entry point
  And this step is terminal
 `
@@ -102,8 +103,14 @@ Rule: A valid charge
 		t.Fatal("unsupported predicate accepted")
 	}
 	request("POST", "/v1/contracts", source+" And content must be meaningful\n", 400)
+	invalidRegex := strings.Replace(source, "^PAY-[0-9]{8}$", "[", 1)
+	if request("POST", "/v1/contracts/preview", invalidRegex, 200)["valid"] != false {
+		t.Fatal("malformed regex passed preview")
+	}
+	request("POST", "/v1/contracts", invalidRegex, 400)
 	created := request("POST", "/v1/contracts", source, 200)
 	id := created["contract"].(map[string]any)["id"].(string)
+	request("PUT", "/v1/contracts/"+id, strings.Replace(invalidRegex, "Version: 1", "Version: 2", 1), 400)
 	updated := strings.Replace(strings.Replace(source, "Version: 1", "Version: 2", 1), "greater than 0", "greater than 10", 1)
 	request("PUT", "/v1/contracts/"+id, updated, 200)
 	request("PUT", "/v1/contracts/"+id, updated, 400)
@@ -145,9 +152,20 @@ Rule: A valid charge
 		}
 		send("connect", map[string]any{"apiKey": apiKey, "serviceName": "gherkin-smoke"}, "success")
 		thread := send("startThread", map[string]any{"contractName": contractName + ":2", "role": "processor"}, "success")["threadId"]
-		for i, tc := range []struct{ amount, currency, want string }{{"5", "GBP", "error"}, {"15", "EUR", "error"}, {"NaN", "GBP", "error"}, {"15", "GBP", "success"}} {
+		for i, tc := range []struct{ amount, currency, reference, want string }{
+			{"5", "GBP", "PAY-12345678", "error"},
+			{"15", "EUR", "PAY-12345678", "error"},
+			{"NaN", "GBP", "PAY-12345678", "error"},
+			{"15", "GBP", "invalid", "error"},
+			{"15", "GBP", "", "error"},
+			{"15", "GBP", "PAY-12345678", "success"},
+		} {
 			now := time.Now().UTC().Format(time.RFC3339Nano)
-			result := send("recordThreadEvent", map[string]any{"threadId": thread, "stepName": "charge", "status": "success", "startedAt": now, "finishedAt": now, "idempotencyKey": fmt.Sprintf("content-%d", i), "context": map[string]string{"amount": tc.amount, "currency": tc.currency}}, tc.want)
+			content := map[string]string{"amount": tc.amount, "currency": tc.currency}
+			if tc.reference != "" {
+				content["reference"] = tc.reference
+			}
+			result := send("recordThreadEvent", map[string]any{"threadId": thread, "stepName": "charge", "status": "success", "startedAt": now, "finishedAt": now, "idempotencyKey": fmt.Sprintf("content-%d", i), "context": content}, tc.want)
 			if tc.want == "error" && !strings.Contains(fmt.Sprint(result["message"]), "content field") {
 				t.Fatalf("expected content rejection: %v", result)
 			}

@@ -78,6 +78,13 @@ func Validate(rules []Rule) error {
 			if len(r.Values) > 0 {
 				return fmt.Errorf("equals accepts one value")
 			}
+		case "matches":
+			if len(r.Values) > 0 {
+				return fmt.Errorf("matches accepts one regex pattern")
+			}
+			if _, err := compilePattern(r.Value); err != nil {
+				return fmt.Errorf("%s regex: %w", r.Field, err)
+			}
 		case "one_of":
 			if len(r.Values) == 0 || r.Value != "" {
 				return fmt.Errorf("one_of requires a nonempty values list")
@@ -134,6 +141,12 @@ func CheckWithReferences(rules []Rule, content map[string]string, resolve func(R
 			valid = value == expected
 		case "one_of":
 			valid = slices.Contains(r.Values, value)
+		case "matches":
+			pattern, err := compilePattern(r.Value)
+			if err != nil {
+				return fmt.Errorf("%s regex: %w", r.Field, err)
+			}
+			valid = pattern.MatchString(value)
 		case "number":
 			_, err := number(value)
 			valid = err == nil
