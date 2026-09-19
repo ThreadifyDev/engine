@@ -1,7 +1,7 @@
 # Workflow Contracts
 
 
-**New authoring format:** [Gherkin-style contracts](../threadify-go/docs/GHERKIN_CONTRACTS.md) support readable rules and basic content validation. YAML below is retained temporarily during migration.
+**New authoring format:** [Gherkin-style contracts](../threadify-go/docs/GHERKIN_CONTRACTS.md) support readable rules and content validation, including regex patterns. YAML below is retained temporarily during migration.
 ## Overview
 Contracts define the structure and rules for workflows in Threadify. They specify entry points, allowed transitions, terminal states, timeouts, and business context requirements.
 

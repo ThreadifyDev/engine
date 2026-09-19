@@ -54,6 +54,7 @@ var (
 	contentBoundRule      = regexp.MustCompile(`^content ` + quoted + ` must be a number (greater than or equal to|less than or equal to|greater than|less than) (\S+)$`)
 	contentEnumRule       = regexp.MustCompile(`^content ` + quoted + ` must be one of (.+)$`)
 	contentEqualRule      = regexp.MustCompile(`^content ` + quoted + ` must equal ` + quoted + `$`)
+	contentRegexRule      = regexp.MustCompile(`^content ` + quoted + ` must match regex ` + quoted + `$`)
 
 	contentReferenceRule = regexp.MustCompile(`^content ` + quoted + ` must equal ([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$`)
 	quotedItem           = regexp.MustCompile(`^` + quoted)
@@ -267,7 +268,7 @@ func ParseGherkin(source string) (*Contract, error) {
 			} else {
 				step.BusinessContext.Optional = append(step.BusinessContext.Optional, value)
 			}
-		case contentTypeRule.MatchString(clause), contentBoundRule.MatchString(clause), contentEnumRule.MatchString(clause), contentEqualRule.MatchString(clause), contentReferenceRule.MatchString(clause):
+		case contentTypeRule.MatchString(clause), contentBoundRule.MatchString(clause), contentEnumRule.MatchString(clause), contentEqualRule.MatchString(clause), contentReferenceRule.MatchString(clause), contentRegexRule.MatchString(clause):
 			rule, err := parseContentRule(clause)
 			if err != nil {
 				return fail(err.Error())
@@ -389,6 +390,15 @@ func parseContentRule(clause string) (contractcontent.Rule, error) {
 	var r contractcontent.Rule
 	var field string
 	switch {
+	case contentRegexRule.MatchString(clause):
+		m := contentRegexRule.FindStringSubmatch(clause)
+		field = m[1]
+		r.Operator = "matches"
+		value, err := unquoteContract(m[2])
+		if err != nil {
+			return r, err
+		}
+		r.Value = value
 	case contentTypeRule.MatchString(clause):
 		m := contentTypeRule.FindStringSubmatch(clause)
 		field = m[1]

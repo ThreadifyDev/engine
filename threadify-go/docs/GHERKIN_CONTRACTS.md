@@ -71,6 +71,7 @@ Use `Then` for the first clause and `And` for subsequent clauses.
 | `content "confirmed" must be a boolean` | Exactly `"true"` or `"false"` |
 | `content "currency" must be one of "GBP", "USD"` | Case-sensitive literal membership |
 | `content "status" must equal "approved"` | Case-sensitive exact match |
+| `content "tracking_number" must match regex "^TRK-[0-9]{8}$"` | Match a literal regex pattern against the submitted string |
 | `content "tracking_number" must equal order_shipped.tracking_number` | Match the same thread's latest successful shipment |
 
 Each content comparison requires the submitted field to exist in the step's
@@ -88,6 +89,34 @@ Dependencies do not generate strict transitions. If any explicit next-step
 clauses are present, the existing strict transition policy applies to the whole
 contract: every permitted immediate edge must be declared. Entry/terminal steps
 are derived when omitted, as in existing contracts.
+
+## Regex content validation
+
+```gherkin
+Rule: Record shipment
+  When step "order_shipped" is submitted
+  Then owner must be "warehouse"
+  And content "tracking_number" must match regex "^TRK-[0-9]{8}$"
+  And content "amount" must match regex "^[0-9]+\\.[0-9]{2}$"
+  And this step is terminal
+```
+
+Patterns use Go's RE2-style syntax. Matching is case-sensitive by default and
+may match any part of a value; use `^` and `$` to require the entire value.
+Inline flags such as `(?i)` (case-insensitive) and `(?s)` (dot matches newlines)
+are supported. Lookaround and backreferences are not supported. Matching does
+not use backtracking, including for nested repetitions such as `(a+)+`.
+
+Double backslashes inside Gherkin quoted strings: `"^\\d+$"` supplies `^\d+$`
+to the regex engine. `[0-9]` avoids that extra escaping. Patterns are literals,
+not references to other steps. Missing fields always fail; an empty string
+passes only if the pattern matches it. Multiple content rules must all pass.
+
+Malformed patterns and patterns outside 1–4096 bytes are rejected during
+preview, creation, and updates. Compiled patterns use a bounded in-memory cache;
+regex checks add no database calls. The stored rule is `{field, operator:
+"matches", value: "pattern"}`, so checks survive graph serialization and restart.
+Regex rules use the same submission-time validation as other content checks.
 
 ## Cross-step references
 
