@@ -1,9 +1,9 @@
 .PHONY: help install generate-graphql \
 	build build-api build-archiver \
-	build-image build-web-api build-docs \
+	build-image build-web-api build-web-ui build-docs \
 	run run-api run-archiver run-docker \
 	push publish-engine push-archiver publish-archiver \
-	push-web-api publish-web-api push-docs \
+	push-web-api publish-web-api push-web-ui publish-web-ui push-docs \
 	test-engine-integration test-engine-coverage \
 	test-archiver test-archiver-coverage \
 	test-api test-api-integration \
@@ -20,6 +20,7 @@ DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
 ENGINE_IMAGE ?= $(DOCKER_NAMESPACE)/th-engine
 ARCHIVER_IMAGE ?= $(DOCKER_NAMESPACE)/th-archiver
 WEB_API_IMAGE ?= $(DOCKER_NAMESPACE)/th_web_api
+WEB_UI_IMAGE ?= $(DOCKER_NAMESPACE)/th_web_ui
 
 define publish-multiarch
 	docker buildx build --platform $(DOCKER_PLATFORMS) -f $(1) \
@@ -205,6 +206,9 @@ build-archiver: ## Build archiver Docker image
 build-web-api: ## Build Web API Docker image
 	docker build -f Dockerfile.api -t $(WEB_API_IMAGE):$(VERSION) .
 
+build-web-ui: ## Build the public homepage Docker image
+	docker build -f ../homepage/Dockerfile -t $(WEB_UI_IMAGE):$(VERSION) -t $(WEB_UI_IMAGE):latest ../homepage
+
 build-docs: ## Build Documentation Docker image
 	cd ../documentation && docker build -t intelijence/th-docs:$(VERSION) .
 
@@ -225,6 +229,13 @@ push-web-api: ## Push Web API Docker image
 
 publish-web-api: ## Build and push multi-architecture Web API images
 	$(call publish-multiarch,Dockerfile.api,$(WEB_API_IMAGE),.)
+
+push-web-ui: ## Push the public homepage Docker image
+	docker push $(WEB_UI_IMAGE):$(VERSION)
+	docker push $(WEB_UI_IMAGE):latest
+
+publish-web-ui: ## Build and push multi-architecture public homepage images
+	$(call publish-multiarch,../homepage/Dockerfile,$(WEB_UI_IMAGE),../homepage)
 
 push-docs: ## Push Documentation Docker image
 	docker push intelijence/th-docs:$(VERSION)

@@ -394,6 +394,7 @@ func (s *NotificationService) processValidationNotifications(
 
 	if len(allViolations) > 0 {
 		finalStatus = ValidationStatusViolated
+		severity = highestViolationSeverity(allViolations)
 		if len(allViolations) == 1 {
 			v := allViolations[0]
 			violationType = v["type"].(string)
@@ -818,21 +819,22 @@ func (s *NotificationService) archiveNotification(ctx context.Context, n domain.
 	}
 
 	return s.natsArchivalPublisher.PublishActivityLog(ctx, map[string]interface{}{
-		"threadId":         n.ThreadID,
-		"type":             ActivityTypeValidationResult,
-		"stepId":           stepID,
-		"actor":            n.OwnerID,
-		"actorService":     ActorServiceRuleEngine,
-		"timestamp":        n.Timestamp.Format(time.RFC3339),
-		"status":           n.Status,
-		"notificationId":   n.NotificationID,
-		"source":           n.Source,
-		"notificationType": n.NotificationType,
-		"stepStatus":       n.StepStatus,
-		"violationType":    n.ViolationType,
-		"severity":         n.Severity,
-		"message":          n.Message,
-		"details":          string(detailsJSON),
+		"threadId":           n.ThreadID,
+		"type":               ActivityTypeValidationResult,
+		"stepId":             stepID,
+		"actor":              n.OwnerID,
+		"actorService":       ActorServiceRuleEngine,
+		"timestamp":          n.Timestamp.Format(time.RFC3339),
+		"status":             n.Status,
+		"notificationId":     n.NotificationID,
+		"notificationStepId": n.StepID,
+		"source":             n.Source,
+		"notificationType":   n.NotificationType,
+		"stepStatus":         n.StepStatus,
+		"violationType":      n.ViolationType,
+		"severity":           n.Severity,
+		"message":            n.Message,
+		"details":            string(detailsJSON),
 	})
 }
 
@@ -1139,4 +1141,17 @@ func (s *NotificationService) finishWait(ctx context.Context, req *domain.Record
 	if err != nil {
 		s.logger.Error("failed to publish invocation validation result", zap.Error(err), zap.String("step_id", stepID))
 	}
+}
+
+// highestViolationSeverity keeps grouped findings visible to severity filters.
+func highestViolationSeverity(violations []map[string]interface{}) string {
+	ranks := map[string]int{"info": 1, "minor": 2, "warning": 3, "major": 4, "critical": 5}
+	highest := ""
+	for _, violation := range violations {
+		severity, _ := violation["severity"].(string)
+		if ranks[severity] > ranks[highest] {
+			highest = severity
+		}
+	}
+	return highest
 }

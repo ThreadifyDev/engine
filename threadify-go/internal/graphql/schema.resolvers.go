@@ -262,7 +262,7 @@ func (r *entityProfileResolver) DeliveryHealth(ctx context.Context, obj *generat
 		return nil, fmt.Errorf("unsupported range format, expected 7d, 30d, or 90d")
 	}
 
-	cacheVersion := "delivery_health"
+	cacheVersion := "delivery_health_v2_numeric_scores"
 
 	if cached, found := r.metricsRepo.GetCachedEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion); found {
 		return cached, nil

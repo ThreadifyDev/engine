@@ -70,7 +70,7 @@ export default function ThreadDetailPage() {
   const [selectedStep, setSelectedStep] = useState<StepStateInfo | null>(null);
   const [showContext, setShowContext] = useState(false);
   const [previousView, setPreviousView] = useState<SidebarView>(null);
-  const [severityFilter, setSeverityFilter] = useState<Set<string>>(new Set(['critical', 'warning', 'info']));
+  const [severityFilter, setSeverityFilter] = useState<Set<string>>(new Set(['critical', 'major', 'warning', 'minor', 'info', 'unclassified']));
   const [selectedNotification, setSelectedNotification] = useState<ThreadNotification | null>(null);
   const [selectedStepForHistory, setSelectedStepForHistory] = useState<StepStateInfo | null>(null);
   const [selectedStepForViolations, setSelectedStepForViolations] = useState<StepStateInfo | null>(null);
@@ -104,7 +104,6 @@ export default function ThreadDetailPage() {
   const { data: notifications, isLoading: notificationsLoading } = useQuery({
     queryKey: ['threadNotifications', id, severityFilter],
     queryFn: () => graphqlClient.getThreadNotifications(id!, {
-      severity: Array.from(severityFilter),
       limit: 100,
     }),
     enabled: !!id && sidebarView === 'validations',
@@ -117,7 +116,6 @@ export default function ThreadDetailPage() {
       const result = await graphqlClient.getThreadNotifications(id!, {
         stepName: selectedStepForViolations!.stepName,
         // Don't filter by source - get all notifications for this step
-        severity: ['critical', 'warning'],
         limit: 100,
       });
       return result;
@@ -446,7 +444,7 @@ export default function ThreadDetailPage() {
               notifications={stepViolations || []}
               notificationsLoading={stepViolationsLoading}
               notificationSummary={undefined}
-              severityFilter={new Set(['critical', 'warning'])}
+              severityFilter={new Set(['critical', 'major', 'warning', 'minor', 'info', 'unclassified'])}
               onSeverityFilterChange={() => {}}
               onNotificationClick={(notif) => {
                 setSelectedNotification(notif);

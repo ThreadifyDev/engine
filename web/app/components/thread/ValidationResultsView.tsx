@@ -1,6 +1,5 @@
 import { formatDistanceToNow } from 'date-fns';
 import {
-  CheckCircle2,
   XCircle,
   AlertTriangle,
   Info,
@@ -35,12 +34,8 @@ export function ValidationResultsView({
 
   // Filter notifications by severity
   const filteredNotifications = notifications.filter(n => 
-    n.severity && severityFilter.has(n.severity)
+    severityFilter.has(n.severity || 'unclassified')
   );
-
-  const criticalCount = notifications.filter(n => n.severity === 'critical').length;
-  const warningCount = notifications.filter(n => n.severity === 'warning').length;
-  const infoCount = notifications.filter(n => n.severity === 'info').length;
 
   const toggleSeverity = (severity: string) => {
     const newFilter = new Set(severityFilter);
@@ -55,9 +50,9 @@ export function ValidationResultsView({
   if (notifications.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12">
-        <CheckCircle2 className="w-16 h-16 text-green-600 mb-4" />
+        <Info className="w-16 h-16 text-gray-400 mb-4" />
         <h3 className="text-lg font-semibold text-gray-900 mb-2">No Notifications</h3>
-        <p className="text-sm text-gray-600">All validations passed successfully</p>
+        <p className="text-sm text-gray-600">No validation notifications were returned for this run.</p>
       </div>
     );
   }
@@ -65,33 +60,23 @@ export function ValidationResultsView({
   return (
       <div className="space-y-4">
         {/* Filter Checkboxes */}
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 cursor-pointer group">
-            <input
-              type="checkbox"
-              checked={severityFilter.has('critical')}
-              onChange={() => toggleSeverity('critical')}
-              className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
-            />
-            <span className="text-sm text-gray-700 group-hover:text-gray-900">
-              Critical ({criticalCount})
-            </span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer group">
-            <input
-              type="checkbox"
-              checked={severityFilter.has('warning')}
-              onChange={() => toggleSeverity('warning')}
-              className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
-            />
-            <span className="text-sm text-gray-700 group-hover:text-gray-900">
-              Warning ({warningCount})
-            </span>
-          </label>
+        <div className="flex flex-wrap gap-4">
+          {['critical', 'major', 'warning', 'minor', 'info', 'unclassified'].map(severity => (
+            <label key={severity} className="flex items-center gap-2 cursor-pointer group">
+              <input type="checkbox" checked={severityFilter.has(severity)}
+                onChange={() => toggleSeverity(severity)} className="w-4 h-4 rounded" />
+              <span className="text-sm text-gray-700 capitalize">
+                {severity} ({notifications.filter(n => (n.severity || 'unclassified') === severity).length})
+              </span>
+            </label>
+          ))}
         </div>
 
         {/* Notification Cards */}
         <div className="space-y-2">
+          {filteredNotifications.length === 0 && (
+            <p className="text-sm text-gray-600">No notifications match the selected severities.</p>
+          )}
           {filteredNotifications.map((notification) => {
             const getSeverityConfig = () => {
               switch (notification.severity) {
@@ -136,7 +121,7 @@ export function ValidationResultsView({
                         {config.icon}
                       </div>
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${config.badge}`}>
-                        {notification.severity}
+                        {notification.severity || 'unclassified'}
                       </span>
                     </div>
                     <p className="text-sm text-gray-700 line-clamp-2 mb-1">

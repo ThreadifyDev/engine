@@ -43,7 +43,7 @@ export default function DeliveryHealthTab({ refKey, type }: { refKey: string; ty
 
   const statCards = data ? [
     { label: 'Total Threads', value: data.total_thread_count?.value, isPercentage: false, description: data.total_thread_count?.description || 'Volume of activity for this entity over time. Simple count of all threads.' },
-    { label: 'Success Rate', value: data.success_rate?.value, isPercentage: true, description: data.success_rate?.description || 'Proportion of threads that completed successfully.' },
+    { label: 'Completion Rate', value: data.success_rate?.value, isPercentage: true, description: 'Threads that eventually completed, including runs with failed steps or rule violations before recovery.' },
     { label: 'Overall Failure Rate', value: data.overall_failure_rate?.value, isPercentage: true, description: data.overall_failure_rate?.description || 'Proportion of threads that failed or were cancelled. Represents delivery failures.' },
     { label: 'Error Rate', value: data.error_rate?.value, isPercentage: true, description: data.error_rate?.description || 'System errors specifically, separate from business logic failures. Signals infrastructure problems.' },
     { label: 'Recovery Rate', value: data.recovery_rate?.value, isPercentage: true, description: data.recovery_rate?.description || 'When delivery fails for this entity, how often do they eventually succeed on retry.' },
