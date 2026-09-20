@@ -2,6 +2,7 @@ import { Link } from "@remix-run/react";
 import ThreadifyLogo from "~/components/ThreadifyLogo";
 import Footer from "~/components/homepage/Footer";
 import CodeBlock from "~/components/CodeBlock";
+import profileExample from "~/data/entity-profile-workload.json";
 import { useState, useEffect } from "react";
 import { Activity, Eye, Zap, Network, ArrowRight, CheckCircle2, TrendingUp, Shield, Check, Clock, AlertTriangle, Users, Bot, GitMerge, ChevronDown, Menu, X } from "lucide-react";
 
@@ -61,19 +62,19 @@ export default function HomePageStory() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              <span className="text-sm font-medium text-gray-700">Now in early access</span>
+              <span className="text-sm font-medium text-gray-700">Execution intelligence · Early access</span>
             </div>
             
             <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-[5.5rem] font-semibold text-black leading-[1.08] tracking-tight max-w-5xl mx-auto mb-8">
-              Your delivery process.
+              Your workflows.
               <br />
-              <span className="bg-gradient-to-r from-gray-900 via-gray-600 to-gray-400 bg-clip-text text-transparent">Fully visible.</span>
+              <span className="bg-gradient-to-r from-gray-900 via-gray-600 to-gray-400 bg-clip-text text-transparent">A shared referee.</span>
               <br />
-              <span className="text-gray-500">Fully understood.</span>
+              <span className="text-gray-500">Every step explained.</span>
             </h1>
             
             <p className="text-xl md:text-2xl text-gray-500 max-w-3xl mx-auto mb-12 leading-relaxed font-light">
-              Uptime doesn't mean delivery. Threadify captures and validates how your business logic actually executes — for every customer.
+              Keep your workflows where they are. Threadify follows work across your services and AI agents, checks your rules, and helps you decide what happens next.
             </p>
             
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20">
@@ -96,7 +97,7 @@ export default function HomePageStory() {
                   <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="text-sm font-medium text-gray-600">Live Thread</span>
                 </div>
-                <div className="text-sm text-gray-400 font-mono">ref_4821 · Account Application</div>
+                <div className="text-sm text-gray-400 font-mono">ref_4821 · Customer Refund</div>
               </div>
               
               <div className="space-y-4 font-mono text-sm">
@@ -106,10 +107,10 @@ export default function HomePageStory() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
-                      <span className="font-medium text-gray-900 break-all">identity_verified</span>
-                      <span className="text-gray-400 text-xs sm:text-right">your platform</span>
+                      <span className="font-medium text-gray-900 break-all">refund_requested</span>
+                      <span className="text-gray-400 text-xs sm:text-right">support agent</span>
                     </div>
-                    <div className="text-gray-500 text-xs mt-1">Completed in 1.2s</div>
+                    <div className="text-gray-500 text-xs mt-1">Customer request recorded</div>
                   </div>
                 </div>
                 
@@ -119,10 +120,10 @@ export default function HomePageStory() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
-                      <span className="font-medium text-gray-900 break-all">credit_check_passed</span>
-                      <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full w-fit sm:text-right">partner: credit-bureau</span>
+                      <span className="font-medium text-gray-900 break-all">payment_verified</span>
+                      <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full w-fit sm:text-right">payment service</span>
                     </div>
-                    <div className="text-gray-500 text-xs mt-1">Completed in 3.4s</div>
+                    <div className="text-gray-500 text-xs mt-1">Payment reference matches the order</div>
                   </div>
                 </div>
                 
@@ -132,10 +133,10 @@ export default function HomePageStory() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
-                      <span className="font-medium text-gray-900 break-all">documents_requested</span>
-                      <span className="text-gray-400 text-xs sm:text-right">compliance-team</span>
+                      <span className="font-medium text-gray-900 break-all">refund_prepared</span>
+                      <span className="text-gray-400 text-xs sm:text-right">your backend</span>
                     </div>
-                    <div className="text-gray-500 text-xs mt-1">Completed in 0.8s</div>
+                    <div className="text-gray-500 text-xs mt-1">Refund details recorded</div>
                   </div>
                 </div>
 
@@ -145,8 +146,8 @@ export default function HomePageStory() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
-                      <span className="font-medium text-gray-400 break-all">account_activated</span>
-                      <span className="text-gray-300 text-xs sm:text-right">waiting</span>
+                      <span className="font-medium text-gray-400 break-all">refund_issued</span>
+                      <span className="text-gray-300 text-xs sm:text-right">awaiting approval</span>
                     </div>
                   </div>
                 </div>
@@ -157,8 +158,8 @@ export default function HomePageStory() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4">
-                      <span className="font-medium text-amber-700 break-all">SLA breach detected</span>
-                      <span className="text-amber-600 text-xs font-medium sm:text-right">8 hours waiting</span>
+                      <span className="font-medium text-amber-700 break-all">Approval required</span>
+                      <span className="text-amber-600 text-xs font-medium sm:text-right">Rule not satisfied</span>
                     </div>
                   </div>
                 </div>
@@ -169,8 +170,8 @@ export default function HomePageStory() {
           {/* Tagline */}
           <div className="mt-6 text-center mb-20">
             <p className="text-sm text-gray-400 italic">
-              This is what Threadify sees.{" "}
-              <span className="text-gray-600">For the first time, so can you.</span>
+              One request. Several systems.{" "}
+              <span className="text-gray-600">A shared record of what happened.</span>
             </p>
           </div>
 
@@ -185,7 +186,7 @@ export default function HomePageStory() {
       <section className="pt-12 pb-12 px-6 bg-white">
         <div className="max-w-5xl mx-auto text-center">
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-semibold leading-tight tracking-tight text-black mb-4">
-            From capture to intelligence.
+            Keep your workflows. Add a referee.
             {/* <span className="bg-gradient-to-r from-gray-900 via-gray-600 to-gray-400 bg-clip-text text-transparent">
               Across every boundary.
             </span> */}
@@ -200,20 +201,20 @@ export default function HomePageStory() {
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 text-sm font-medium text-gray-600 mb-6">
                 <span className="w-5 h-5 rounded-full bg-black text-white text-xs flex items-center justify-center">1</span>
-                Capture
+                Follow the work
               </div>
               <h2 className="text-4xl md:text-5xl font-semibold text-gray-900 tracking-tight mb-6 leading-[1.1]">
-                Every request sets a delivery process in motion
+                See the work across every handoff
               </h2>
               <div className="space-y-5 text-lg text-gray-600 leading-relaxed">
                 <p>
-                  Crossing services, teams, partners, and boundaries no single system can see end to end.
+                  A customer asks for a refund. An agent picks it up, your backend checks the order, and a payment service handles the money.
                 </p>
                 <p>
-                  One line per business action. A live execution graph (a Thread) builds itself across every service involved.
+                  Threadify brings the steps you record into one shared timeline, called a thread. See who did what, what happened next, and where work is waiting.
                 </p>
                 <p className="text-black font-medium">
-                  Stop guessing at the customer experience. Now you have real-time intelligence into exactly how you deliver for every customer.
+                  Your services and agents keep doing the work. Threadify follows it across them.
                 </p>
               </div>
             </div>
@@ -221,13 +222,14 @@ export default function HomePageStory() {
               <CodeBlock
                 title="Start tracking"
                 headerColor="gray"
-                code={`// Start tracking
-const thread = await threadify.start("thread-for-order-123");
-thread.step("fraud_check").addContext(data).success()`}
+                code={`// Follow a refund across services
+const thread = await connection.start("Refund-4821");
+await thread.step("refund_requested")
+  .addContext(data).success();`}
               />
               <div className="mt-6">
                 <a href="https://docs.threadify.dev/core-concepts/tracking-workflows" className="inline-flex items-center gap-2 text-black font-medium hover:gap-3 transition-all">
-                  Learn how to track service-delivery
+                  Learn how to follow a workflow
                   <ArrowRight className="w-4 h-4" />
                 </a>
               </div>
@@ -238,11 +240,11 @@ thread.step("fraud_check").addContext(data).success()`}
           <div className="mt-16 bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 rounded-2xl p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
             <div className="space-y-2">
               <div className="flex flex-col items-start sm:flex-row sm:items-center gap-2 sm:gap-3">
-                <span className="bg-black text-white text-[10px] sm:text-xs font-bold px-2 py-1 rounded uppercase tracking-wider whitespace-nowrap w-fit">Zero Code Changes</span>
+                <span className="bg-black text-white text-[10px] sm:text-xs font-bold px-2 py-1 rounded uppercase tracking-wider whitespace-nowrap w-fit">Use your existing traces</span>
                 <h4 className="text-lg sm:text-xl font-semibold text-black leading-tight">Native OpenTelemetry Support</h4>
               </div>
               <p className="text-gray-600 text-lg">
-                Already instrumented with OTel? Drop in the Threadify exporter. Your traces become threads. Instantly.
+                Already using OpenTelemetry? Send your traces to Threadify to bring the recorded steps of your workflows together.
               </p>
             </div>
             <a 
@@ -264,19 +266,19 @@ thread.step("fraud_check").addContext(data).success()`}
             <div className="order-2 lg:order-1 bg-gray-50 rounded-2xl p-8 border border-gray-200">
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-100">
-                  <span className="text-sm text-gray-600">Sequence check</span>
+                  <span className="text-sm text-gray-600">Approval recorded before refund</span>
                   <Check className="w-4 h-4 text-emerald-500" />
                 </div>
                 <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-100">
-                  <span className="text-sm text-gray-600">Required steps present</span>
+                  <span className="text-sm text-gray-600">Payment matches the original order</span>
                   <Check className="w-4 h-4 text-emerald-500" />
                 </div>
                 <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-100">
-                  <span className="text-sm text-gray-600">SLA compliance</span>
+                  <span className="text-sm text-gray-600">Payment reference has the right format</span>
                   <Check className="w-4 h-4 text-emerald-500" />
                 </div>
                 <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200">
-                  <span className="text-sm font-medium text-red-700">payment_capture timeout</span>
+                  <span className="text-sm font-medium text-red-700">Retry needs a fresh approval</span>
                   <AlertTriangle className="w-4 h-4 text-red-500" />
                 </div>
               </div>
@@ -284,24 +286,24 @@ thread.step("fraud_check").addContext(data).success()`}
             <div className="order-1 lg:order-2">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 text-sm font-medium text-gray-600 mb-6">
                 <span className="w-5 h-5 rounded-full bg-black text-white text-xs flex items-center justify-center">2</span>
-                Validate
+                Check the rules
               </div>
               <h2 className="text-4xl md:text-5xl font-semibold text-gray-900 tracking-tight mb-6 leading-[1.1]">
-                Know whether it delivered correctly
+                Know if the work followed your rules
               </h2>
               <div className="space-y-5 text-lg text-gray-600 leading-relaxed">
                 <p>
-                  Define what correct looks like — Contracts. Threadify validates every execution against it in real time.
+                  Put the important rules in a contract: a refund needs approval, an amount must be positive, or a payment reference must match the original order.
                 </p>
                 <p>
-                  A step skipped. A sequence broken. A partner silent. You know instantly.
+                  Threadify checks the recorded steps and their details against those rules. See what passed, what failed, and the evidence behind each result.
                 </p>
                 <p className="text-black font-medium">
-                  Not from a batch job. Not from a customer complaint. The instant it happens.
+                  The same rules follow the work across services, partners, and AI agents.
                 </p>
                 <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-100">
                   <p className="text-gray-600 text-sm">
-                    <span className="font-semibold text-gray-900">Not sure what your contract should look like?</span> Run your process once and ask the AI to generate it from what it saw. Ready in seconds.
+                    <span className="font-semibold text-gray-900">Start with one important rule.</span> Use readable contracts to describe approvals, valid details, and the order of steps. Add more checks as you learn.
                   </p>
                 </div>
               </div>
@@ -317,17 +319,17 @@ thread.step("fraud_check").addContext(data).success()`}
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 text-sm font-medium text-gray-600 mb-6">
                 <span className="w-5 h-5 rounded-full bg-black text-white text-xs flex items-center justify-center">3</span>
-                React
+                Decide what happens next
               </div>
               <h2 className="text-4xl md:text-5xl font-semibold text-gray-900 tracking-tight mb-6 leading-[1.1]">
-                Build systems that respond intelligently
+                Choose where work needs a check
               </h2>
               <div className="space-y-5 text-lg text-gray-600 leading-relaxed mb-8">
                 <p>
-                  When a step gets skipped, the process stops before it goes further. When a payment stalls, an account is suspended automatically.
+                  Start by watching for rule violations and notifying your team. For sensitive actions, have your application ask Threadify whether the next step is allowed before it proceeds.
                 </p>
                 <p className="text-black font-medium">
-                  Your system stops being reactive. It becomes proactive and intelligent.
+                  You choose the response. Your application carries it out.
                 </p>
               </div>
               
@@ -335,65 +337,90 @@ thread.step("fraud_check").addContext(data).success()`}
               <div className="flex flex-wrap gap-6">
                 <div className="flex items-center gap-3">
                   <Users className="w-5 h-5 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-700">Proactive customer messaging</span>
+                  <span className="text-sm font-medium text-gray-700">Notify the right team</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Bot className="w-5 h-5 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-700">AI agents with full context</span>
+                  <span className="text-sm font-medium text-gray-700">Give agents the history</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Zap className="w-5 h-5 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-700">Circuit breakers that fire early</span>
+                  <span className="text-sm font-medium text-gray-700">Require checks before actions</span>
                 </div>
               </div>
             </div>
             
             {/* Code Example */}
             <CodeBlock
-              title="Event Listeners"
+              title="Check before issuing a refund"
               headerColor="gray"
-              code={`// React to step completion
-connection.subscribe('step.success', 'order_placed', (notification) => {
-  console.log('Order placed:', notification.context);
-  notification.ack();
-});
+              code={`// Your application waits for permission.
+await thread.waitFor("refund_issued");
 
-// React to rule violations
-connection.subscribe('rule.violated', 'payment_processed', (notification) => {
-  console.log('Violation:', notification.severity);
-  notification.ack();
-});`}
+// It then performs the action.
+await issueRefund();
+
+// Record the outcome and await validation.
+await thread.step("refund_issued")
+  .success("Refund issued", { waitFor: true });`}
             />
           </div>
         </div>
       </section>
 
       {/* Entity Profile Section */}
-      <section className="py-32 px-6 bg-gray-50">
+      <section id="execution-history" className="py-32 px-6 bg-gray-50">
         <div className="max-w-4xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 text-sm font-medium text-gray-600 mb-6">
             <span className="w-5 h-5 rounded-full bg-black text-white text-xs flex items-center justify-center">4</span>
-            Intelligence
+            Learn from execution
           </div>
           <h2 className="text-4xl md:text-5xl font-semibold text-gray-900 tracking-tight mb-6 leading-[1.1]">
-            Every thread is one moment. Every customer has many.
+            Give the next decision some history.
           </h2>
           <p className="text-xl text-gray-600 leading-relaxed mb-6">
-            One thread tells you if a request succeeded. A hundred threads tell you if a customer is thriving. Create an <span className="font-semibold text-gray-900">Entity Profile</span> — for a customer, an agent, anything. Threadify builds the intelligence as threads flow in.
+            Has this agent missed an approval before? Where does this partner’s work keep getting stuck? An <span className="font-semibold text-gray-900">Entity Profile</span> connects their past runs so your team can see which rules held, which failed, and what needs attention.
           </p>
           <p className="text-xl text-black font-medium">
-            Intelligence from execution, not guesswork.
+            Use that history to review mistakes and improve the next run.
           </p>
 
 
           <div className="mt-12 w-full rounded-2xl overflow-hidden border border-gray-200 shadow-2xl bg-white transition-transform hover:shadow-3xl">
-            <iframe
-              src="https://player.mux.com/imSb7A01gL7E727ptduJtOurI6FGUJJVCBob2D2VZnso?metadata-video-title=Entity+Profile&video-title=Entity+Profile"
-              className="w-full block"
-              style={{ border: "none", aspectRatio: "16/9" }}
-              allow="accelerometer; gyroscope; encrypted-media;"
-              allowFullScreen
-            ></iframe>
+            <div className="p-6 sm:p-8 text-left" aria-label="Example entity profile for a support agent">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                    <Bot className="w-5 h-5 text-gray-700" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Entity Profile · Support agent</p>
+                    <h3 className="text-lg font-semibold text-gray-900">Refund assistant</h3>
+                  </div>
+                </div>
+                <span className="text-xs font-medium text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-3 py-1 w-fit">Generated from a synthetic workload</span>
+              </div>
+              <div className="flex flex-wrap gap-x-6 gap-y-2 py-5 text-sm text-gray-500">
+                <span><strong className="text-gray-900">{profileExample.counts.runs.toLocaleString("en-GB")}</strong> recorded runs</span>
+                <span><strong className="text-gray-900">{profileExample.counts.steps.toLocaleString("en-GB")}</strong> recorded steps</span>
+                <span><strong className="text-amber-700">{profileExample.counts.violations}</strong> runs flagged for missing approval</span>
+              </div>
+              <iframe
+                src="https://player.mux.com/qX87EoG4o8zpQULQJ3OPYJPGU2K2GATmFyCLzaLPPus?metadata-video-title=Entity+Profile+Walkthrough&video-title=Entity+Profile+Walkthrough"
+                title="Entity Profile walkthrough: metric configuration, delivery health and execution history"
+                loading="lazy"
+                allow="accelerometer; gyroscope; encrypted-media; picture-in-picture; fullscreen"
+                allowFullScreen
+                className="block w-full rounded-xl border border-gray-200 bg-gray-50"
+                style={{ aspectRatio: "53 / 62" }}
+              />
+              <p className="mt-6 pt-5 border-t border-gray-100 text-sm text-gray-600 leading-relaxed">
+                <span className="font-medium text-gray-900">Completion isn’t the whole story.</span> Every run eventually completed, but {profileExample.counts.violations} had already reported a refund without approval. The history keeps those mistakes visible, even after recovery.
+              </p>
+              <a href="/examples/entity-profile-workload.json" className="inline-flex items-center gap-2 mt-4 text-sm font-medium text-gray-900 underline underline-offset-4 hover:text-gray-600">
+                View the test evidence <ArrowRight className="w-4 h-4" aria-hidden="true" />
+              </a>
+            </div>
           </div>
         </div>
       </section>
@@ -404,7 +431,7 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
           <div className="text-center mb-16">
             <h2 className="text-4xl md:text-5xl font-bold mb-4">
               <span className="bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
-                Know how you're delivering. For every customer.
+                One execution history. Useful across your team.
               </span>
             </h2>
           </div>
@@ -416,32 +443,32 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
               <div className="pl-8">
                 <h3 className="text-2xl font-bold mb-4 text-gray-900">Operations & Support</h3>
                 <p className="text-gray-600 leading-relaxed mb-6">
-                  Stop waiting for complaints to find failures. See exactly where every request stands — across every service and partner — right now.
+                  Follow a request across services and partners. See where it stopped, which rule failed, and what happened before it.
                 </p>
                 <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
                   <div className="flex items-center gap-3 mb-3">
                     <TrendingUp className="w-5 h-5 text-gray-400" />
-                    <span className="font-semibold text-gray-900">Instant answers</span>
+                    <span className="font-semibold text-gray-900">Evidence in one place</span>
                   </div>
-                  <p className="text-sm text-gray-600">From 30-minute escalations to 10-second answers</p>
+                  <p className="text-sm text-gray-600">Explain an outcome without piecing together separate logs.</p>
                 </div>
               </div>
             </div>
 
-            {/* Product & Analytics */}
+            {/* Product & Engineering */}
             <div className="relative">
               <div className="absolute -left-4 top-0 w-1 h-full bg-gradient-to-b from-gray-800 to-transparent rounded-full"></div>
               <div className="pl-8">
-                <h3 className="text-2xl font-bold mb-4 text-gray-900">Product & Analytics</h3>
+                <h3 className="text-2xl font-bold mb-4 text-gray-900">Product & Engineering</h3>
                 <p className="text-gray-600 leading-relaxed mb-6">
-                  Build intelligence with entity profiles. Customer health. Feature performance. Partner reliability. All from real execution, not surveys.
+                  Understand where workflows break down, which rules fail repeatedly, and how outcomes change over time.
                 </p>
                 <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
                   <div className="flex items-center gap-3 mb-3">
                     <TrendingUp className="w-5 h-5 text-gray-400" />
-                    <span className="font-semibold text-gray-900">Intelligence from patterns</span>
+                    <span className="font-semibold text-gray-900">Improve how work runs</span>
                   </div>
-                  <p className="text-sm text-gray-600">Who's thriving. Who's struggling. What's working.</p>
+                  <p className="text-sm text-gray-600">Find recurring problems across customers, services, and partners.</p>
                 </div>
               </div>
             </div>
@@ -452,14 +479,14 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
               <div className="pl-8">
                 <h3 className="text-2xl font-bold mb-4 text-gray-900">Systems & Agents</h3>
                 <p className="text-gray-600 leading-relaxed mb-6">
-                  Give your automations and agents complete delivery context — every step, every outcome. So they act on it, not guess.
+                  Give services and agents the recorded history behind a decision. Have them check whether the next step is allowed before continuing.
                 </p>
                 <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
                   <div className="flex items-center gap-3 mb-3">
                     <Zap className="w-5 h-5 text-gray-400" />
-                    <span className="font-semibold text-gray-900">Full context</span>
+                    <span className="font-semibold text-gray-900">Shared rules</span>
                   </div>
-                  <p className="text-sm text-gray-600">Full execution context. No log diving.</p>
+                  <p className="text-sm text-gray-600">Apply consistent checks across the systems doing the work.</p>
                 </div>
               </div>
             </div>
@@ -472,12 +499,12 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
         <div className="max-w-6xl mx-auto space-y-12">
           <div className="text-center space-y-8">
             <h2 className="text-4xl md:text-5xl font-semibold text-black tracking-tight leading-[1.1]">
-              Your process doesn't stop at your boundary.
+              Shared work needs shared evidence.
               <br />
-              <span className="text-gray-500">Your intelligence shouldn't either.</span>
+              <span className="text-gray-500">Across every handoff.</span>
             </h2>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              Invite a partner into the thread. They instrument their side. One shared execution graph — their steps and yours, in one timeline.
+              A reviewer records an approval. A service carries out the next step. Invite participants into the same thread so their actions and rule checks remain part of one record.
             </p>
           </div>
 
@@ -487,37 +514,37 @@ connection.subscribe('rule.violated', 'payment_processed', (notification) => {
             <CodeBlock
               title="Your API"
               headerColor="gray"
-              code={`// Invite partner to thread
+              code={`// Invite a reviewer to the thread
 const invitation = await thread
   .inviteParty({
-    role: "logistics",
+    role: "reviewer",
     expiresIn: "48h"
   });
 
-// Share token with partner
+// Share the invitation with the reviewer
 console.log(invitation.token);`}
               />
 
             {/* Partner API - Join */}
             <CodeBlock
-              title="Partner API"
+              title="Reviewer service"
               headerColor="purple"
               code={`// Join thread with token
 const thread = await connection
   .join(invitationToken);
 
-// Record their steps
-await thread.step('package_shipped')
-  .addContext({ tracking: '1Z999' })
+// Record the approval
+await thread.step('approval')
+  .addContext({ payment_reference: 'PAY-12345678' })
   .success();`}
             />
           </div>
 
           <div className="text-center space-y-4 pt-8">
             <p className="text-lg font-semibold text-gray-900">
-              Service delivery doesn't stop at your boundary. Your visibility shouldn't either.
+              Keep the handoff, the decision, and the outcome connected.
             </p>
-            <p className="text-black font-bold text-2xl">One thread. Their steps and yours. Full picture.</p>
+            <p className="text-black font-bold text-2xl">Their steps and yours. One shared thread.</p>
           </div>
         </div>
       </section>
@@ -527,11 +554,11 @@ await thread.step('package_shipped')
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-5xl md:text-6xl font-bold mb-6">
             <span className="bg-gradient-to-r from-gray-900 via-gray-700 to-gray-900 bg-clip-text text-transparent">
-              Service-delivery Intelligence.
+              A shared referee for your workflows.
             </span>
           </h2>
           <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
-            Built for teams where how you deliver is as important as what you deliver.
+            Follow what happens. Check the rules. Decide when work can continue.
             No credit card required.
           </p>
           <div className="flex flex-wrap justify-center gap-4">

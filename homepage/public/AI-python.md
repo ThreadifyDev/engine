@@ -4,6 +4,11 @@
 
 This file contains **Python-specific syntax only**. For concepts, see AI.md.
 
+Threadify follows work your services and agents already perform. Bind a contract
+when rules are needed; use recorded steps for evidence and explicitly await a
+permission check where the application must wait before acting. Recording
+telemetry alone does not stop actions or guarantee a rule passed.
+
 ---
 
 ## Installation
@@ -56,7 +61,7 @@ thread = await conn.start(
     tags=["production", "v2.1"],
 )
 
-# ONLY if user explicitly asks for contracts:
+# Bind a contract when workflow rules are needed:
 # thread = await conn.start("Order-789", contract_name="order_fulfillment")
 ```
 
@@ -245,7 +250,7 @@ conn.subscribe("step.success", "order_placed", lambda n: (
     n.ack(),
 ))
 
-# Advanced (contract-only): Subscribe to contract validation events
+# For contracted threads: Subscribe to rule-check results
 conn.subscribe("rule.violated", "payment_processed", lambda n: (
     print("Violation:", n.severity),
     n.ack(),

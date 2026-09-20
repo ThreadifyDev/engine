@@ -30,16 +30,16 @@ func (r *ThreadNotificationRepository) GetThreadNotifications(
 ) ([]*domain.ThreadNotification, error) {
 	query := `
 		SELECT 
-			payload->>'notification_id' as notification_id,
+			COALESCE(payload->>'notificationId', payload->>'notification_id') as notification_id,
 			thread_id,
 			step_id,
 			SPLIT_PART(step_id, ':', 1) as step_name,
 			SPLIT_PART(step_id, ':', 2) as idempotency_key,
 			payload->>'source' as source,
-			payload->>'notification_type' as notification_type,
-			payload->>'step_status' as step_status,
+			COALESCE(payload->>'notificationType', payload->>'notification_type') as notification_type,
+			COALESCE(payload->>'stepStatus', payload->>'step_status') as step_status,
 			status as validation_status,
-			payload->>'violation_type' as violation_type,
+			COALESCE(payload->>'violationType', payload->>'violation_type') as violation_type,
 			payload->>'severity' as severity,
 			payload->>'message' as message,
 			payload->>'details' as details,
@@ -72,7 +72,7 @@ func (r *ThreadNotificationRepository) GetThreadNotifications(
 		}
 
 		if options.NotificationType != "" {
-			query += fmt.Sprintf(" AND payload->>'notification_type' = $%d", argIndex)
+			query += fmt.Sprintf(" AND COALESCE(payload->>'notificationType', payload->>'notification_type') = $%d", argIndex)
 			args = append(args, options.NotificationType)
 			argIndex++
 		}

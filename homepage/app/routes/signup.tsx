@@ -6,7 +6,10 @@ import SignupForm from "~/components/SignupForm";
 import "~/styles/signup.css";
 import { signupAvailable } from "~/lib/signup.server";
 
-export const meta: MetaFunction = () => [{ title: "Get your Threadify license" }];
+export const meta: MetaFunction = () => [
+  { title: "Get your Threadify license" },
+  { name: "description", content: "Bring a shared referee to your services and AI agents. Create your account and start with one workflow on your own infrastructure." },
+];
 export const headers = () => ({ "Cache-Control": "no-store" });
 export const loader = () => json({
   siteKey: process.env.RECAPTCHA_SITE_KEY || "",

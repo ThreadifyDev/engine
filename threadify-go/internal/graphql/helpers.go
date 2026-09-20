@@ -3,12 +3,14 @@ package graphql
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	sharedauth "threadify-go/shared/auth"
 	shareddomain "threadify-go/shared/domain"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/internal/graphql/generated"
 )
@@ -192,6 +194,15 @@ func calculateHealthScore(metrics map[string]interface{}) map[string]interface{}
 	// Extract metric values with safe type assertions
 	getFloatValue := func(key string) float64 {
 		if m, ok := metrics[key].(map[string]interface{}); ok {
+			// PostgreSQL ROUND/AVG/ratios arrive as pgtype.Numeric through
+			// RowToMap. JSON renders them as numbers, but a float64 assertion
+			// alone silently discards the same values during scoring.
+			if val, ok := m["value"].(pgtype.Numeric); ok {
+				converted, err := val.Float64Value()
+				if err == nil && converted.Valid && !math.IsNaN(converted.Float64) && !math.IsInf(converted.Float64, 0) {
+					return converted.Float64
+				}
+			}
 			if val, ok := m["value"].(float64); ok {
 				return val
 			}

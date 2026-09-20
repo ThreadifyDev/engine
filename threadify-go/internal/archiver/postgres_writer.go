@@ -444,6 +444,14 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
 	if err := validRows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate thread rows: %w", err)
 	}
+	// A second Engine may receive references before the first Engine commits
+	// their thread metadata. Retry the entire batch instead of acknowledging a
+	// partially written batch and permanently losing the missing references.
+	for _, id := range threadIDs {
+		if !validThreads[id] {
+			return nil, ErrThreadNotFound
+		}
+	}
 
 	// Build batch insert for valid refs only
 	// Skip refs for non-existent threads (log warning)
@@ -808,6 +816,12 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 	if len(events) == 0 {
 		return nil
 	}
+	// Validation is archived through activity logs. Populate the notification
+	// projection used by cross-thread queries and Entity Profile metrics before
+	// acknowledging that batch. Its stable notification ID makes replay safe.
+	if err := w.WriteThreadNotifications(ctx, activityNotifications(events)); err != nil {
+		return err
+	}
 
 	seen := make(map[string]struct{}, len(events))
 	deduped := make([]StreamEvent, 0, len(events))
@@ -914,6 +928,34 @@ func (w *PostgresWriter) WriteActivityLog(ctx context.Context, events []StreamEv
 		zap.Int("unique", rb.len()),
 	)
 	return nil
+}
+
+func activityNotifications(events []StreamEvent) []StreamEvent {
+	var notifications []StreamEvent
+	for _, event := range events {
+		d := event.Data
+		if d["type"] != "validation_result" || d["notificationId"] == "" {
+			continue
+		}
+		step, key, _ := strings.Cut(d["stepId"], ":")
+		stepID := d["notificationStepId"]
+		if stepID == "" {
+			stepID = d["stepId"]
+		}
+		details := d["details"]
+		if details == "" {
+			details = "{}"
+		}
+		notifications = append(notifications, StreamEvent{Data: map[string]string{
+			"notificationID": d["notificationId"], "threadID": d["threadId"],
+			"stepID": stepID, "stepName": step, "idempotencyKey": key,
+			"source": d["source"], "notificationType": d["notificationType"],
+			"stepStatus": d["stepStatus"], "validationStatus": d["status"],
+			"violationType": d["violationType"], "severity": d["severity"],
+			"message": d["message"], "details": details, "timestamp": d["timestamp"],
+		}})
+	}
+	return notifications
 }
 
 func (w *PostgresWriter) WriteSubSteps(ctx context.Context, subSteps []map[string]interface{}) error {

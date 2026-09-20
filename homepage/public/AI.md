@@ -11,16 +11,16 @@ For implementation syntax in your language, see:
 
 ## What is Threadify?
 
-**Every customer request tells a story. Turn it into intelligence.**
+**A shared referee for work across services and AI agents.**
 
-Threadify turns customer requests into live execution graphs. Support answers "what happened?" in seconds. Operations validates business logic in real-time. AI agents act with complete context.
+Threadify records the steps of existing workflows, checks them against explicit rules, and keeps the evidence behind each result. Teams can observe violations or have their application await permission before an action. The services and agents still execute the work.
 
 **Core Components:**
-- **Thread** - One customer request flowing through your system
+- **Thread** - One workflow execution, with its recorded steps and optional contract
 - **Step** - One action in the workflow
 
 **Optional (Advanced):**
-- **Contract** - YAML validation rules enforced at runtime. Only use this after you are comfortable with basic thread and step instrumentation.
+- **Contract** - Readable Gherkin-style rules for step order, approvals, and content, including regex patterns and comparisons with earlier steps. Contracts are optional; start with basic instrumentation when rules are not requested.
 
 ---
 
@@ -34,7 +34,7 @@ Threadify turns customer requests into live execution graphs. Support answers "w
 - `apiKey` (required) - Your API key
 - `serviceName` (optional) - Identifier for your service
 - `options` (optional) - Configuration object
-  - `wsUrl` - WebSocket URL (default: wss://eng.threadify.dev/threads)
+  - `wsUrl` - WebSocket URL (default: wss://your-threadify-engine.example/threads)
   - `graphqlUrl` - GraphQL endpoint URL
   - `debug` - Enable debug logging (boolean)
 
@@ -48,15 +48,16 @@ Threadify turns customer requests into live execution graphs. Support answers "w
 
 **Variants:**
 1. **With label** - (Recommended) Give the thread a human-readable name (e.g., "Checkout-cust-123")
-2. **With service name** - Specify which service is starting
+2. **With a contract** - Bind the workflow rules for this execution
 3. **With tags** - Immutable labels for filtering (e.g., `["production", "v2.1"]`)
 
 **Parameters:**
 - `label` (optional, recommended) - A descriptive name for the thread
-- `serviceName` (optional) - Service identifier
+- `contractName` (optional) - Contract name and version when rules are needed
+- `serviceName` (optional) - Service identifier, supplied through the SDK options
 - `tags` (optional) - Immutable labels for filtering (e.g., `["production", "v2.1"]`)
 
-> **Default to no contracts.** Only use them if the user explicitly asks.
+> Use basic tracking for observation. Bind a contract when the goal includes checking workflow rules or requesting permission before an action.
 
 **Returns:** Thread instance
 
@@ -108,7 +109,7 @@ Every step must have one of three statuses:
 
 ### 5. Idempotency
 
-**What it does:** Prevents duplicate step execution
+**What it does:** Deduplicates reports submitted with the same idempotency key. It does not prevent your application from performing an external action twice.
 
 **How it works:**
 - **Auto-generated (default)**: SDK creates hash from `stepName + context`
@@ -243,27 +244,56 @@ const invite = await thread.inviteParty({
 
 ---
 
-### 11. Contracts (YAML) — ONLY If User Explicitly Requests
+### 11. Contracts — When Rules Are Requested
 
-**What it does:** Defines business rules enforced at runtime.
+Use contracts when the user requests workflow rules or validation. Basic tracking
+works without a contract. Gherkin is the primary authoring format; YAML remains
+available temporarily during migration.
 
-**When to use:** ONLY if the user explicitly asks for contracts (e.g., "use a contract", "add contract validation", "enforce business rules"). Otherwise, default to basic thread and step instrumentation WITHOUT contracts.
+```gherkin
+Feature: refund_review
+Rule: Record approval
+  When step "approval" is submitted
+  Then owner must be "reviewer"
+  And this step is an entry point
+  And content "payment_reference" must match regex "^PAY-[0-9]{8}$"
 
-**Structure:**
-```yaml
-name: order_flow
-entry_points: [validate_cart]
-terminal_steps: [order_complete, order_failed]
-transitions:
-  validate_cart: [check_inventory]
-  check_inventory: [charge_payment]
-  charge_payment: [send_confirmation]
+Rule: Issue a refund
+  When step "refund_issued" is submitted
+  Then owner must be "payments"
+  And step "approval" must have succeeded
+  And content "payment_reference" must equal approval.payment_reference
+  And content "amount" must be a number greater than 0
+  And content "currency" must be one of "GBP", "USD"
+  And this step is terminal
 ```
 
-**Prevents:**
-- Race conditions
-- Invalid state transitions
-- Missing required steps
+**What is checked:**
+- Required steps, ownership, ordering, and timing.
+- Submitted details: numbers, allowed values, formats, and values from the same
+  thread's latest validated successful occurrence of another step.
+- Regex patterns use Go's RE2-style syntax. Use `^` and `$` for a whole-field
+  match. Escape backslashes in quoted Gherkin strings; lookaround and
+  backreferences are unsupported. Invalid patterns fail contract validation.
+
+**Observation and permission are different:**
+- Content checks happen during submission, before the event is recorded.
+- Flow checks run asynchronously. A recording acknowledgement is not a passed
+  validation result.
+- In the JavaScript SDK, `await thread.waitFor("refund_issued")` waits for flow
+  eligibility and claims one invocation. The application must perform the action
+  only after it resolves. It cannot check future content from a step name alone.
+- `.success(message, { waitFor: true })` or `.failed(message, { waitFor: true })`
+  awaits validation of that exact reported event. It does not undo an action.
+- Telemetry alone does not block tools, stop a process, or trigger business actions.
+  The application must implement those responses.
+
+For repeated actions, `step "approval" must succeed before each invocation`
+requires a fresh approval. A repeatable action must not be terminal; use a
+separate finishing step.
+
+See the [contract vocabulary](https://github.com/creativeJoe007/ThreadifyEngine/blob/main/threadify-go/docs/GHERKIN_CONTRACTS.md)
+and [execution waits](https://github.com/creativeJoe007/ThreadifyEngine/blob/main/threadify-go/docs/WAIT_FOR.md).
 
 ---
 
@@ -290,100 +320,58 @@ transitions:
 
 ---
 
-## OpenTelemetry Integration (OTel) — ONLY for Existing OTel Codebases
+## OpenTelemetry Integration
 
-**Default to manual instrumentation.** Only use OTel integration if the user explicitly asks for it OR the codebase already imports OpenTelemetry libraries.
+Use existing OpenTelemetry instrumentation when available, or record workflow
+steps through a Threadify SDK. Both feed execution evidence into the Engine.
 
-**What it does:** Automatically converts OpenTelemetry traces into Threadify execution graphs.
+**Mapping:**
+- A reported span becomes a step, with span events represented as sub-steps.
+- Explicit `threadify.thread_id` takes precedence. Otherwise correlation uses
+  `threadify.external_ref`, then `workflow.run_id`, then the trace ID.
+- Use a unique reference for each logical run, not a shared business category.
+  Different traces can join the same run; incompatible contracts are rejected.
+- Teams wanting trace-based grouping can disable `workflow.run_id` fallback in
+  the SDK exporter or through `/v1/traces?use_workflow_run_id=false`.
+- Ending one root span does not complete a run shared across traces. Use the
+  explicit `threadify.run.complete` signal for a shared run.
 
-**Mapping Concept:**
-- **OTel Trace** → Threadify **Thread**
-- **OTel Span** → Threadify **Step**
-- **OTel Span Event** → Threadify **Sub-Step**
+Send standard OTLP/HTTP exports to your Engine's `/v1/traces` endpoint with a
+Threadify API key. The SDK exporter also supports the Engine's WebSocket path.
+Observing an export does not grant permission to perform an action; an application
+must explicitly wait for a contract decision if it needs to gate execution.
 
-**Key Capabilities:**
-- **Zero Peer Dependencies**: The Threadify SDK duck-types the OTel Exporter interface. You do not need to install `@opentelemetry/api` unless you are actively using it.
-- **Distributed Exporter**: Traces spanning multiple microservices automatically join the same Threadify thread seamlessly.
-- **Root Span Detection**: When the root span ends, the Threadify thread is automatically completed.
+## MCP: Investigate Recorded Execution
 
----
+The Engine exposes a Streamable HTTP MCP endpoint at `/sse`, authenticated with
+`X-API-Key`. Configure an MCP client that supports this transport with your own
+Engine URL and an API key with the required read permissions. The Registry
+license is for starting the Engine, not for authenticating MCP requests.
 
-## MCP Integration (Model Context Protocol)
+| Tool | Purpose | Example question |
+| --- | --- | --- |
+| `search_threads` | Find recorded workflow runs | Which refund runs reported a failure? |
+| `get_thread` | Inspect a run's steps and results | What happened before this refund stopped? |
+| `get_contract_violations` | Inspect reported rule violations | Which runs missed an approval? |
+| `get_entity_profile` | Read a configured profile | What recorded history is linked to this agent? |
+| `query` | Run a permitted GraphQL query | Retrieve the specific evidence needed for an investigation |
 
-**What it does:** Enables AI assistants and automation tools to query Threadify execution graphs
-
-**Available via:** Native MCP server at `/threadify-go/.mcp/server.json`
-
-### MCP Tools
-
-| Tool | Purpose | Example Query |
-|------|---------|---------------|
-| `get_thread` | Retrieve complete thread execution | "Show me thread abc-123 with all steps" |
-| `search_threads` | Find threads with filters | "Find all failed checkout threads from last hour" |
-| `verify_thread_integrity` | Validate cryptographic hash chain | "Verify integrity of thread abc-123" |
-| `contract_graph` | Get workflow structure | "Show me the checkout contract graph" |
-| `resolve_actors` | Convert UUIDs to names | "Who executed payment_authorized in thread abc-123?" |
-| `graphql_query` | Custom precise queries | Execute any GraphQL query |
-
-### MCP Use Cases
-
-✅ **Debugging Silent Failures**
-- "Why did payment succeed but order never shipped?"
-- MCP reveals which step failed silently after payment
-
-✅ **Compliance Verification**
-- "Prove credit checks always run before loan approval"
-- MCP validates hash chains and execution order
-
-✅ **Performance Analysis**
-- "What's the bottleneck in our checkout flow?"
-- MCP shows average step durations
-
-### MCP Configuration
-
-**Claude Desktop:**
-```json
-{
-  "mcpServers": {
-    "threadify": {
-      "command": "npx",
-      "args": ["-y", "@threadify/mcp-server"],
-      "env": {
-        "THREADIFY_API_KEY": "your-api-key",
-        "THREADIFY_URL": "https://mcp.threadify.dev"
-      }
-    }
-  }
-}
-```
-
-**Cline (VS Code):**
-Add to MCP settings with same configuration structure.
-
-**Custom Integration:**
-Use any MCP SDK to connect and call tools programmatically.
-
-### MCP Resources
-
-- `graphql://schema` - Complete GraphQL schema for advanced queries
-
-**Learn more:** https://docs.threadify.dev/core-concepts/mcp-integration
-
----
+Use these tools to distinguish recorded facts from conclusions. Missing telemetry
+is not proof that an action never occurred. A passed rule checks the reported
+execution against that rule; it does not prove that an external service delivered
+an outcome it did not report. An MCP investigation does not itself stop or approve
+a tool call.
 
 ## When to Use Threadify
 
-✅ **Good fit:**
-- Multi-step business processes
-- Distributed workflows across services
-- Need audit trail for compliance
-- Complex error handling/retries
-- Support teams need visibility
+- Follow a workflow across services, AI agents, or partner handoffs.
+- Check approval requirements, step order, repeated attempts, and submitted data.
+- Keep the execution evidence needed to explain an outcome or a rule violation.
+- Let applications await permission before selected actions.
+- Look for recurring failures using recorded histories and configured profiles.
 
-❌ **Not ideal:**
-- Simple CRUD operations
-- Single-step actions
-- High-frequency events (>10k/sec per thread)
+Start with one useful workflow or a small part of a larger process. Threadify
+observes and checks that execution; the existing services and agents still run it.
 
 ---
 

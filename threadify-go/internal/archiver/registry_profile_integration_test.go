@@ -61,6 +61,22 @@ func TestRegistryProfileLimitPreservesThreadRefs(t *testing.T) {
 	require.Equal(t, 2, count)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM entity_profile`).Scan(&count))
 	require.Equal(t, 1, count)
+	// A mixed batch must not lose references whose metadata arrives on another
+	// replica later. No part is committed until all referenced threads exist.
+	lateRefs := []StreamEvent{
+		{Data: map[string]string{"threadId": "thread-a", "refKey": "late_id", "refValue": "existing"}},
+		{Data: map[string]string{"threadId": "thread-late", "refKey": "late_id", "refValue": "late"}},
+	}
+	_, err = writer.WriteThreadRefs(ctx, lateRefs)
+	require.ErrorIs(t, err, ErrThreadNotFound)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM thread_refs WHERE ref_key='late_id'`).Scan(&count))
+	require.Zero(t, count)
+	_, err = pool.Exec(ctx, `INSERT INTO threads(id,company_id) VALUES('thread-late','company')`)
+	require.NoError(t, err)
+	_, err = writer.WriteThreadRefs(ctx, lateRefs)
+	require.NoError(t, err)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM thread_refs WHERE ref_key='late_id'`).Scan(&count))
+	require.Equal(t, 2, count)
 	// Replay updates the existing profile even at capacity without creating more.
 	profiles, err = writer.WriteThreadRefs(ctx, events)
 	require.NoError(t, err)

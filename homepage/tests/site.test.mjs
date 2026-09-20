@@ -15,7 +15,7 @@ test('public pages render independently of the Engine and old web API', async t 
     assert.equal(response.status, 200, path);
     const html = await response.text();
     assert.doesNotMatch(html, /server-only-|window\.__ENV__|ENGINE_URL|API_URL/);
-    if (path === '/') assert.match(html, /Your delivery process/);
+    if (path === '/') assert.match(html, /A shared referee/);
     if (path === '/signup') {
       assert.match(html, /Send verification code/);
       assert.doesNotMatch(html, /Products on your license|name="products"|name="deployment"|Fused|name="password"/);

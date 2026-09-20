@@ -1,11 +1,11 @@
 import { TabBar } from '~/components/TabBar';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router';
-import { api, type EntityProfile } from '~/lib/api';
-import { graphqlClient, type Thread } from '~/lib/graphql';
+import { type EntityProfile } from '~/lib/api';
+import { graphqlClient } from '~/lib/graphql';
 import AppLayout from '~/components/AppLayout';
-import { 
-  UserCircle, Activity, 
+import {
+  Activity,
   ChevronLeft, AlertTriangle,
   History as HistoryIcon, LayoutDashboard, BarChart2
 } from 'lucide-react';
@@ -16,21 +16,6 @@ import DeliveryHealthTab from '~/components/profiles/DeliveryHealthTab';
 import HistoryTab from '~/components/profiles/HistoryTab';
 
 type TabType = 'overview' | 'history' | 'metrics' | 'delivery-health';
-
-const IDENTIFIER_BADGE_STYLES = [
-  'border-emerald-200 bg-emerald-50 text-emerald-800',
-  'border-sky-200 bg-sky-50 text-sky-800',
-  'border-amber-200 bg-amber-50 text-amber-800',
-  'border-rose-200 bg-rose-50 text-rose-800',
-  'border-cyan-200 bg-cyan-50 text-cyan-800',
-] as const;
-
-function getIdentifierBadgeStyle(identifier: string) {
-  const colorIndex = Array.from(identifier).reduce((hash, character) => hash + character.charCodeAt(0), 0)
-    % IDENTIFIER_BADGE_STYLES.length;
-  return IDENTIFIER_BADGE_STYLES[colorIndex];
-}
-
 
 export default function EntityProfileDetail() {
   const params = useParams();
@@ -157,44 +142,31 @@ export default function EntityProfileDetail() {
         </button>
 
         {/* Identity header */}
-        <div className="mb-6 flex items-start">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-purple-200 bg-purple-50">
-              <UserCircle className="h-6 w-6 text-purple-700" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
-                <h1 className="break-words text-2xl font-semibold leading-tight text-gray-900 sm:text-3xl">
-                  {profile.name || refKey}
-                </h1>
-                {profile.profileType?.name && (
-                  <span className="max-w-full rounded border border-purple-300 bg-purple-100 px-2 py-1 text-xs font-semibold text-purple-900">
-                    {profile.profileType.name}
-                  </span>
-                )}
+        <header className="mb-6 min-w-0">
+          <h1 className="break-words text-2xl font-semibold leading-snug tracking-tight text-gray-900">
+            {profile.name || refKey}
+          </h1>
+          {profile.profileType?.name && (
+            <p className="mt-1 text-sm text-gray-500">{profile.profileType.name}</p>
+          )}
+          <details className="group mt-3 text-sm text-gray-500">
+            <summary className="w-fit cursor-pointer rounded hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gray-400">
+              Reference details
+            </summary>
+            <dl className="mt-3 space-y-3 border-l border-gray-200 pl-4 text-xs">
+              <div>
+                <dt className="mb-1 font-medium text-gray-600">Reference</dt>
+                <dd className="break-all font-mono text-gray-700">{profile.refKey}</dd>
               </div>
-              <div className="flex flex-wrap gap-2 mt-3">
-                <span
-                  className="inline-flex max-w-full flex-wrap items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs"
-                  title="Entity reference value"
-                >
-                  <span className="font-semibold text-blue-700">Reference:</span>
-                  <code className="break-all font-medium text-blue-950">{profile.refKey}</code>
-                </span>
-                {profile.profileType?.type?.map((key: string) => (
-                  <span
-                    key={key}
-                    className={`inline-flex max-w-full items-center rounded border px-2 py-1 text-xs ${getIdentifierBadgeStyle(key)}`}
-                    title="Configured identifier type"
-                  >
-                    <span className="break-all font-semibold">{key}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-
-        </div>
+              {!!profile.profileType?.type?.length && (
+                <div>
+                  <dt className="mb-1 font-medium text-gray-600">Identifier fields</dt>
+                  <dd className="break-words text-gray-700">{profile.profileType.type.join(', ')}</dd>
+                </div>
+              )}
+            </dl>
+          </details>
+        </header>
 
         <TabBar label="Entity profile" value={activeTab} onChange={tab => setSearchParams(prev => { prev.set('tab', tab); return prev; })} panelId="profile-panel" className="mb-6"
           items={[

@@ -1,0 +1,35 @@
+{
+  "counts": {
+    "runs": 1024,
+    "completed": 1024,
+    "steps": 4864,
+    "violations": 256,
+    "failedRefunds": 256
+  },
+  "examples": [
+    {
+      "ref": "Refund-0001",
+      "threadId": "d52d593a-6904-41f4-bd98-7bcf33d62376",
+      "detail": "Approval recorded before the refund",
+      "outcome": "Passed",
+      "recordedSteps": 4,
+      "flagged": false
+    },
+    {
+      "ref": "Refund-0002",
+      "threadId": "79049506-c6bd-44d1-874d-507550de07a6",
+      "detail": "Refund reported without approval; corrected on a later attempt",
+      "outcome": "Rule violated",
+      "recordedSteps": 5,
+      "flagged": true
+    },
+    {
+      "ref": "Refund-0003",
+      "threadId": "539a748f-97cc-4d11-b313-ec1426d39214",
+      "detail": "Provider failure followed by a fresh approval and successful retry",
+      "outcome": "Retried",
+      "recordedSteps": 6,
+      "flagged": false
+    }
+  ]
+}

@@ -1,160 +1,92 @@
-# Threadify SDK - Cursor Rules
+# Threadify SDK — Coding Guide
 
-## Core Principles
-- Threadify tracks execution graphs (not just logs or events)
-- Each thread = one customer request flowing through distributed systems
-- Steps must have explicit status: success, failed, or error
-- All context values are converted to strings automatically
+## Product model
 
-## API Conventions
+Threadify is a shared referee for work across services and AI agents. Keep the
+application's workflow in its existing code. Use Threadify to record execution,
+check explicit rules, and provide evidence for decisions.
 
-### Connection
+- A thread is a workflow execution, optionally bound to a contract.
+- A step records an action and its outcome.
+- A contract describes approvals, ordering, timing, and valid submitted details.
+- Recording telemetry does not automatically stop an action or mean validation passed.
+
+## Connect to the team's Engine
+
+Use an Engine API key, not its Registry license key. Supply the team's Engine URL;
+there is no shared production Engine endpoint to assume.
+
 ```javascript
-// Correct
-const connection = await Threadify.connect('api-key', 'service-name');
+import { Threadify } from '@threadify/sdk';
 
-// With options
-const connection = await Threadify.connect('api-key', 'service-name', {
-  wsUrl: 'wss://eng.threadify.dev/threads',
-  graphqlUrl: 'https://eng.threadify.dev/graphql',
-  debug: true
-});
-```
-
-### Starting Threads
-```javascript
-// No contract
-const thread = await connection.start();
-
-// With specific service
-const thread = await connection.start('payment-service');
-
-// With contract
-const thread = await connection.start('order_fulfillment', 'merchant-service');
-```
-
-### Recording Steps
-```javascript
-// CORRECT - use .addContext()
-await thread.step('order_placed')
-  .addContext({ order_id: '123', amount: '99.99' })
-  .success();
-
-// WRONG - don't use .context()
-await thread.step('order_placed')
-  .context({ order_id: '123' })  // ❌ This method doesn't exist
-  .success();
-```
-
-### Step Status Methods
-- `.success(messageOrData)` - Step completed successfully
-- `.failed(messageOrData)` - Step failed (business logic failure)
-- `.error(messageOrData)` - Step errored (system/technical error)
-
-### Error Handling Pattern
-```javascript
-try {
-  await processPayment();
-  await thread.step('process_payment')
-    .addContext({ transaction_id: txId })
-    .success();
-} catch (error) {
-  await thread.step('process_payment')
-    .addContext({ error: error.message })
-    .failed();  // or .error() for system errors
-}
-```
-
-## Common Mistakes to Avoid
-
-1. **Don't create thread_id manually**
-   - ❌ `const threadId = uuid.v4();`
-   - ✅ Let SDK generate: `const thread = await connection.start();`
-
-2. **Don't forget step status**
-   - ❌ `thread.step('order_placed')`
-   - ✅ `await thread.step('order_placed').success()`
-
-3. **Don't use .context() method**
-   - ❌ `.context({ data })`
-   - ✅ `.addContext({ data })`
-
-4. **Don't pass objects as context values**
-   - ❌ `.addContext({ user: { id: 1, name: 'John' } })`
-   - ✅ `.addContext({ user_id: '1', user_name: 'John' })`
-
-5. **Don't mix up start() signatures**
-   - ❌ `connection.start(context, role)` (old API)
-   - ✅ `connection.start()` or `connection.start(contractName, serviceName)`
-
-## Advanced Features
-
-### Idempotency
-```javascript
-await thread.step('charge_payment')
-  .idempotencyKey('payment-123')
-  .addContext({ amount: '99.99' })
-  .success();
-```
-
-### Sub-steps
-```javascript
-await thread.step('process_order')
-  .subStep('validate_inventory', { items: 5 }, 'success')
-  .subStep('calculate_tax', { tax: 12.50 }, 'success')
-  .success();
-```
-
-### External References
-```javascript
-await thread.addRefs({
-  payment_id: 'pi_123',
-  order_id: 'ORD-456'
-});
-```
-
-### Thread Linking
-```javascript
-await childThread.linkThread(parentThread.id, 'parent');
-```
-
-### Notifications (Event Subscriptions)
-```javascript
-// Subscribe to step events
-connection.on('step.success', 'order_placed', (notification) => {
-  console.log('Order placed:', notification.context);
-  notification.ack();
+const connection = await Threadify.connect(apiKey, 'payments', {
+  wsUrl: 'wss://your-threadify-engine.example/threads',
+  graphqlUrl: 'https://your-threadify-engine.example/graphql'
 });
 
-// Subscribe to validation events
-connection.on('rule.violated', 'payment_processed', (notification) => {
-  console.log('Violation:', notification.severity);
+// Track an execution without rules.
+const observed = await connection.start('Refund-4821');
+
+// Or bind the rules for a workflow that needs validation.
+const guarded = await connection.start('Refund-4822', 'refund_review:1');
+```
+
+The start signature is `start(label, contractName, options)`. The label describes
+this run; the second argument selects its contract. Obtain the thread ID from the
+Engine and share it when another authorized service joins the run.
+
+## Record evidence
+
+```javascript
+await observed.step('refund_requested')
+  .idempotencyKey('refund-4821-request')
+  .addContext({ payment_reference: 'PAY-12345678', amount: '19.99' })
+  .success();
+```
+
+Use `.addContext(...)` for the submitted details. Context is a flat map of string
+values; use stable field names that match the contract. Report success, business
+failure, or technical error accurately. Do not record a success for an action
+that did not complete.
+
+## Require an explicit check where needed
+
+```javascript
+// The contract must define this step and the caller's role.
+await guarded.waitFor('refund_issued', { timeout: 10000 });
+
+// This is the application's action, not an action run by Threadify.
+const outcome = await issueRefund();
+await guarded.step('refund_issued')
+  .addContext(outcome)
+  .success('Refund issued', { waitFor: true });
+```
+
+Do not continue after a rejected or timed-out permission request. A name-only
+permission check cannot validate future content. Content checks happen on
+submission; awaiting validation afterward cannot undo the external action.
+Use the same thread instance to report the granted invocation.
+
+Gherkin is the primary contract format. It supports regex checks and comparisons
+with earlier successful steps. Require a fresh approval before every invocation
+when retries must not reuse an earlier approval. Keep repeatable steps nonterminal.
+
+## Read results and respond deliberately
+
+```javascript
+connection.subscribe('rule.violated', 'refund_issued', notification => {
+  console.log('Review rule violation:', notification.severity);
   notification.ack();
 });
 ```
 
-### Joining Threads
-```javascript
-// With invitation token
-const thread = await connection.join(invitationToken);
+The application chooses whether to alert a team, retry, or take another action.
+Treat the recorded history as evidence, not as proof of unobserved activity.
+Entity profiles can connect history across runs for a customer, agent, or partner.
 
-// Direct join (internal services)
-const thread = await connection.join(threadId, 'participant');
-```
+## Guides
 
-## Step Naming Conventions
-- Use snake_case: `order_placed`, `payment_processed`
-- Be descriptive: `validate_inventory` not `step1`
-- Use past tense: `order_placed` not `place_order`
-
-## Context Best Practices
-- Keep it flat (no nested objects)
-- Use descriptive keys: `customer_id` not `cid`
-- All values become strings automatically
-- Include relevant business data for querying later
-
-## Reference Documentation
-- Full docs: https://docs.threadify.dev
-- Quickstart: https://docs.threadify.dev/quickstart
-- API Reference: https://docs.threadify.dev/api-reference/overview
-- AI Guide: See AI.md in this repository
+- [Core concepts and Gherkin examples](https://threadify.dev/AI.md)
+- [JavaScript SDK syntax](https://threadify.dev/AI-javascript.md)
+- [Python SDK syntax](https://threadify.dev/AI-python.md)
+- [Go SDK syntax](https://threadify.dev/AI-go.md)

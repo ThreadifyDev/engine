@@ -5,7 +5,7 @@ import Footer from "~/components/homepage/Footer";
 
 export const meta: MetaFunction = () => [
   { title: "Licensing — Threadify" },
-  { name: "description", content: "Get a Threadify license and run it on your own infrastructure." },
+  { name: "description", content: "Run a shared workflow referee on your own infrastructure. Get a Threadify license to follow execution, check rules, and keep the evidence." },
 ];
 
 export default function Pricing() {
@@ -19,18 +19,18 @@ export default function Pricing() {
       </header>
       <main className="max-w-3xl mx-auto px-6 py-24 flex-1">
         <p className="text-sm font-medium text-gray-500 uppercase tracking-widest">Threadify licensing</p>
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mt-5">Your infrastructure. Your delivery intelligence.</h1>
-        <p className="text-lg text-gray-600 mt-6 leading-relaxed">Start with a Dev license and run Threadify on your own infrastructure.</p>
+        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mt-5">Your workflows. Your rules. Your infrastructure.</h1>
+        <p className="text-lg text-gray-600 mt-6 leading-relaxed">Start with a Dev license. Bring the work your services and agents already do into one record, then choose the rules you want Threadify to check.</p>
         <ol className="mt-10 space-y-4 list-decimal pl-5 text-gray-700">
           <li>Create your account and verify your email.</li>
-          <li>Install the Engine and add your license to config.yaml.</li>
-          <li>Connect your services with a Threadify SDK or OpenTelemetry.</li>
+          <li>Run Threadify on your own infrastructure with your license.</li>
+          <li>Connect a service or agent, follow one workflow, and add its rules.</li>
         </ol>
         <div className="flex flex-wrap items-center gap-5 mt-10">
           <Link to="/signup" className="px-6 py-3 rounded-full bg-black text-white font-medium hover:bg-gray-800">Get a license</Link>
           <a href="https://docs.threadify.dev" className="font-medium underline underline-offset-4">Installation guide</a>
         </div>
-        <p className="mt-8 text-sm text-gray-500">Sign in to your dashboard at the URL where you host your Engine.</p>
+        <p className="mt-8 text-sm text-gray-500">Your dashboard runs with your Threadify Engine. Review recorded work and rule checks there; your applications decide how to respond.</p>
       </main>
       <Footer />
     </div>

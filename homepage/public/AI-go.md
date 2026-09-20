@@ -4,6 +4,11 @@
 
 This file contains **Go-specific syntax only**. For concepts, see AI.md.
 
+Threadify follows work your services and agents already perform. Bind a contract
+when rules are needed; use recorded steps for evidence and explicitly await a
+permission check where the application must wait before acting. Recording
+telemetry alone does not stop actions or guarantee a rule passed.
+
 ---
 
 ## Installation
@@ -37,7 +42,7 @@ defer conn.Close()
 // With options
 conn, err := threadify.Connect(ctx, "api-key",
     threadify.WithServiceName("my-service"),
-    threadify.WithWSURL("wss://eng.threadify.dev/threads"),
+    threadify.WithWSURL("wss://your-threadify-engine.example/threads"),
     threadify.WithDebug(true),
 )
 ```
@@ -66,7 +71,7 @@ if err != nil {
     log.Fatal(err)
 }
 
-// ONLY if user explicitly asks for contracts:
+// Bind a contract when workflow rules are needed:
 // thread, err := conn.Start(ctx, "Order-789", "order_fulfillment")
 ```
 
@@ -321,7 +326,7 @@ if err != nil {
     log.Fatal(err)
 }
 
-// Advanced (contract-only): Subscribe to contract validation events
+// For contracted threads: Subscribe to rule-check results
 err = conn.Subscribe(ctx, "rule.violated", "payment_processed", func(n *threadify.Notification) {
     fmt.Println("Violation:", n.Severity)
 

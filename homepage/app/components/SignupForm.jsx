@@ -114,12 +114,12 @@ export default function SignupForm({ recaptchaSiteKey = "", available = true }) 
       <div className="access-request-shell">
         <div className="access-request-copy">
           <p className="access-request-kicker">Start with Threadify</p>
-          <h1>Start seeing the whole story.</h1>
-          <p>Follow every customer request across your services. Get your license, configure your Engine, and start tracing.</p>
+          <h1>Give your workflows a shared referee.</h1>
+          <p>Follow work across your services and AI agents, check the rules, and keep the evidence behind each result. Start with one workflow on your own infrastructure.</p>
           <div className="access-request-points">
             <div className="access-request-point"><span><Check size={13}/></span>Your license key is shown once</div>
             <div className="access-request-point"><span><Check size={13}/></span>Your data stays in your infrastructure</div>
-            <div className="access-request-point"><span><Check size={13}/></span>Self-host whenever you prefer</div>
+            <div className="access-request-point"><span><Check size={13}/></span>Start with one workflow and its rules</div>
           </div>
         </div>
         <div className="access-form-card">
@@ -135,7 +135,7 @@ export default function SignupForm({ recaptchaSiteKey = "", available = true }) 
                 <div className="signup-key-value"><code>{result.api_key}</code><button type="button" onClick={copyKey} aria-label="Copy license key"><Copy size={16}/></button></div>
                 <p>{copied ? "Copied to clipboard." : "Store this in your password manager before leaving this page."}</p>
               </div> : null}
-              <div className="signup-progress"><div className="signup-progress-head"><strong>Ready to self-host</strong></div><p>Set registry.license_key in Threadify’s config.yaml. Open your Engine’s URL to sign in.</p><a href="https://docs.threadify.dev" target="_blank" rel="noreferrer">Install and configure Threadify <ArrowRight size={14}/></a></div>
+              <div className="signup-progress"><div className="signup-progress-head"><strong>Ready to self-host</strong></div><p>Use your license to start the Threadify Engine. Open its dashboard, connect a service, and choose the first workflow you want to follow.</p><a href="https://docs.threadify.dev" target="_blank" rel="noreferrer">Install and configure Threadify <ArrowRight size={14}/></a></div>
             </div>
           ) : (
             <>
@@ -157,7 +157,7 @@ export default function SignupForm({ recaptchaSiteKey = "", available = true }) 
                 <button className="access-submit" type="submit" disabled={!available || formState === "submitting"}>{formState === "submitting" ? <><span className="access-spinner"/>Processing…</> : <>{verificationEmail ? "Verify email & create account" : "Send verification code"} <ArrowRight size={16}/></>}</button>
                 {/* Keep resending after the primary submit so Enter in the code field verifies it. */}
                 {verificationEmail && <button className="signup-resend" type="submit" name="intent" value="resend" formNoValidate disabled={!available || formState === "submitting"}>Send a new code</button>}
-                <p className="access-privacy"><KeyRound size={10}/> Your key is returned once over a no-store response. Paid plans are enabled separately.</p>
+                <p className="access-privacy"><KeyRound size={10}/> Save your license key when it appears; it is shown only once. Paid plans are enabled separately.</p>
               </form>
             </>
           )}

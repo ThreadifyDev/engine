@@ -291,13 +291,26 @@ func runStandalone(t *testing.T, shared bool) {
 			t.Fatal(err)
 		}
 	}
-	// Opt-in SDK performance run reuses the isolated binary/Registry fixture.
-	if output := os.Getenv("THREADIFY_PERF_OUTPUT"); output != "" {
+	// Opt-in workloads reuse the isolated binary/Registry fixture.
+	output := os.Getenv("THREADIFY_PERF_OUTPUT")
+	profileOutput := os.Getenv("THREADIFY_PROFILE_WORKLOAD_OUTPUT")
+	if profileOutput != "" {
+		output = profileOutput
+	}
+	if output != "" {
 		script, err := sdkSmokeScript("performance-wait.mjs")
 		if err != nil {
 			t.Fatal(err)
 		}
+		sdkDir := filepath.Dir(filepath.Dir(script))
+		if profileOutput != "" {
+			script, err = filepath.Abs("../../scripts/entity-profile-workload.mjs")
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
 		cmd := exec.Command("node", script, apiURL, apiKey, output)
+		cmd.Env = append(os.Environ(), "THREADIFY_PROFILE_SDK="+sdkDir)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("SDK performance run: %v", err)

@@ -4,6 +4,11 @@
 
 This file contains **JavaScript-specific syntax only**. For concepts, see AI.md.
 
+Threadify follows work your services and agents already perform. Bind a contract
+when rules are needed; use recorded steps for evidence and explicitly await a
+permission check where the application must wait before acting. Recording
+telemetry alone does not stop actions or guarantee a rule passed.
+
 ---
 
 ## Installation
@@ -28,7 +33,7 @@ const connection = await Threadify.connect('api-key', 'my-service');
 
 // With options
 const connection = await Threadify.connect('api-key', 'my-service', {
-  wsUrl: 'wss://eng.threadify.dev/threads',
+  wsUrl: 'wss://your-threadify-engine.example/threads',
   debug: true
 });
 ```
@@ -44,7 +49,7 @@ const thread = await connection.start('Order-789', '', { serviceName: 'merchant-
 // With tags (immutable labels for filtering)
 const thread = await connection.start('Order-789', '', { tags: ['production', 'v2.1'] });
 
-// ONLY if user explicitly asks for contracts:
+// Bind a contract when workflow rules are needed:
 // const thread = await connection.start('Order-789', 'order_fulfillment');
 ```
 
@@ -202,7 +207,7 @@ connection.subscribe('step.success', 'order_placed', (notification) => {
   notification.ack();
 });
 
-// Advanced (contract-only): Subscribe to contract validation events
+// For contracted threads: Subscribe to rule-check results
 connection.subscribe('rule.violated', 'payment_processed', (notification) => {
   console.log('Violation:', notification.severity);
   notification.ack();
@@ -365,3 +370,27 @@ try {
     .failed();
 }
 ```
+
+
+## Optional Contract Checks Before and After an Action
+
+For a thread bound to a contract containing `refund_issued`:
+
+```javascript
+// Rejecting or timing out is not permission to continue.
+await thread.waitFor("refund_issued", { timeout: 10000 });
+
+// Your application's function performs the external action.
+const result = await issueRefund();
+
+// Await validation of the exact reported outcome.
+await thread.step("refund_issued")
+  .addContext(result)
+  .success("Refund issued", { waitFor: true, timeout: 10000 });
+```
+
+`waitFor` checks flow eligibility, not future content. Content rules, including
+regex patterns, are checked when details are submitted. Waiting for validation
+after an action cannot undo it. Without these explicit waits, event recording
+remains asynchronous. See [contracts](https://threadify.dev/AI.md#11-contracts--when-rules-are-requested)
+for authoring and repeated-action rules.
