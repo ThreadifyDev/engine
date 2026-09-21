@@ -292,8 +292,8 @@ For repeated actions, `step "approval" must succeed before each invocation`
 requires a fresh approval. A repeatable action must not be terminal; use a
 separate finishing step.
 
-See the [contract vocabulary](https://github.com/creativeJoe007/ThreadifyEngine/blob/main/threadify-go/docs/GHERKIN_CONTRACTS.md)
-and [execution waits](https://github.com/creativeJoe007/ThreadifyEngine/blob/main/threadify-go/docs/WAIT_FOR.md).
+See the [contract vocabulary](https://github.com/ThreadifyDev/engine/blob/main/threadify-go/docs/GHERKIN_CONTRACTS.md)
+and [execution waits](https://github.com/ThreadifyDev/engine/blob/main/threadify-go/docs/WAIT_FOR.md).
 
 ---
 

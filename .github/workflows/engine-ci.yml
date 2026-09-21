@@ -145,7 +145,7 @@ jobs:
         run: |
           ./dist/threadify_linux_amd64_v1/threadify --version
           (cd dist && sha256sum --check checksums.txt)
-          docker run --rm ghcr.io/creativejoe007/threadify-engine:v0.0.0-amd64 --version
+          docker run --rm ghcr.io/threadifydev/engine:v0.0.0-amd64 --version
       - name: Test compiled binary with disposable PostgreSQL and Valkey
         working-directory: threadify-go/tests
         env:

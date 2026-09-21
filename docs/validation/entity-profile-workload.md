@@ -61,7 +61,7 @@ The fixture creates temporary Engine configurations, credentials and Registry se
 
 The original workload database remains intact. A private PostgreSQL backup and a separate working database were created for the dashboard demonstration. The working copy retains the old test broker checkpoint under a separate table name and uses its own persistent JetStream state. No thread, step, profile or validation record was deleted.
 
-The revised [71-second walkthrough](../../homepage/public/media/entity-profile-walkthrough.mp4) records actual in-app browser interactions: profile metric configuration, the failed-refund metric editor, metric results, delivery health, run history, and a recovered failed step with its context. It includes the simplified profile header. Captions and a cursor overlay following the recorded interaction positions make the tour easier to follow. No metric configuration was saved or changed during recording. Synthetic workload data remains preserved.
+The revised [71-second walkthrough](https://player.mux.com/qX87EoG4o8zpQULQJ3OPYJPGU2K2GATmFyCLzaLPPus) records actual in-app browser interactions: profile metric configuration, the failed-refund metric editor, metric results, delivery health, run history, and a recovered failed step with its context. It includes the simplified profile header. Captions and a cursor overlay following the recorded interaction positions make the tour easier to follow. No metric configuration was saved or changed during recording. Synthetic workload data remains preserved.
 
 Live inspection also exposed two display/notification issues:
 
@@ -72,4 +72,4 @@ Validation: GraphQL and service package tests passed; three dashboard rendering 
 
 ## Hosted walkthrough
 
-The homepage embeds the [Mux-hosted walkthrough](https://player.mux.com/qX87EoG4o8zpQULQJ3OPYJPGU2K2GATmFyCLzaLPPus). Playback ID: `qX87EoG4o8zpQULQJ3OPYJPGU2K2GATmFyCLzaLPPus`. Mux asset ID: `rjmc01V700yjJcVcI5qtE01q98YFwNMoJkn7rKDAkg9KGE`. The original local MP4, captions and poster are retained in `homepage/public/media/`.
+The homepage embeds the [Mux-hosted walkthrough](https://player.mux.com/qX87EoG4o8zpQULQJ3OPYJPGU2K2GATmFyCLzaLPPus). Playback ID: `qX87EoG4o8zpQULQJ3OPYJPGU2K2GATmFyCLzaLPPus`. Mux asset ID: `rjmc01V700yjJcVcI5qtE01q98YFwNMoJkn7rKDAkg9KGE`. Unused local video assets and recording intermediates were removed after verifying public Mux playback. The workload data and database backup remain preserved.

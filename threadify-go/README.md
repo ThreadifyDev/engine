@@ -16,7 +16,7 @@ Download a verified release binary without a Go toolchain:
 
 ```sh
 curl --fail --show-error --location --proto '=https' --proto-redir '=https' \
-  https://github.com/creativeJoe007/ThreadifyEngine/releases/latest/download/install.sh \
+  https://github.com/ThreadifyDev/engine/releases/latest/download/install.sh \
   --output install.sh
 sh install.sh
 ```

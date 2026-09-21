@@ -47,7 +47,7 @@ checksum:
   name_template: checksums.txt
 
 dockers_v2:
-  - images: [ghcr.io/creativejoe007/threadify-engine]
+  - images: [ghcr.io/threadifydev/engine]
     tags:
       - "{{ .Tag }}"
       - "{{ if not .IsSnapshot }}latest{{ end }}"
@@ -58,15 +58,15 @@ dockers_v2:
       - config/config.selfhost.yaml
       - config/subscription.selfhost.yaml
     labels:
-      org.opencontainers.image.source: https://github.com/creativeJoe007/ThreadifyEngine
+      org.opencontainers.image.source: https://github.com/ThreadifyDev/engine
       org.opencontainers.image.title: Threadify engine
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
 
 release:
   github:
-    owner: creativeJoe007
-    name: ThreadifyEngine
+    owner: ThreadifyDev
+    name: engine
   name_template: "Threadify engine {{ .Tag }}"
   replace_existing_artifacts: true
 

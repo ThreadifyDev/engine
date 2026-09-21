@@ -32,12 +32,12 @@ print(os.environ['TEST_OS' if sys.argv[1] == '-s' else 'TEST_ARCH'])
         self.command("curl", """import os,sys,shutil
 from pathlib import Path
 a=sys.argv[1:]; url=a[-1]
-assert url.startswith('https://github.com/creativeJoe007/ThreadifyEngine/releases/')
+assert url.startswith('https://github.com/ThreadifyDev/engine/releases/')
 assert '--proto' in a and a[a.index('--proto')+1] == '=https'
 assert '--proto-redir' in a and a[a.index('--proto-redir')+1] == '=https'
 if os.environ.get('FAIL_DOWNLOAD'): sys.exit(22)
 if url.endswith('/latest'):
-    print('https://github.com/creativeJoe007/ThreadifyEngine/releases/tag/v1.2.3',end='')
+    print('https://github.com/ThreadifyDev/engine/releases/tag/v1.2.3',end='')
 else:
     assert '/download/v1.2.3/' in url
     source=Path(os.environ['FIXTURES']) / url.rsplit('/',1)[1]
