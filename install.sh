@@ -60,7 +60,7 @@ else
   fail 'sha256sum or shasum is required to verify the download'
 fi
 
-release_root=https://github.com/creativeJoe007/ThreadifyEngine/releases
+release_root=https://github.com/ThreadifyDev/engine/releases
 if [ "$version" = latest ]; then
   # Follow GitHub's canonical release redirect; no JSON parser or GitHub token is needed.
   resolved=$(curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 --connect-timeout 15 --max-time 120 --output /dev/null --write-out '%{url_effective}' "$release_root/latest") || fail 'Could not resolve the latest release'

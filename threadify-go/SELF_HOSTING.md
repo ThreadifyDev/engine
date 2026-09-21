@@ -15,7 +15,7 @@ Download the installer from the latest Engine release, then run it:
 
 ```sh
 curl --fail --show-error --location --proto '=https' --proto-redir '=https' \
-  https://github.com/creativeJoe007/ThreadifyEngine/releases/latest/download/install.sh \
+  https://github.com/ThreadifyDev/engine/releases/latest/download/install.sh \
   --output install.sh
 sh install.sh
 ```
@@ -156,7 +156,7 @@ templates. Extract the archive, configure it as described below, then run
 `.\threadify.exe --config .\config\config.yaml`). `--version` prints the version
 and source commit without connecting to services.
 
-The workflow also publishes `ghcr.io/creativejoe007/threadify-engine:vVERSION`
+The workflow also publishes `ghcr.io/threadifydev/engine:vVERSION`
 and `:latest`. This Linux AMD64 image wraps the exact Linux release executable;
 `Dockerfile.goreleaser` does not compile it again. It runs as UID 65532, exposes
 port 8081, and stores NATS in `/data/jetstream` and Valkey in `/data/valkey` on a persistent

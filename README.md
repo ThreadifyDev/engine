@@ -33,14 +33,14 @@ and save your Threadify license key.
 
 ```sh
 curl -fsSL --proto '=https' --proto-redir '=https' \
-  https://github.com/creativeJoe007/ThreadifyEngine/releases/latest/download/install.sh \
+  https://github.com/ThreadifyDev/engine/releases/latest/download/install.sh \
   -o install.sh
 sh install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Available for **macOS ARM64**, **Linux AMD64**, and **Windows AMD64** (Git Bash).
-[Download release archives](https://github.com/creativeJoe007/ThreadifyEngine/releases) for manual installation.
+[Download release archives](https://github.com/ThreadifyDev/engine/releases) for manual installation.
 
 ### 3. Configure with YAML
 
@@ -96,7 +96,7 @@ or send OTLP/HTTP traces to `/v1/traces` with a Threadify API key.
 
 The dashboard ships inside the Engine binary. The CLI is installed separately.
 The Docker image is
-`ghcr.io/creativejoe007/threadify-engine:latest`.
+`ghcr.io/threadifydev/engine:latest`.
 
 [Engine development and tests](threadify-go/README.md)
 
