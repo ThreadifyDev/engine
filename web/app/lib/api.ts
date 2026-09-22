@@ -307,6 +307,18 @@ class ApiClient {
     return session;
   }
 
+  getIngestionRules(): Promise<IngestionRules> {
+    return this.request('/engine/ingestion-rules');
+  }
+
+  saveIngestionRules(filters: string[], revision: string): Promise<IngestionRules> {
+    return this.request('/engine/ingestion-rules', { method: 'PUT', body: JSON.stringify({ filters, revision }) });
+  }
+
+  previewIngestionRules(filters: string[], span_names: string[]): Promise<IngestionPreview> {
+    return this.request('/engine/ingestion-rules/preview', { method: 'POST', body: JSON.stringify({ filters, span_names }) });
+  }
+
   getEngineSettings(): Promise<EngineSettings> {
     return this.request('/engine/settings');
   }
@@ -762,4 +774,18 @@ export interface EngineUser {
   full_name: string;
   status: 'invited' | 'active' | 'suspended' | 'archived';
   roles: string[];
+}
+
+export interface IngestionRules {
+  filters: string[];
+  revision: string;
+  updated_at?: string;
+  evaluated_spans: number;
+  dropped_spans: number;
+  can_manage: boolean;
+}
+export interface IngestionPreview {
+  spans: { name: string; drop: boolean; pattern?: string }[];
+  dropped: number;
+  kept: number;
 }
