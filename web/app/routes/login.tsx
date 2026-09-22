@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from '~/lib/api';
 import { purgeLegacyToken } from '~/lib/browser-session';
+import { MANAGED_SIGN_IN_ERROR, managedLoginURL, waitForManagedLogin } from '~/lib/managed-login';
 
 /** Both login methods exchange authority for an Engine-owned HttpOnly session. */
 function afterLogin() {
@@ -12,6 +13,7 @@ export default function Login() {
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [managedRetry, setManagedRetry] = useState(false);
   const controller = useRef<AbortController | null>(null);
   const popup = useRef<Window | null>(null);
 
@@ -29,31 +31,29 @@ export default function Login() {
     finally { setBusy(false); }
   }
 
+  function failManagedLogin() {
+    setError(MANAGED_SIGN_IN_ERROR);
+    setManagedRetry(true);
+  }
+
   async function managed() {
     const tab = window.open('about:blank', '_blank');
-    if (!tab) { setError('Allow a new tab to open, then try signing in again.'); return; }
-    tab.opener = null; popup.current = tab;
+    if (!tab) { failManagedLogin(); return; }
+    try { tab.opener = null; }
+    catch { tab.close(); failManagedLogin(); return; }
+    popup.current = tab;
     const abort = new AbortController(); controller.current?.abort(); controller.current = abort;
     setBusy(true); setError('');
     try {
       const transaction = await api.startManagedLogin();
       if (abort.signal.aborted) return;
-      tab.location.replace(transaction.verification_url);
-      let failures = 0;
-      while (!abort.signal.aborted && Date.now() < Date.parse(transaction.expires_at)) {
-        try {
-          const result = await api.pollManagedLogin(transaction.transaction_id, transaction.poll_token, abort.signal);
-          failures = 0;
-          if (result.status === 'authenticated') {
-            await api.session(); tab.close(); window.location.replace(afterLogin()); return;
-          }
-        } catch (e) { if (abort.signal.aborted) return; if (++failures >= 3) throw e; }
-        if (tab.closed) throw new Error('closed');
-        await new Promise(resolve => window.setTimeout(resolve, 1500));
-      }
-      if (!abort.signal.aborted) setError('Sign-in expired. Please try again.');
-    } catch { if (!abort.signal.aborted) setError('Sign-in could not be completed. Please try again.'); }
-    finally { tab.close(); setBusy(false); }
+      tab.location.replace(managedLoginURL(transaction.verification_url, managedRetry));
+      await waitForManagedLogin(transaction, abort.signal, api.pollManagedLogin.bind(api));
+      const session = await api.session();
+      if (!session.authenticated) throw new Error('managed_login_internal_error');
+      if (!abort.signal.aborted) window.location.replace(afterLogin());
+    } catch { if (!abort.signal.aborted) failManagedLogin(); }
+    finally { tab.close(); popup.current = null; setBusy(false); }
   }
 
   return <main className="min-h-screen bg-white flex items-center justify-center px-4">
@@ -63,9 +63,10 @@ export default function Login() {
         <h2 className="text-xl font-semibold">Sign in to your Engine</h2>
         <p className="text-sm text-gray-600">Use your Fused account with email or SSO.</p>
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-        <button type="button" disabled={busy} onClick={managed} className="w-full rounded bg-black px-4 py-3 text-white disabled:opacity-50">
-          {busy ? 'Waiting for sign-in…' : 'Continue with email or SSO'}
+        <button type="button" disabled={busy} onClick={() => managed()} className="w-full rounded bg-black px-4 py-3 text-white disabled:opacity-50">
+          {busy ? 'Waiting for sign-in…' : managedRetry ? 'Revalidate sign-in' : 'Continue with email or SSO'}
         </button>
+        {busy && popup.current && <button type="button" onClick={() => controller.current?.abort()} className="text-sm text-gray-600 underline">Cancel sign-in</button>}
         <div className="border-t pt-5">
           <form onSubmit={exchange} className="space-y-3">
             <label htmlFor="api-key" className="block text-sm font-medium">API key</label>
