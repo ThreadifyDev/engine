@@ -100,21 +100,12 @@ func TestLiveRegistryFailureScenarios(t *testing.T) {
 	if err = v.ReadInConfig(); err != nil {
 		t.Fatal(err)
 	}
-	subscription, err := os.Open("../../config/subscription.selfhost.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = v.MergeConfig(subscription)
-	subscription.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
 	for key, value := range map[string]any{
 		"registry.url": env["REGISTRY_URL"], "registry.license_key": env["LICENSE_KEY"], "registry.company_id": env["ACCOUNT_ID"],
 		"server.host": "127.0.0.1", "server.port": httpPort, "postgres.url": env["POSTGRES_URL"],
 		"redis.url": fmt.Sprintf("redis://%s/%d", env["VALKEY_ADDR"], redisDB),
 		"nats.mode": "embedded", "nats.store_dir": filepath.Join(work, "jetstream"), "rate_limit.enabled": false, "rate_limit.ip_rate_limit_enabled": false,
-		"jwks.url": "http://127.0.0.1:1/unused-jwks", "supabase.url": "", "billing.provider": "noop",
+		"jwks.url": "http://127.0.0.1:1/unused-jwks", "supabase.url": "",
 		"security.hash_chain_secrets.v1":    "isolated-live-test-not-a-production-secret",
 		"archiver.streams.block_timeout_ms": 100, "archiver.streams.step_state_flush_interval_ms": 100,
 	} {

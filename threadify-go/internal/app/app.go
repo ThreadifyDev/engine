@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,14 +15,12 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/gin-gonic/gin"
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 	"go.uber.org/zap"
 
 	sharedauth "threadify-go/shared/auth"
-	"threadify-go/shared/billing"
 	"threadify-go/shared/rbac"
 	sharedrepo "threadify-go/shared/repository"
 
@@ -105,22 +102,20 @@ func (i *infra) close() {
 }
 
 type services struct {
-	manager             *service.ServiceManager
-	auth                *service.AuthService
-	thread              *service.ThreadService
-	otelTrace           *service.OTelTraceService
-	stepEvent           *service.StepEventService
-	threadAccess        *service.ThreadAccessService
-	plan                *service.PlanService
-	contract            *service.ContractService
-	invitation          *service.InvitationTokenService
-	billingOrchestrator *service.BillingOrchestrator
-	luaScriptManager    *valkey.LuaScriptManager
-	rbacLoader          *rbac.Loader
+	manager          *service.ServiceManager
+	auth             *service.AuthService
+	thread           *service.ThreadService
+	otelTrace        *service.OTelTraceService
+	stepEvent        *service.StepEventService
+	threadAccess     *service.ThreadAccessService
+	plan             domain.PlanService
+	contract         *service.ContractService
+	invitation       *service.InvitationTokenService
+	luaScriptManager *valkey.LuaScriptManager
+	rbacLoader       *rbac.Loader
 }
 
 type appHandlers struct {
-	webhookHandler  *handlers.WebhookHandler
 	wsHandler       *handlers.WebSocketHandler
 	otlpTrace       *handlers.OTLPTraceHandler
 	contractHandler *handlers.ContractHandler
@@ -380,8 +375,6 @@ type repositories struct {
 	actor             *postgres.ActorRepository
 	notification      *postgres.ThreadNotificationRepository
 	subStep           *postgres.SubStepRepository
-	billing           *postgres.BillingRepository
-	plan              *sharedrepo.PlanRepo
 	entityProfile     *sharedrepo.EntityProfileRepo
 	entityProfileType sharedrepo.EntityProfileTypeRepository
 	metrics           *postgres.MetricsRepository
@@ -417,8 +410,6 @@ func initRepositories(
 	r.actor = postgres.NewActorRepository(inf.db.Pool)
 	r.notification = postgres.NewThreadNotificationRepository(inf.db.Pool)
 	r.subStep = postgres.NewSubStepRepository(inf.db.Pool)
-	r.billing = postgres.NewBillingRepository(inf.db.Pool)
-	r.plan = sharedrepo.NewPlanRepo(inf.db.Pool)
 	r.entityProfile = sharedrepo.NewEntityProfileRepo(inf.db.Pool)
 	r.entityProfileType = sharedrepo.NewEntityProfileTypeRepository(inf.db.Pool)
 	r.metrics = postgres.NewMetricsRepository(inf.db.Pool, inf.valkey, logger)
@@ -497,39 +488,15 @@ func initServices(
 		luaScriptManager, rbacLoader, logger,
 	)
 
-	// --- plan ---
-	planSvc := service.NewPlanService(
-		repos.plan, repos.contract, repos.actor,
-		&cfg.Subscription, inf.valkey, inf.valkey, inf.valkey, inf.valkey, luaScriptManager, logger, cfg.Cache.PlanTTLMs,
-	)
+	// Registry supplies all limits; no local credit billing services are started.
+	planSvc := service.NewRegistryPlanService()
 	svcs.plan = planSvc
-
-	usageOutboxRelay := service.NewUsageOutboxRelay(inf.valkey, repos.natsArchival, logger)
-	sm.Register(usageOutboxRelay)
-
-	// --- billing ---
-	billingProvider, err := billing.InitializeProvider(cfg.Billing)
-	if err != nil {
-		return nil, fmt.Errorf("initialize billing provider: %w", err)
-	}
-	billingOrchestrator := service.NewBillingOrchestrator(
-		billingProvider, repos.plan, repos.billing,
-		&cfg.Subscription, &cfg.Billing,
-		inf.valkey, inf.valkey, inf.valkey, planSvc, logger,
-	)
-	svcs.billingOrchestrator = billingOrchestrator
-
-	natsClient := inf.natsPool.GetClient()
-	js, err := jetstream.New(natsClient.Conn())
-	if err != nil {
-		return nil, fmt.Errorf("init jetstream: %w", err)
-	}
-	_ = js // Legacy credit billing jobs no longer run; Registry owns billing.
 
 	// --- contract ---
 	svcs.contract = service.NewContractService(repos.contract, planSvc, logger)
 
 	// --- thread ---
+	natsClient := inf.natsPool.GetClient()
 	contractTTL := int(time.Duration(cfg.Cache.ContractTTLMs) * time.Millisecond / time.Second)
 	svcs.thread = service.NewThreadService(cfg,
 		inf.db, inf.valkey, stepEventSvc,
@@ -558,12 +525,6 @@ func initHandlers(
 	logger *zap.Logger,
 ) (*appHandlers, error) {
 	h := &appHandlers{}
-
-	billingProvider, err := billing.InitializeProvider(cfg.Billing)
-	if err != nil {
-		return nil, fmt.Errorf("init billing provider for webhook: %w", err)
-	}
-	h.webhookHandler = handlers.NewWebhookHandler(billingProvider, svcs.billingOrchestrator, logger)
 
 	h.contractHandler = handlers.NewContractHandler(svcs.contract, logger)
 
@@ -615,7 +576,6 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	// Infrastructure endpoints.
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/health", healthHandler(inf))
-	r.POST("/webhook", hdlrs.webhookHandler.HandleWebhook)
 
 	// WebSocket.
 	r.GET("/threads", hdlrs.wsHandler.HandleWebSocket)
@@ -803,8 +763,8 @@ func LoadConfig() (*config.Config, error) {
 	return LoadConfigPath(os.Getenv("CONFIG_PATH"))
 }
 
-// LoadConfigPath resolves subscription.yaml next to the selected configuration,
-// allowing the executable to run independently of its source working directory.
+// LoadConfigPath loads the selected Engine configuration independently of the
+// source working directory. Plan allowances come exclusively from Registry.
 func LoadConfigPath(path string) (*config.Config, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
@@ -820,16 +780,6 @@ func LoadConfigPath(path string) (*config.Config, error) {
 	}
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
-	}
-	subscriptionPath := filepath.Join(filepath.Dir(v.ConfigFileUsed()), "subscription.yaml")
-	f, err := os.Open(subscriptionPath)
-	if err == nil {
-		defer f.Close()
-		if err := v.MergeConfig(f); err != nil {
-			return nil, fmt.Errorf("merge subscription config: %w", err)
-		}
-	} else if !os.IsNotExist(err) || !v.IsSet("subscription") {
-		return nil, fmt.Errorf("read subscription config: %w", err)
 	}
 	return config.LoadFromViper(v)
 }

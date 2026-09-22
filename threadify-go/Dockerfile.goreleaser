@@ -10,7 +10,6 @@ COPY ${TARGETPLATFORM}/threadify /app/threadify
 COPY --chmod=755 bundle/linux_amd64/valkey-server /app/libexec/valkey-server
 COPY bundle/linux_amd64/VALKEY-LICENSES.txt /app/libexec/VALKEY-LICENSES.txt
 COPY config/config.selfhost.yaml /app/config/config.yaml
-COPY config/subscription.selfhost.yaml /app/config/subscription.yaml
 COPY --from=data --chown=65532:65532 /data /data
 ENV CONFIG_PATH=/app/config/config.yaml NATS_STORE_DIR=/data/jetstream REDIS_STORE_DIR=/data/valkey
 VOLUME ["/data"]

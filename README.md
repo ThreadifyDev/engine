@@ -71,7 +71,8 @@ servers, Windows, or multiple Engines. Generate the secret once
 with `openssl rand -hex 32` and retain it across restarts. The database URL above
 is for local development; configure TLS for a remote database.
 
-Keep the rest of the template and the adjacent `subscription.yaml`. YAML is the
+Keep the rest of the template. Registry supplies plan allowances; no
+`subscription.yaml` is needed. YAML is the
 main configuration file; `$ENV_VAR` references are also supported for secrets.
 
 ### 4. Start

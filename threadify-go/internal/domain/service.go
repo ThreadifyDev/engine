@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"threadify-go/shared/billing"
 	"threadify-go/shared/rbac"
 
 	sharedauth "threadify-go/shared/auth"
@@ -13,7 +12,6 @@ import (
 )
 
 //go:generate mockgen -package=enginemocks -destination=../service/mocks/engine/service_mocks.go -source=service.go
-//go:generate mockgen -package=enginemocks -destination=../service/mocks/engine/plan_service_mock.go threadify-go/shared/billing PlanService
 
 // StepEventProcessor defines the interface for step event processing
 type StepEventProcessor interface {
@@ -73,8 +71,6 @@ type BackgroundService interface {
 	Start() error
 	Stop() error
 }
-
-type PlanService = billing.PlanService
 
 // ContractValidator defines the interface for contract YAML validation
 type ContractValidator interface {

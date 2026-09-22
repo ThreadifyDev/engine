@@ -150,8 +150,7 @@ Each GitHub release contains `install.sh`, three archives and `checksums.txt`:
 | Windows | AMD64 (x86-64) | `threadify_VERSION_windows_amd64.zip` |
 
 Every archive contains `threadify` (`threadify.exe` on Windows), this guide, and
-`config/config.yaml` plus `config/subscription.yaml` copied from the self-hosting
-templates. Extract the archive, configure it as described below, then run
+`config/config.yaml` copied from the self-hosting template. Extract the archive, configure it as described below, then run
 `./threadify --config ./config/config.yaml` (PowerShell:
 `.\threadify.exe --config .\config\config.yaml`). `--version` prints the version
 and source commit without connecting to services.
@@ -197,14 +196,13 @@ The output is `bin/threadify`. GraphQL generation is an explicit development ste
 RBAC definitions, Lua scripts, and the GraphQL schema are embedded in the binary.
 No Go toolchain, source checkout, or Node runtime is needed on the target host.
 
-Create a deployment directory and copy the configuration templates into it:
+Create a deployment directory and copy the configuration template into it:
 
 ```sh
 mkdir -p "$HOME/threadify/config" "$HOME/threadify/data/jetstream"
 cp bin/threadify "$HOME/threadify/threadify"
 cp -R bin/libexec "$HOME/threadify/libexec"
 cp config/config.selfhost.yaml "$HOME/threadify/config/config.yaml"
-cp config/subscription.selfhost.yaml "$HOME/threadify/config/subscription.yaml"
 ```
 
 Edit the deployed configuration before starting:
@@ -225,8 +223,8 @@ Edit the deployed configuration before starting:
 - Set `THREADIFY_LICENSE_KEY` to a license provisioned for Threadify (or both
   products). The production Registry URL is built in; `THREADIFY_REGISTRY_URL`
   is an optional local-testing override.
-  The same key may also be used by Fused Engine. Keep `billing.provider: noop`;
-  local credit prices no longer control admission. Registry limits remain in memory.
+  The same key may also be used by Fused Engine. Local billing configuration is
+  unnecessary; Registry limits remain in memory.
 - Review HTTP host and port. The standard configuration has no CORS or local
   rate-limit fields; the incoming request allowance comes from Registry.
   The Engine serves its bundled dashboard and API routes on the same listener.
@@ -242,8 +240,9 @@ Start from any working directory using an absolute config path:
 "$HOME/threadify/threadify" --config "$HOME/threadify/config/config.yaml"
 ```
 
-Or set `CONFIG_PATH` to that file and launch the binary. Keep `subscription.yaml`
-beside it: subscription settings are loaded relative to the selected config file.
+Or set `CONFIG_PATH` to that file and launch the binary. Registry supplies the
+plan allowances; `subscription.yaml` is no longer loaded or required. Existing
+copies can be removed.
 The engine uses its existing schema initialization on startup, so its PostgreSQL
 role needs the required DDL permissions. Account/company records, API keys, and
 product access comes from Fused Registry. The handshake reconciles the local
@@ -344,8 +343,8 @@ Do not run old and new consumers against an incompatible stream configuration.
 ## Container deployment
 
 The engine Dockerfile builds the same combined executable and includes sanitized
-configuration templates. It does not include a source tree or existing local
-billing credentials. The runtime user is uid/gid 65532. A named `/data` volume
+configuration. It does not include a source tree or existing local
+credentials. The runtime user is uid/gid 65532. A named `/data` volume
 persists JetStream; host bind mounts must be writable by that user.
 
 ```sh
@@ -360,7 +359,7 @@ docker run --name threadify --stop-timeout 60 \
 ```
 
 The release image sets `NATS_STORE_DIR=/data/jetstream` for its mounted volume. The
-configuration directory must contain both `config.yaml` and `subscription.yaml`.
+configuration directory only needs `config.yaml`.
 External service addresses must be reachable from the container; `localhost`
 inside it refers to the container itself. Existing Compose deployments that mount
 configuration for an external broker must explicitly set `nats.mode: external`.

@@ -54,7 +54,7 @@ else:
         is_windows = target.startswith("windows")
         name = f"threadify_1.2.3_{target}." + ("zip" if is_windows else "tar.gz")
         archive = self.fixtures / name
-        files = {"config/config.yaml": b"server:\n  port: 8081\n", "config/subscription.yaml": b"tiers: []\n"}
+        files = {"config/config.yaml": b"server:\n  port: 8081\n"}
         if binary:
             files["threadify.exe" if is_windows else "threadify"] = b"verified test binary\n"
         if bundled:
@@ -92,6 +92,7 @@ else:
         self.run_installer()
         self.assertEqual((self.bin / "threadify").read_bytes(), b"verified test binary\n")
         self.assertTrue(os.access(self.bin / "threadify", os.X_OK))
+        self.assertFalse((self.config / "subscription.yaml").exists())
         (self.config / "config.yaml").write_text("existing operator settings")
         (self.config / "subscription.yaml").write_text("existing subscription")
         self.run_installer("--version", "1.2.3")

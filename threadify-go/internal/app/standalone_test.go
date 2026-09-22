@@ -14,9 +14,6 @@ func TestConfigurationAndAssetsOutsideSourceTree(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte("server:\n  port: 8081\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "subscription.yaml"), []byte("subscription:\n  credit:\n    ingress_cost_millicents: 17\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
 	t.Chdir(t.TempDir())
 	// The release container selects its mounted data volume without adding
 	// broker settings to the user's configuration file.
@@ -25,9 +22,6 @@ func TestConfigurationAndAssetsOutsideSourceTree(t *testing.T) {
 	cfg, err := LoadConfigPath(configPath)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if cfg.Subscription.Credit.IngressCostMillicents != 17 {
-		t.Fatal("subscription not loaded beside selected config")
 	}
 	if cfg.NATS.StoreDir != storeDir {
 		t.Fatalf("container storage override ignored: %q", cfg.NATS.StoreDir)
@@ -38,5 +32,20 @@ func TestConfigurationAndAssetsOutsideSourceTree(t *testing.T) {
 	}
 	if _, err := service.NewStepEventService(nil, nil, nil, cfg, zap.NewNop()); err != nil {
 		t.Fatalf("embedded Lua: %v", err)
+	}
+}
+
+// Old billing files must neither be required nor influence Engine configuration.
+func TestEngineIgnoresAdjacentSubscriptionFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  port: 8081\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "subscription.yaml"), []byte("invalid: [yaml"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfigPath(path); err != nil {
+		t.Fatal(err)
 	}
 }

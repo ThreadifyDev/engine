@@ -52,7 +52,6 @@ WORKDIR /app
 COPY --from=builder /app/bin/threadify /app/threadify
 COPY --from=valkey-builder /bundle /app/libexec
 COPY --from=builder /app/config/config.selfhost.yaml /app/config/config.yaml
-COPY --from=builder /app/config/subscription.selfhost.yaml /app/config/subscription.yaml
 COPY --from=builder --chown=65532:65532 /data /data
 
 ENV CONFIG_PATH=/app/config/config.yaml NATS_STORE_DIR=/data/jetstream REDIS_STORE_DIR=/data/valkey

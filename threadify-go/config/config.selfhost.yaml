@@ -1,5 +1,5 @@
 # Single-process engine with embedded NATS and persistence workers.
-# Copy subscription.selfhost.yaml beside your deployed config as subscription.yaml.
+# Plan allowances are supplied by Registry; no subscription file is required.
 # A Threadify-enabled Registry license is required; browser sign-in uses Registry identity.
 registry:
   browser_origin: "$THREADIFY_BROWSER_ORIGIN:"

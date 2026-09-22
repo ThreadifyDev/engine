@@ -38,8 +38,7 @@ To build from source instead:
 
 ```sh
 make build
-# Configure copies of config/config.selfhost.yaml and
-# config/subscription.selfhost.yaml first; deploy the latter as subscription.yaml.
+# Copy config/config.selfhost.yaml to your deployment as config.yaml and configure it.
 ./bin/threadify --config /absolute/path/to/config.yaml
 ```
 
@@ -65,7 +64,7 @@ for profiles, thread queries and automation with service-account keys.
 ```text
 cmd/server/          Combined executable entry point
 cmd/archiver/        Legacy standalone writer entry point
-config/              Runtime configuration and subscription templates
+config/              Engine configuration templates
 internal/app/        Application assembly and HTTP routing
 internal/archiver/   Persistence consumers and batching
 internal/database/   PostgreSQL schema initialization

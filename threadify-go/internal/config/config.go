@@ -3,37 +3,33 @@ package config
 import (
 	"threadify-go/shared/registry"
 	"time"
-
-	sharedconfig "threadify-go/shared/config"
 )
 
 // Config represents the complete application configuration
 type Config struct {
-	Registry           registry.Config                 `yaml:"registry" mapstructure:"registry"`
-	RuntimeMode        string                          `yaml:"runtime_mode" mapstructure:"runtime_mode"`
-	Server             ServerConfig                    `yaml:"server" mapstructure:"server"`
-	Postgres           PostgresConfig                  `yaml:"postgres" mapstructure:"postgres"`
-	Redis              RedisConfig                     `yaml:"redis" mapstructure:"redis"`
-	JWT                JWTConfig                       `yaml:"jwt" mapstructure:"jwt"`
-	Auth               AuthConfig                      `yaml:"auth" mapstructure:"auth"`
-	Queue              QueueConfig                     `yaml:"queue" mapstructure:"queue"`
-	ThreadActivities   ThreadActivitiesConfig          `yaml:"thread_activities" mapstructure:"thread_activities"`
-	Cache              CacheConfig                     `yaml:"cache" mapstructure:"cache"`
-	Invitations        InvitationsConfig               `yaml:"invitations" mapstructure:"invitations"`
-	Logging            LoggingConfig                   `yaml:"logging" mapstructure:"logging"`
-	Timeouts           TimeoutsConfig                  `yaml:"timeouts" mapstructure:"timeouts"`
-	NotificationSystem NotificationSystemConfig        `yaml:"notification_system" mapstructure:"notification_system"`
-	Archiver           ArchiverConfig                  `yaml:"archiver" mapstructure:"archiver"`
-	NATS               NATSConfig                      `yaml:"nats" mapstructure:"nats"`
-	Security           SecurityConfig                  `yaml:"security" mapstructure:"security"`
-	WebSocket          WebSocketConfig                 `yaml:"websocket" mapstructure:"websocket"`
-	WorkerPools        WorkerPoolsConfig               `yaml:"worker_pools" mapstructure:"worker_pools"`
-	Performance        PerformanceConfig               `yaml:"performance" mapstructure:"performance"`
-	JWKS               JWKSSettings                    `yaml:"jwks" mapstructure:"jwks"`
-	Supabase           SupabaseSettings                `yaml:"supabase" mapstructure:"supabase"`
-	Subscription       sharedconfig.SubscriptionConfig `yaml:"subscription" mapstructure:"subscription"`
-	Billing            sharedconfig.BillingConfig      `yaml:"billing" mapstructure:"billing"`
-	Batch              BatchConfig                     `yaml:"batch" mapstructure:"batch"`
+	Registry           registry.Config          `yaml:"registry" mapstructure:"registry"`
+	RuntimeMode        string                   `yaml:"runtime_mode" mapstructure:"runtime_mode"`
+	Server             ServerConfig             `yaml:"server" mapstructure:"server"`
+	Postgres           PostgresConfig           `yaml:"postgres" mapstructure:"postgres"`
+	Redis              RedisConfig              `yaml:"redis" mapstructure:"redis"`
+	JWT                JWTConfig                `yaml:"jwt" mapstructure:"jwt"`
+	Auth               AuthConfig               `yaml:"auth" mapstructure:"auth"`
+	Queue              QueueConfig              `yaml:"queue" mapstructure:"queue"`
+	ThreadActivities   ThreadActivitiesConfig   `yaml:"thread_activities" mapstructure:"thread_activities"`
+	Cache              CacheConfig              `yaml:"cache" mapstructure:"cache"`
+	Invitations        InvitationsConfig        `yaml:"invitations" mapstructure:"invitations"`
+	Logging            LoggingConfig            `yaml:"logging" mapstructure:"logging"`
+	Timeouts           TimeoutsConfig           `yaml:"timeouts" mapstructure:"timeouts"`
+	NotificationSystem NotificationSystemConfig `yaml:"notification_system" mapstructure:"notification_system"`
+	Archiver           ArchiverConfig           `yaml:"archiver" mapstructure:"archiver"`
+	NATS               NATSConfig               `yaml:"nats" mapstructure:"nats"`
+	Security           SecurityConfig           `yaml:"security" mapstructure:"security"`
+	WebSocket          WebSocketConfig          `yaml:"websocket" mapstructure:"websocket"`
+	WorkerPools        WorkerPoolsConfig        `yaml:"worker_pools" mapstructure:"worker_pools"`
+	Performance        PerformanceConfig        `yaml:"performance" mapstructure:"performance"`
+	JWKS               JWKSSettings             `yaml:"jwks" mapstructure:"jwks"`
+	Supabase           SupabaseSettings         `yaml:"supabase" mapstructure:"supabase"`
+	Batch              BatchConfig              `yaml:"batch" mapstructure:"batch"`
 }
 
 // ServerConfig holds server configuration
