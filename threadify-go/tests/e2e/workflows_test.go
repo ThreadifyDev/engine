@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -134,6 +135,102 @@ func TestStandaloneWorkflows(t *testing.T) {
 	}
 	evidence := map[string]any{"company_id": company, "base_url": base, "checks": map[string]bool{}}
 	checks := evidence["checks"].(map[string]bool)
+
+	t.Run("ingestion_filters", func(t *testing.T) {
+		if os.Getenv("THREADIFY_LIVE_DIR") != "" {
+			t.Skip("installation-wide rules are tested only on disposable instances")
+		}
+		binary := os.Getenv("THREADIFY_E2E_CLI_BINARY")
+		if binary == "" {
+			t.Skip("set THREADIFY_E2E_CLI_BINARY for live CLI filtering tests")
+		}
+		temp := t.TempDir()
+		cli := func(action, input string) (map[string]any, error) {
+			args := []string{"ingestion-rules", action, "--api-url", base}
+			if action != "get" {
+				args = append(args, "--file", "-")
+			}
+			cmd := exec.CommandContext(ctx, binary, args...)
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "THREADIFY_CLI_CONFIG=" + filepath.Join(temp, "cli.yaml"), "THREADIFY_API_KEY=" + key}
+			cmd.Stdin = strings.NewReader(input)
+			out, e := cmd.CombinedOutput()
+			if e != nil {
+				return nil, fmt.Errorf("CLI: %s", out)
+			}
+			var result map[string]any
+			e = json.Unmarshal(out, &result)
+			return result, e
+		}
+		initial, err := cli("get", "")
+		require.NoError(t, err)
+		update := func(revision string, filters []string) string {
+			body, e := json.Marshal(map[string]any{"revision": revision, "filters": filters})
+			require.NoError(t, e)
+			return string(body)
+		}
+		saved, err := cli("set", update(initial["revision"].(string), []string{"health*"}))
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			current, e := cli("get", "")
+			if e == nil {
+				_, e = cli("set", update(current["revision"].(string), []string{}))
+			}
+			require.NoError(t, e)
+		})
+		_, err = cli("set", update(initial["revision"].(string), []string{}))
+		require.Error(t, err)
+		preview, err := cli("preview", `{"filters":["health*"],"span_names":["healthcheck","refund"]}`)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, preview["dropped"])
+		code, data := request(t, "GET", "/v1/engine/ingestion-rules", "", nil, true)
+		require.Equal(t, 200, code, string(data))
+		require.Contains(t, string(data), saved["revision"].(string))
+		before := 0
+		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM threads WHERE company_id=$1", company).Scan(&before))
+		newSpan := func(name string) *tracepb.Span {
+			traceID, spanID := make([]byte, 16), make([]byte, 8)
+			_, e := rand.Read(traceID)
+			require.NoError(t, e)
+			_, e = rand.Read(spanID)
+			require.NoError(t, e)
+			now := time.Now()
+			return &tracepb.Span{Name: name, TraceId: traceID, SpanId: spanID, StartTimeUnixNano: uint64(now.Add(-time.Second).UnixNano()), EndTimeUnixNano: uint64(now.UnixNano()), Status: &tracepb.Status{Code: tracepb.Status_STATUS_CODE_OK}}
+		}
+		drop, keep := newSpan("healthcheck"), newSpan("refund")
+		export := func(spans ...*tracepb.Span) {
+			batch := &collectpb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{ScopeSpans: []*tracepb.ScopeSpans{{Spans: spans}}}}}
+			payload, e := proto.Marshal(batch)
+			require.NoError(t, e)
+			code, data := request(t, "POST", "/v1/traces", "application/x-protobuf", payload, true)
+			require.Equal(t, 200, code, string(data))
+			var response collectpb.ExportTraceServiceResponse
+			require.NoError(t, proto.Unmarshal(data, &response))
+			require.Nil(t, response.PartialSuccess)
+		}
+		export(drop, keep)
+		poll(t, "SELECT count(*) FROM threads WHERE company_id=$1", before+1, company)
+		export(drop) // A wholly excluded batch is a success and creates no thread.
+		var droppedThreads int
+		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM thread_refs r JOIN threads t ON t.id=r.thread_id WHERE t.company_id=$1 AND r.ref_key='otel_trace_id' AND ref_value=$2", company, hex.EncodeToString(drop.TraceId)).Scan(&droppedThreads))
+		require.Zero(t, droppedThreads)
+		stats, err := cli("get", "")
+		require.NoError(t, err)
+		require.EqualValues(t, 3, stats["evaluated_spans"])
+		require.EqualValues(t, 2, stats["dropped_spans"])
+		// SDK transport bypasses the HTTP OTLP policy, even for the same step name.
+		ws := connect(t)
+		reply := send(t, ws, map[string]any{"action": "startThread", "label": "Filter bypass test", "serviceName": "e2e-client"})
+		require.Equal(t, "success", reply["status"], reply)
+		id := reply["threadId"].(string)
+		reply = send(t, ws, map[string]any{"action": "recordThreadEvent", "threadId": id, "stepName": "healthcheck", "status": "success", "type": "managed", "actor": "e2e-client", "context": map[string]string{"source": "filter-bypass-test"}, "startedAt": time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano), "finishedAt": time.Now().UTC().Format(time.RFC3339Nano)})
+		require.Equal(t, "success", reply["status"], reply)
+		poll(t, "SELECT count(*) FROM thread_step_states WHERE thread_id=$1 AND step_name='healthcheck'", 1, id)
+		_, err = cli("set", update(stats["revision"].(string), []string{}))
+		require.NoError(t, err)
+		export(drop) // Disabled rules allow the previously excluded trace.
+		poll(t, "SELECT count(*) FROM thread_refs r JOIN threads t ON t.id=r.thread_id WHERE t.company_id=$1 AND r.ref_key='otel_trace_id' AND ref_value=$2", 1, company, hex.EncodeToString(drop.TraceId))
+		checks[t.Name()] = true
+	})
 	t.Run("sdk_parity", func(t *testing.T) { testSDKParity(t, base, key, company, pool) })
 	t.Run("management_cli", func(t *testing.T) { testManagementCLI(t, base, key, company, pool) })
 	t.Run("health", func(t *testing.T) {

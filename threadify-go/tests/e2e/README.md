@@ -147,3 +147,19 @@ checkout through `PYTHONPATH`, and skips when either SDK executable setting is
 missing. The same disposable PostgreSQL, Valkey and Registry fixture used by the
 other standalone tests is required. The parent repository must have its SDK
 submodules checked out at revisions containing the parity clients.
+
+## Engine-managed OTLP filters
+
+From `threadify-go/tests`, using freshly built Engine and CLI binaries:
+
+```sh
+THREADIFY_E2E_BINARY=/absolute/path/to/threadify \
+THREADIFY_E2E_CLI_BINARY=/absolute/path/to/threadify-cli \
+go test ./e2e -run '^TestStandaloneWorkflows$/^ingestion_filters$' -v -count=1 -timeout=4m
+```
+
+This disposable-only scenario saves and previews rules through the CLI, checks
+stale-save rejection, exports mixed and wholly excluded Protobuf batches, verifies
+that excluded traces create no threads, confirms SDK WebSocket events bypass the
+rules, and disables filtering to ingest a previously excluded trace. It never
+changes ingestion policy on a `THREADIFY_LIVE_DIR` target.

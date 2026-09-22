@@ -216,8 +216,11 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 		return nil, fmt.Errorf("initialize browser authentication: %w", err)
 	}
 	sharedauth.SetBrowserService(browser)
+	ingestionRules := valkey.NewIngestionRules(inf.valkey)
+	hdlrs.otlpTrace.WithIngestionRules(ingestionRules)
+	router := browser.IngestionRulesHandler(ingestionRules, browser.EngineSettingsHandler(cfg.Server.PublicURL, browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger))))
 	return &App{
-		Handler: dashboard.Wrap(browser.Wrap(licensed.WrapEngine(browser.EngineSettingsHandler(cfg.Server.PublicURL, browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger)))))),
+		Handler: dashboard.Wrap(browser.Wrap(licensed.WrapEngine(router))),
 		infra:   inf,
 		svcs:    svcs,
 		hdlrs:   hdlrs,

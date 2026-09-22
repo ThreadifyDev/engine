@@ -7,6 +7,7 @@ import Alert, { isCreditError } from '~/components/Alert';
 import { ProfileTab } from '~/components/settings/ProfileTab';
 import { BillingTab } from '~/components/settings/BillingTab';
 import { CompanyTab } from '~/components/settings/CompanyTab';
+import { TraceIngestionTab } from '~/components/settings/TraceIngestionTab';
 import { EngineTab } from '~/components/settings/EngineTab';
 
 function formatBillingDate(dateString: string): string {
@@ -33,7 +34,7 @@ export default function Settings() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'company' | 'billing' | 'engine'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'company' | 'billing' | 'engine' | 'traces'>('profile');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [success, setSuccess] = useState('');
@@ -55,7 +56,7 @@ export default function Settings() {
   useEffect(() => {
     // Check for tab in query params
     const tabParam = searchParams.get('tab');
-    if (tabParam === 'billing' || tabParam === 'company' || tabParam === 'profile' || tabParam === 'engine') {
+    if (tabParam === 'billing' || tabParam === 'company' || tabParam === 'profile' || tabParam === 'engine' || tabParam === 'traces') {
       setActiveTab(tabParam as any);
     }
   }, [searchParams]);
@@ -217,7 +218,7 @@ export default function Settings() {
         </div>
 
         <TabBar label="Settings" value={activeTab} onChange={tab => navigate(`?tab=${tab}`)} panelId="settings-panel" className="mb-6"
-          items={[{value:'engine',label:'Engine'},{value:'profile',label:'Profile'},{value:'company',label:'Company'},{value:'billing',label:'Billing & Credits'}]} />
+          items={[{value:'engine',label:'Engine'},{value:'traces',label:'Trace ingestion'},{value:'profile',label:'Profile'},{value:'company',label:'Company'},{value:'billing',label:'Billing & Credits'}]} />
         <div id="settings-panel" role="tabpanel" aria-label="Settings content">
 
         {/* Messages */}
@@ -241,6 +242,7 @@ export default function Settings() {
         )}
 
         {activeTab === 'engine' && <EngineTab />}
+        {activeTab === 'traces' && <TraceIngestionTab />}
         {activeTab === 'profile' && (
           <ProfileTab
             user={user}
