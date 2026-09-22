@@ -60,11 +60,6 @@ func standaloneDirectory(t *testing.T) string {
 	v := viper.New()
 	v.SetConfigFile("../../config/config.selfhost.yaml")
 	require.NoError(t, v.ReadInConfig())
-	f, err := os.Open("../../config/subscription.selfhost.yaml")
-	require.NoError(t, err)
-	err = v.MergeConfig(f)
-	f.Close()
-	require.NoError(t, err)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	httpPort := listener.Addr().(*net.TCPAddr).Port
@@ -75,7 +70,6 @@ func standaloneDirectory(t *testing.T) string {
 		"redis.url":    vk.URI,
 		"runtime_mode": "combined", "nats.mode": "embedded", "nats.store_dir": filepath.Join(dir, "jetstream"),
 		"jwks.url": "http://127.0.0.1:1/unused-jwks", "supabase.url": "",
-		"billing.provider":                 "noop",
 		"security.hash_chain_secrets.v1":   "isolated-e2e-fixture-secret",
 		"rate_limit.ip_rate_limit_enabled": false,
 	} {

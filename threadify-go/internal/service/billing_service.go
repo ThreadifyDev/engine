@@ -30,7 +30,7 @@ type BillingOrchestrator struct {
 	creditAtomic    domain.ValkeyCreditAtomic
 	streamClient    domain.ValkeyStreamClient
 	planRepo        sharedrepo.PlanRepository
-	planSvc         domain.PlanService
+	planSvc         billing.PlanService
 	logger          *zap.Logger
 }
 
@@ -43,7 +43,7 @@ func NewBillingOrchestrator(
 	valkey domain.ValkeyStringClient,
 	creditAtomic domain.ValkeyCreditAtomic,
 	streamClient domain.ValkeyStreamClient,
-	planSvc domain.PlanService,
+	planSvc billing.PlanService,
 	logger *zap.Logger,
 ) *BillingOrchestrator {
 	sharedSvc := billing.NewBillingService(billingProvider, planRepo, subConfig, billingConfig, logger)

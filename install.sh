@@ -107,9 +107,9 @@ if [ "$extension" = tar.gz ]; then
 fi
 # Extract only the expected executable and reviewed templates, never arbitrary archive paths.
 if [ "$extension" = zip ]; then
-  unzip -q "$work/$archive" "$binary" config/config.yaml config/subscription.yaml -d "$work/extracted" || fail 'Could not extract release files'
+  unzip -q "$work/$archive" "$binary" config/config.yaml -d "$work/extracted" || fail 'Could not extract release files'
 else
-  tar -xzf "$work/$archive" -C "$work/extracted" "$binary" config/config.yaml config/subscription.yaml || fail 'Could not extract release files'
+  tar -xzf "$work/$archive" -C "$work/extracted" "$binary" config/config.yaml || fail 'Could not extract release files'
 fi
 if [ "$bundled" = true ]; then
   tar -xzf "$work/$archive" -C "$work/extracted" libexec/valkey-server libexec/VALKEY-LICENSES.txt || fail 'Could not extract bundled Valkey'
@@ -117,7 +117,7 @@ if [ "$bundled" = true ]; then
     [ -f "$work/extracted/$file" ] && [ ! -L "$work/extracted/$file" ] || fail "Invalid release file: $file"
   done
 fi
-for file in "$binary" config/config.yaml config/subscription.yaml; do
+for file in "$binary" config/config.yaml; do
   [ -f "$work/extracted/$file" ] && [ ! -L "$work/extracted/$file" ] || fail "Invalid release file: $file"
 done
 
@@ -126,7 +126,7 @@ mkdir -p "$bin_dir" "$config_dir" || fail 'Cannot create installation directorie
 bin_dir=$(cd "$bin_dir" && pwd)
 config_dir=$(cd "$config_dir" && pwd)
 [ ! -d "$bin_dir/$binary" ] || fail "Binary destination is a directory: $bin_dir/$binary"
-for file in config.yaml subscription.yaml; do
+for file in config.yaml; do
   if [ -e "$config_dir/$file" ] || [ -L "$config_dir/$file" ]; then
     printf 'Preserving %s\n' "$config_dir/$file"
   else

@@ -45,7 +45,7 @@ func run(args []string) error {
 		fmt.Fprintln(flags.Output(), "Threadify Engine. Use the separate threadify-cli client for login, contracts, profiles and threads.")
 		flags.PrintDefaults()
 	}
-	configPath := flags.String("config", os.Getenv("CONFIG_PATH"), "configuration file; subscription.yaml is loaded from the same directory")
+	configPath := flags.String("config", os.Getenv("CONFIG_PATH"), "Engine configuration file")
 	mode := flags.String("mode", "", "combined (default), engine, or writer; split modes require external NATS")
 	showVersion := flags.Bool("version", false, "print version and commit, then exit")
 	healthcheck := flags.Bool("healthcheck", false, "check the configured server's health and exit")

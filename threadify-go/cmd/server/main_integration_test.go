@@ -75,14 +75,6 @@ func runStandalone(t *testing.T, shared bool) {
 	if err := v.ReadInConfig(); err != nil {
 		t.Fatal(err)
 	}
-	sub, err := os.Open("../../config/subscription.selfhost.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := v.MergeConfig(sub); err != nil {
-		t.Fatal(err)
-	}
-	sub.Close()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -94,8 +86,7 @@ func runStandalone(t *testing.T, shared bool) {
 		"server.host": "127.0.0.1", "server.port": httpPort, "postgres.url": pgURL,
 		"redis.url": "redis://" + valkeyAddr + "/0",
 		"jwks.url":  "http://127.0.0.1:1/unused-jwks", "supabase.url": "",
-		"security.hash_chain_secrets.v1": "isolated-test-hash-chain-key-not-a-production-secret",
-		"billing.provider":               "noop", "archiver.streams.block_timeout_ms": 100,
+		"security.hash_chain_secrets.v1":                "isolated-test-hash-chain-key-not-a-production-secret",
 		"archiver.streams.step_state_flush_interval_ms": 100,
 	} {
 		v.Set(key, value)

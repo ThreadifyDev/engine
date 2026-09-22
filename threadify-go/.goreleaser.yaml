@@ -40,8 +40,6 @@ archives:
         strip_parent: true
       - src: config/config.selfhost.yaml
         dst: config/config.yaml
-      - src: config/subscription.selfhost.yaml
-        dst: config/subscription.yaml
 
 checksum:
   name_template: checksums.txt
@@ -56,7 +54,6 @@ dockers_v2:
     extra_files:
       - bundle/linux_amd64
       - config/config.selfhost.yaml
-      - config/subscription.selfhost.yaml
     labels:
       org.opencontainers.image.source: https://github.com/ThreadifyDev/engine
       org.opencontainers.image.title: Threadify engine

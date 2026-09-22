@@ -8,8 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
-	sharedconfig "threadify-go/shared/config"
-
 	"github.com/threadify/engine/internal/config"
 )
 
@@ -17,15 +15,6 @@ func TestPricingHandler_DoesNotAdvertiseLegacyCreditPrices(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cfg := &config.Config{}
-	cfg.Subscription = sharedconfig.SubscriptionConfig{
-		Credit: sharedconfig.CreditConfig{
-			IngressCostMillicents:  10,
-			EgressCostMillicents:   20,
-			ContractCostMillicents: 30,
-			RateLimitTPS:           40,
-			PayloadLimitBytes:      50,
-		},
-	}
 
 	r := gin.New()
 	r.GET("/v1/pricing", pricingHandler(cfg))
