@@ -224,7 +224,13 @@ func (s *BrowserService) StartLogin(ctx context.Context) (map[string]any, error)
 }
 
 // PollLogin consumes a browser-bound assertion once, including across concurrent Engine replicas.
-func (s *BrowserService) PollLogin(ctx context.Context, id, poll string) (string, time.Time, error) {
+func (s *BrowserService) PollLogin(ctx context.Context, id, poll string) (tokenResult string, expiryResult time.Time, resultErr error) {
+	stage := "transaction"
+	defer func() {
+		if resultErr != nil && !errors.Is(resultErr, registry.ErrIdentityPending) {
+			resultErr = &managedLoginError{stage: stage, cause: resultErr}
+		}
+	}()
 	if len(id) != 43 || len(poll) != 43 {
 		return "", time.Time{}, ErrBrowserAuth
 	}
@@ -237,19 +243,26 @@ func (s *BrowserService) PollLogin(ctx context.Context, id, poll string) (string
 	var expiry time.Time
 	err = tx.QueryRow(ctx, `SELECT registry_id,verifier_ciphertext,expires_at FROM threadify_browser_logins WHERE id=$1 AND poll_hash=$2 AND company_id=$3 AND installation_id=$4 AND expires_at>$5 AND consumed_at IS NULL FOR UPDATE`, id, browserHash(poll), s.registry.CompanyID(), s.registry.InstallationID(), s.now().UTC()).Scan(&remote, &ciphertext, &expiry)
 	if err != nil {
-		return "", time.Time{}, ErrBrowserAuth
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", time.Time{}, ErrBrowserAuth
+		}
+		return "", time.Time{}, err
 	}
+	stage = "verifier"
 	verifier, err := s.decrypt(ciphertext)
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	stage = "registry_exchange"
 	a, err := s.registry.ExchangeIdentity(ctx, remote, verifier)
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	stage = "assertion"
 	if !s.validAssertion(a, remote, id, expiry) {
 		return "", time.Time{}, ErrBrowserAuth
 	}
+	stage = "membership"
 	if err = s.lockUsers(ctx, tx); err != nil {
 		return "", time.Time{}, err
 	}
@@ -262,14 +275,18 @@ func (s *BrowserService) PollLogin(ctx context.Context, id, poll string) (string
 		}
 	}
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("%w: resolve managed membership: %v", ErrBrowserAuth, err)
+		return "", time.Time{}, err
 	}
 	// A known provider identity still needs current membership; email alone never restores a removed role.
 	var member bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users u JOIN user_roles r ON r.principal_id=u.id AND r.principal_type='user' WHERE u.id=$1 AND u.company_id=$2 AND u.status='active')`, userID, s.registry.CompanyID()).Scan(&member)
-	if err != nil || !member {
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if !member {
 		return "", time.Time{}, ErrBrowserAuth
 	}
+	stage = "session"
 	token, sessionExpiry, err := s.issueSession(ctx, tx, userID, "user", "managed_login", "", a.LogoutToken, &a.LogoutExpiresAt)
 	if err != nil {
 		return "", time.Time{}, err

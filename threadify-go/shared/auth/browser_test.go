@@ -24,6 +24,7 @@ type browserRegistryFixture struct {
 	verifier, local    string
 	assertion          registry.IdentityAssertion
 	logoutCalls        int
+	exchangeErr        error
 }
 
 func (f *browserRegistryFixture) Snapshot() (registry.Snapshot, error) {
@@ -55,6 +56,9 @@ func (f *browserRegistryFixture) ExchangeIdentity(_ context.Context, id, verifie
 	}
 	if f.pending {
 		return registry.IdentityAssertion{}, registry.ErrIdentityPending
+	}
+	if f.exchangeErr != nil {
+		return registry.IdentityAssertion{}, f.exchangeErr
 	}
 	return f.assertion, nil
 }
@@ -289,6 +293,34 @@ func TestBrowserManagedMembershipAndExpiry(t *testing.T) {
 	f.assertion.VerifiedEmail = "stranger@example.test"
 	_, _, err = s.PollLogin(ctx, flow["transaction_id"].(string), flow["poll_token"].(string))
 	require.Error(t, err)
+}
+
+func TestBrowserManagedLoginReportsFailureBoundary(t *testing.T) {
+	s, f := browserFixture(t)
+	for _, tc := range []struct {
+		name, code string
+		status     int
+		setup      func()
+	}{
+		{"membership", "managed_login_denied", 403, func() { f.assertion.VerifiedEmail = "uninvited@example.test" }},
+		{"assertion", "managed_login_denied", 403, func() { f.assertion.AccountID = "other-account" }},
+		{"registry", "managed_login_unavailable", 503, func() { f.exchangeErr = registry.ErrIdentityUnavailable }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f.exchangeErr = nil
+			start := browserRequest(s, "POST", "/auth/managed/start", "{}", nil, false)
+			require.Equal(t, 201, start.Code)
+			var flow map[string]any
+			require.NoError(t, json.Unmarshal(start.Body.Bytes(), &flow))
+			tc.setup()
+			payload, err := json.Marshal(map[string]any{"transaction_id": flow["transaction_id"], "poll_token": flow["poll_token"]})
+			require.NoError(t, err)
+			result := browserRequest(s, "POST", "/auth/managed/poll", string(payload), start.Result().Cookies(), false)
+			require.Equal(t, tc.status, result.Code, result.Body.String())
+			require.JSONEq(t, `{"error":"`+tc.code+`"}`, result.Body.String())
+			require.Empty(t, result.Result().Cookies())
+		})
+	}
 }
 
 func TestBrowserAssertionAndCookieBoundaries(t *testing.T) {

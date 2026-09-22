@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -202,7 +203,9 @@ func (s *BrowserService) handleAuth(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			browserError(w, 403, "managed_login_denied")
+			status, code, stage := managedLoginFailure(err)
+			slog.WarnContext(r.Context(), "Managed sign-in failed", "code", code, "stage", stage)
+			browserError(w, status, code)
 			return
 		}
 		s.cookie(w, r, "login", "", time.Unix(1, 0), true)
