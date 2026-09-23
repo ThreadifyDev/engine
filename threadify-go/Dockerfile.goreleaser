@@ -3,7 +3,7 @@
 FROM busybox:1.37 AS data
 RUN mkdir -p /data/jetstream /data/valkey /data/agent && chown -R 65532:65532 /data
 
-# Python wheels also need C/C++ shared libraries (for example gRPC).
+# The portable Python interpreter and native wheels need C/C++ shared libraries.
 FROM gcr.io/distroless/cc-debian12:nonroot
 ARG TARGETPLATFORM
 WORKDIR /app

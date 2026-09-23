@@ -226,9 +226,10 @@ jobs:
             agent install-runtime --agent-runtime-archive /runtime/runtime-linux-amd64.tar.gz
           runtime_sha=$(python3 -c 'import json; print(json.load(open("internal/agentbundle/assets/runtimes.json"))["linux/amd64"]["sha256"])')
           docker run --rm -v threadify-agent-smoke:/data \
+            -v "$GITHUB_WORKSPACE/threadify-agent/runtime/smoke.py:/runtime-smoke.py:ro" \
             --entrypoint "/data/agent/$runtime_sha/python/bin/python3.12" \
             ghcr.io/threadifydev/engine:v0.0.0-amd64 \
-            -I -c "import sys; sys.path.insert(0, '/data/agent/$runtime_sha/packages'); import ssl, harnest, google.adk, pydantic_core, cryptography, grpc; print('Agent runtime imports passed')"
+            -I /runtime-smoke.py "/data/agent/$runtime_sha/packages"
       - name: Test compiled binary with disposable PostgreSQL and Valkey
         working-directory: threadify-go/tests
         env:
