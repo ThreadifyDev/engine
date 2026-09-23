@@ -54,31 +54,64 @@ Authenticate and establish session.
 }
 ```
 
-### 2. Start Thread
-Create a new thread.
+### 2. Create or Resume Thread
+
+Resolve an application-supplied key to one thread within the authenticated
+company. This is the WebSocket operation behind all SDK `thread` / `Thread`
+methods. Concurrent calls resolve atomically to the same internal ID.
 
 ```json
 {
-  "action": "startThread",
-  "contractName": "payment_flow:3",  // Optional, format: "name:version"
-  "role": "merchant",                 // Required if using contract
-  "tags": ["payments", "high-value"], // Optional, immutable after creation
+  "action": "thread",
+  "threadKey": "order:12345",
+  "label": "Order 12345",
+  "contractName": "payment_flow:3",
+  "serviceName": "merchant-service",
+  "role": "merchant",
+  "tags": ["payments", "high-value"],
   "refs": {
-    "serviceName": "merchant-service",
     "orderId": "12345"
   }
 }
 ```
 
+Only `action` and `threadKey` are required. Keys are trimmed, nonblank strings of
+at most 1024 UTF-8 bytes. SDK option `contract` maps to wire field `contractName`.
+The other fields supply creation defaults. Labels, refs, and tags are preserved
+on resume; a supplied conflicting contract or version is rejected.
+
 **Response:**
 ```json
 {
-  "action": "startThread",
+  "action": "thread",
   "status": "success",
   "threadId": "thread-uuid",
-  "message": "Thread started successfully"
+  "threadKey": "order:12345",
+  "label": "Order 12345",
+  "contractId": "contract-uuid",
+  "contractName": "payment_flow",
+  "contractVersion": 3,
+  "tags": ["payments", "high-value"],
+  "refs": {"orderId": "12345"}
 }
 ```
+
+Later requests omit the creation defaults and load the stored contract/version:
+
+```json
+{
+  "action": "thread",
+  "threadKey": "order:12345"
+}
+```
+
+An unknown key without a contract creates a free-form thread. Initialize a
+contracted run before workers or telemetry report its steps. A free-form thread
+cannot acquire a contract on resume. Normal write permissions apply, and closed
+threads reject resolution and further writes; the key is never reassigned.
+
+**Compatibility:** The `startThread` action still creates unkeyed threads for
+older SDK clients. New integrations should use `thread` and an application key.
 
 ### 3. Record Thread Event (Step)
 Record a step in the thread.
@@ -318,72 +351,98 @@ class ThreadifyClient {
   constructor(apiKey) {
     this.apiKey = apiKey;
     this.ws = null;
-    this.handlers = {};
-    this.reconnectDelay = 1000;
+    this.handlers = new Map();
+    this.pending = new Map();
+    this.connecting = null;
   }
-  
+
   connect() {
-    this.ws = new WebSocket('ws://localhost:8081/ws');
-    
-    this.ws.onopen = () => {
-      this.send({ action: 'connect', apiKey: this.apiKey });
-      this.reconnectDelay = 1000;
-    };
-    
-    this.ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      const handler = this.handlers[data.action];
-      if (handler) handler(data);
-    };
-    
-    this.ws.onclose = () => {
-      setTimeout(() => this.connect(), this.reconnectDelay);
-      this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
-    };
-  }
-  
-  on(action, handler) {
-    this.handlers[action] = handler;
-  }
-  
-  send(message) {
-    if (this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message));
-    }
-  }
-  
-  async startThread(contractName, role, refs) {
-    return new Promise((resolve, reject) => {
-      const handler = (data) => {
-        if (data.status === 'success') {
-          resolve(data);
-        } else {
-          reject(new Error(data.message));
+    if (this.connecting) return this.connecting;
+    this.connecting = new Promise((resolve, reject) => {
+      const ws = this.ws = new WebSocket('ws://localhost:8081/threads');
+      const timer = setTimeout(() => {
+        reject(new Error('Connection timed out'));
+        ws.close();
+      }, 5000);
+      ws.onopen = async () => {
+        try {
+          await this.request({ action: 'connect', apiKey: this.apiKey });
+          clearTimeout(timer);
+          resolve();
+        } catch (error) {
+          clearTimeout(timer);
+          reject(error);
+          ws.close();
         }
-        delete this.handlers.startThread;
       };
-      
-      this.on('startThread', handler);
-      this.send({ action: 'startThread', contractName, role, refs });
-      
-      setTimeout(() => reject(new Error('Timeout')), 5000);
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        const pending = this.pending.get(data.requestId);
+        if (pending) {
+          this.pending.delete(data.requestId);
+          clearTimeout(pending.timer);
+          if (data.status === 'success') pending.resolve(data);
+          else pending.reject(new Error(data.message || 'Request failed'));
+        } else {
+          this.handlers.get(data.action)?.(data);
+        }
+      };
+      ws.onerror = () => ws.close();
+      ws.onclose = () => {
+        clearTimeout(timer);
+        const error = new Error('Connection closed; pending mutation outcomes may be unknown');
+        reject(error);
+        for (const pending of this.pending.values()) {
+          clearTimeout(pending.timer);
+          pending.reject(error);
+        }
+        this.pending.clear();
+        this.connecting = null;
+      };
+    });
+    return this.connecting;
+  }
+
+  on(action, handler) {
+    this.handlers.set(action, handler);
+  }
+
+  request(message) {
+    return new Promise((resolve, reject) => {
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        reject(new Error('Connection is not open'));
+        return;
+      }
+      const requestId = crypto.randomUUID();
+      const timer = setTimeout(() => {
+        this.pending.delete(requestId);
+        reject(new Error('Request timed out; mutation outcome may be unknown'));
+      }, 5000);
+      this.pending.set(requestId, { resolve, reject, timer });
+      try {
+        this.ws.send(JSON.stringify({ ...message, requestId }));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(requestId);
+        reject(error);
+      }
     });
   }
-  
-  recordStep(threadId, stepName, status, context) {
-    this.send({
-      action: 'recordThreadEvent',
-      threadId,
-      stepName,
-      status,
-      context
-    });
+
+  async thread(threadKey, { label, contract, role, refs, tags, serviceName } = {}) {
+    await this.connect();
+    return this.request({ action: 'thread', threadKey, label, contractName: contract, role, refs, tags, serviceName });
+  }
+
+  async recordStep(threadId, stepName, status, context) {
+    await this.connect();
+    return this.request({ action: 'recordThreadEvent', threadId, stepName, status, context });
   }
 }
 
 // Usage
 const client = new ThreadifyClient('your-api-key');
-client.connect();
+await client.connect();
 
 client.on('notification', (notif) => {
   console.log('Notification:', notif);
@@ -392,8 +451,12 @@ client.on('notification', (notif) => {
   }
 });
 
-const thread = await client.startThread('payment_flow:3', 'merchant', {
-  serviceName: 'merchant-service'
+const thread = await client.thread('order:12345', {
+  label: 'Order 12345',
+  contract: 'payment_flow:3',
+  role: 'merchant',
+  serviceName: 'merchant-service',
+  refs: { orderId: '12345' },
 });
 
 client.recordStep(thread.threadId, 'order_placed', 'success', {

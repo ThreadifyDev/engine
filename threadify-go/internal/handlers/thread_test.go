@@ -333,3 +333,30 @@ func TestWebSocketHandler_HandleThreadEnd(t *testing.T) {
 		})
 	}
 }
+
+func TestWebSocketThreadKeyRequestAndStoredMetadata(t *testing.T) {
+	d := NewMockedEngineHandlers(t)
+	d.PlanSvc.EXPECT().CheckBalancePositive(gomock.Any(), testCompanyID).Return(&shareddomain.CreditAccount{}, nil)
+	version := 3
+	d.ThreadSvc.EXPECT().HandleStartThread(gomock.Any(), gomock.Any(), testUserID, testCompanyID).
+		DoAndReturn(func(_ context.Context, cmd *domain.StartThreadCmd, _, _ string) *domain.StartThreadResponse {
+			assert.Equal(t, "thread", cmd.Action)
+			assert.Equal(t, "session-1", cmd.ThreadKey)
+			assert.Empty(t, cmd.ContractName, "resuming must not require the contract")
+			assert.Equal(t, "worker-service", cmd.ServiceName)
+			return &domain.StartThreadResponse{Action: ActionStartThread, Status: StatusSuccess, ThreadID: testThreadID, ThreadKey: "session-1", Label: "Original", ContractName: "agent", ContractVersion: &version, Refs: map[string]string{"customerId": "customer"}}
+		})
+	h := NewWebSocketHandler(d.ThreadSvc, d.StepEventSvc, d.InvitationSvc, d.NotificationConsumer, d.NotificationRouter, d.PlanSvc, d.ValkeyClient, d.LuaScriptManager, &config.WebSocketConfig{}, d.Logger)
+	session := &WSSession{conn: &MockWSConnection{}, ownerID: testUserID, companyID: testCompanyID, ctx: context.Background()}
+	msg := map[string]interface{}{"action": "thread", "threadKey": "session-1", "serviceName": "worker-service", "requestId": "request-1"}
+	raw, err := json.Marshal(msg)
+	assert.NoError(t, err)
+	response := correlatedResponse(h.handleMessage("thread", msg, raw, session), msg).(map[string]interface{})
+	assert.Equal(t, "thread", response["action"])
+	assert.Equal(t, "request-1", response["requestId"])
+	assert.Equal(t, "session-1", response["threadKey"])
+	assert.Equal(t, "agent", response["contractName"])
+	assert.EqualValues(t, 3, response["contractVersion"])
+	assert.Equal(t, "Original", response["label"])
+	assert.Equal(t, []string{testThreadID}, session.threadIDs)
+}

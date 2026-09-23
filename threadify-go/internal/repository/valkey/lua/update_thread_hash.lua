@@ -20,6 +20,15 @@ if not threadData then
 end
 
 local threadObj = cjson.decode(threadData)
+-- Admission and hash mutation share one atomic operation with completion.
+local status = threadObj.status
+local metaStatus = redis.call('HGET', threadKey .. ':meta', 'status')
+local function terminal(value)
+    return value == 'completed' or value == 'cancelled' or value == 'closed' or value == 'failed'
+end
+if terminal(status) or terminal(metaStatus) then
+    return redis.error_reply('Cannot add steps to ' .. (terminal(metaStatus) and metaStatus or status) .. ' thread')
+end
 local currentHash = threadObj.lastHash or ""
 
 -- Check if hash changed (race condition detected)

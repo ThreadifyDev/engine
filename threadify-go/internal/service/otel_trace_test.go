@@ -19,19 +19,21 @@ import (
 )
 
 type fakeOTelThreadWriter struct {
-	mu             sync.Mutex
-	starts         []*domain.StartThreadCmd
-	records        []*domain.RecordEventCmd
-	threads        map[string]struct{}
-	completions    []time.Time
-	completionErr  error
-	lookupErr      error
-	startResponse  *domain.StartThreadResponse
-	recordResponse *domain.RecordEventResponse
+	mu                     sync.Mutex
+	starts                 []*domain.StartThreadCmd
+	records                []*domain.RecordEventCmd
+	threads                map[string]struct{}
+	completions            []time.Time
+	completionRecordCounts []int
+	completionErr          error
+	lookupErr              error
+	statuses               map[string]domain.ThreadStatus
+	startResponse          *domain.StartThreadResponse
+	recordResponse         *domain.RecordEventResponse
 }
 
 func newFakeOTelThreadWriter() *fakeOTelThreadWriter {
-	return &fakeOTelThreadWriter{threads: make(map[string]struct{})}
+	return &fakeOTelThreadWriter{threads: make(map[string]struct{}), statuses: make(map[string]domain.ThreadStatus)}
 }
 
 func (f *fakeOTelThreadWriter) CompleteTraceForIngestion(_ context.Context, _, _, _, _ string, endedAt time.Time) error {
@@ -41,6 +43,7 @@ func (f *fakeOTelThreadWriter) CompleteTraceForIngestion(_ context.Context, _, _
 		return f.completionErr
 	}
 	f.completions = append(f.completions, endedAt)
+	f.completionRecordCounts = append(f.completionRecordCounts, len(f.records))
 	return nil
 }
 
@@ -86,9 +89,13 @@ func (f *fakeOTelThreadWriter) LookupThreadForIngestion(_ context.Context, id, _
 	if _, ok := f.threads[id]; !ok {
 		return nil, shderrors.ErrThreadNotFound
 	}
-	t := &domain.Thread{ID: id, CompanyID: company}
+	t := &domain.Thread{ID: id, CompanyID: company, Status: domain.ThreadStatusActive}
+	if status, ok := f.statuses[id]; ok {
+		t.Status = status
+	}
 	for _, start := range f.starts {
 		if start.ThreadID == id {
+			t.Label, t.Refs, t.Tags = start.Label, start.Refs, start.Tags
 			name, version := parseContractIdentifier(start.ContractName)
 			t.ContractName = name
 			if version > 0 {

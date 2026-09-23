@@ -223,7 +223,7 @@ export default function HomePageStory() {
                 title="Start tracking"
                 headerColor="gray"
                 code={`// Follow a refund across services
-const thread = await connection.start("Refund-4821");
+const thread = await connection.thread("Refund-4821", { label: "Refund-4821" });
 await thread.step("refund_requested")
   .addContext(data).success();`}
               />

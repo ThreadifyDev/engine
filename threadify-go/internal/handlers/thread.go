@@ -115,10 +115,17 @@ func dtoStartThreadResponseFromDomain(r *domain.StartThreadResponse) *dto.StartT
 		return &dto.StartThreadResponse{}
 	}
 	return &dto.StartThreadResponse{
-		Action:   r.Action,
-		Status:   r.Status,
-		Message:  r.Message,
-		ThreadID: r.ThreadID,
+		Action:          r.Action,
+		Status:          r.Status,
+		Message:         r.Message,
+		ThreadID:        r.ThreadID,
+		ThreadKey:       r.ThreadKey,
+		Label:           r.Label,
+		ContractID:      r.ContractID,
+		ContractName:    r.ContractName,
+		ContractVersion: r.ContractVersion,
+		Refs:            r.Refs,
+		Tags:            r.Tags,
 	}
 }
 
@@ -515,30 +522,32 @@ func (h *WebSocketHandler) handleMessageContext(action string, msg map[string]in
 		}
 		return dtoConnectResponseFromDomain(resp)
 
-	case ActionStartThread:
+	case ActionStartThread, "thread":
 		var req dto.StartThreadRequest
 		if err := json.Unmarshal(msgBytes, &req); err != nil {
-			return h.newErrorResponse(ActionStartThread, "Invalid request format", err.Error())
+			return h.newErrorResponse(action, "Invalid request format", err.Error())
 		}
 
 		resp := h.threadService.HandleStartThread(ctx, &domain.StartThreadCmd{
 			Action:       req.Action,
+			ThreadKey:    req.ThreadKey,
+			ServiceName:  req.ServiceName,
 			Label:        req.Label,
 			ContractName: req.ContractName,
 			Role:         req.Role,
 			Refs:         req.Refs,
 			Tags:         req.Tags,
 		}, session.ownerID, session.companyID)
+		resp.Action = action
 		if resp.Status == StatusSuccess {
 			session.mu.Lock()
 			if !slices.Contains(session.threadIDs, resp.ThreadID) {
 				session.threadIDs = append(session.threadIDs, resp.ThreadID)
 			}
 			session.mu.Unlock()
-			metrics.ThreadsCreated.Inc()
-			metrics.RequestsTotal.WithLabelValues(ActionStartThread, StatusSuccess).Inc()
+			metrics.RequestsTotal.WithLabelValues(action, StatusSuccess).Inc()
 		} else {
-			metrics.RequestsTotal.WithLabelValues(ActionStartThread, StatusError).Inc()
+			metrics.RequestsTotal.WithLabelValues(action, StatusError).Inc()
 		}
 		return dtoStartThreadResponseFromDomain(resp)
 

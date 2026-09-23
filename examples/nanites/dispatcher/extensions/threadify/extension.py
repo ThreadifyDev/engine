@@ -161,25 +161,13 @@ class ThreadifyContext(ExtensionContext):
         self._require_active()
         return self._owner._require_connection()
 
-    async def start_thread(
-        self,
-        *,
-        label: str = "",
-        contract_name: str = "",
-        refs: Mapping[str, Any] | None = None,
-        tags: list[str] | None = None,
-        role: str = "",
+    async def thread(
+        self, thread_key: str, options: Mapping[str, Any] | None = None
     ) -> ThreadInstance:
-        """Start a Threadify thread through the audited managed boundary."""
+        """Create or resume a thread by application key through the audited boundary."""
 
         self._require_active()
-        return await self._owner._start_thread(
-            label=label,
-            contract_name=contract_name,
-            refs=refs,
-            tags=tags,
-            role=role,
-        )
+        return await self._owner._thread(thread_key, options)
 
     async def join_thread(
         self, thread_id: str, *, role: str = ""
@@ -334,10 +322,12 @@ class ThreadifyExtension(Extension[ThreadifyContext]):
 
         return self.context.connection
 
-    async def start_thread(self, **kwargs: Any) -> ThreadInstance:
-        """Start a thread through the current invocation context."""
+    async def thread(
+        self, thread_key: str, options: Mapping[str, Any] | None = None
+    ) -> ThreadInstance:
+        """Create or resume a thread through the current invocation context."""
 
-        return await self.context.start_thread(**kwargs)
+        return await self.context.thread(thread_key, options)
 
     async def join_thread(
         self, thread_id: str, *, role: str = ""
@@ -414,26 +404,14 @@ class ThreadifyExtension(Extension[ThreadifyContext]):
             return
         _ack(notification, subscription)
 
-    async def _start_thread(
-        self,
-        *,
-        label: str,
-        contract_name: str,
-        refs: Mapping[str, Any] | None,
-        tags: list[str] | None,
-        role: str,
+    async def _thread(
+        self, thread_key: str, options: Mapping[str, Any] | None = None
     ) -> ThreadInstance:
-        """Start one thread and emit a privacy-safe durable mutation signal."""
+        """Resolve one key and emit a privacy-safe durable mutation signal."""
 
         connection = self._require_connection()
-        async with extension_mutation("threadify", "thread.start", trigger="agent"):
-            return await connection.start(
-                label=label,
-                contract_name=contract_name,
-                refs=dict(refs or {}),
-                tags=tags,
-                role=role,
-            )
+        async with extension_mutation("threadify", "thread.resolve", trigger="agent"):
+            return await connection.thread(thread_key, dict(options or {}))
 
     async def _join_thread(
         self, thread_id: str, *, role: str = ""

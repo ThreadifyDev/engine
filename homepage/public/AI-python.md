@@ -44,28 +44,39 @@ conn = await Threadify.connect(
 )
 ```
 
-### Start Thread
+### Create or Resume a Thread
+
 ```python
-# With label (Recommended)
-thread = await conn.start("Checkout-123")
+# Initialize once before requests or telemetry use this session.
+thread = await conn.thread(session_id, {
+    "label": "Agent session",
+    "contract": "agent_contract:3",  # Omit for a free-form session.
+    "refs": {"customer_id": customer_id},
+    "tags": ["production"],
+})
 
-# With label and service name
-thread = await conn.start(
-    "Order-789",
-    service_name="merchant-service",
-)
-
-# With tags (immutable labels for filtering)
-thread = await conn.start(
-    "Order-789",
-    tags=["production", "v2.1"],
-)
-
-# Bind a contract when workflow rules are needed:
-# thread = await conn.start("Order-789", contract_name="order_fulfillment")
+# A later request or worker uses only the application's session ID.
+resumed = await conn.thread(session_id)
 ```
 
-> **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
+Options: `label`, `contract`, `refs` (string values), `tags`, `service_name`, and
+`role`. Use `thread.add_refs(refs)` for explicit reference updates.
+
+The key identifies one workflow or agent session within your company; Threadify
+manages the internal `threadId`. Reuse the same key across requests and workers.
+Keys are trimmed, nonblank strings of at most 1024 UTF-8 bytes. Concurrent calls
+resolve to one thread and normal write permissions still apply.
+
+The optional object supplies creation defaults. Resuming loads the stored contract
+and pinned version without redefining them. A conflicting contract or version is
+rejected. Existing labels, refs, and tags are preserved; update refs explicitly
+with the SDK's reference method.
+
+A new key with no options creates a free-form thread. Initialize contracted
+sessions before their turns or telemetry begin: a free-form thread cannot acquire
+a contract on resume. Closed threads cannot resume or accept writes; choose a new
+key for a new execution. Set `threadify.thread_key` to this same key in OTLP spans
+or `ThreadifySpanExporter` instrumentation.
 
 ### Record Step
 ```python
@@ -182,7 +193,7 @@ result = await (
 
 ### Retrieve Thread Data
 
-**Important:** `get_thread()` returns a **read-only** thread object for querying data. To add steps or modify a thread, you must use `join()`.
+**Important:** `get_thread()` returns a **read-only** thread object for querying data. To add steps or modify a thread, resume with `await conn.thread(thread_key)` or use `join()` with an internal ID or invitation.
 
 **Recommended:** Use `get_complete_data()` for efficiency (single query):
 
@@ -444,7 +455,7 @@ async def main():
         service_name="checkout-service",
     )
 
-    thread = await conn.start("Checkout Process")
+    thread = await conn.thread("order:ORD-789", {"label": "Checkout Process"})
 
     # Add external references to the thread
     await thread.add_refs({

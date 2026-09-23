@@ -24,8 +24,8 @@ func correlatedExport(index byte, key, value string) *collecttracepb.ExportTrace
 	return otelRequest(span, nil)
 }
 
-func TestOTelExternalReferenceResolution(t *testing.T) {
-	for _, key := range []string{"threadify.external_ref", "workflow.run_id"} {
+func TestOTelThreadKeyResolution(t *testing.T) {
+	for _, key := range []string{"threadify.thread_key", "workflow.run_id"} {
 		t.Run(key, func(t *testing.T) {
 			writer := newFakeOTelThreadWriter()
 			repo := newFakeOTelCorrelationRepository()
@@ -69,7 +69,7 @@ func TestOTelWorkflowOptOutAndExternalPrecedence(t *testing.T) {
 	writer := newFakeOTelThreadWriter()
 	svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
 	for i := byte(1); i <= 2; i++ {
-		req := correlatedExport(i, "threadify.external_ref", "explicit")
+		req := correlatedExport(i, "threadify.thread_key", "explicit")
 		span := req.ResourceSpans[0].ScopeSpans[0].Spans[0]
 		span.Attributes = append(span.Attributes, otelKV("workflow.run_id", otelString(fmt.Sprint(i))))
 		_, err := svc.Ingest(WithOTelWorkflowRunID(context.Background(), false), req, "owner", "company")
@@ -78,27 +78,27 @@ func TestOTelWorkflowOptOutAndExternalPrecedence(t *testing.T) {
 	require.Len(t, writer.starts, 1)
 }
 
-func TestOTelExternalReferenceRejectsConflictBeforeRecording(t *testing.T) {
+func TestOTelThreadKeyRejectsConflictBeforeRecording(t *testing.T) {
 	writer := newFakeOTelThreadWriter()
 	svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
-	first := correlatedExport(1, "threadify.external_ref", "run")
+	first := correlatedExport(1, "threadify.thread_key", "run")
 	first.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes = append(first.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes, otelKV("threadify.contract", otelString("payment")))
 	_, err := svc.Ingest(context.Background(), first, "owner", "company")
 	require.NoError(t, err)
-	second := correlatedExport(2, "threadify.external_ref", "run")
+	second := correlatedExport(2, "threadify.thread_key", "run")
 	second.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes = append(second.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes, otelKV("threadify.contract", otelString("shipping")))
 	response, err := svc.Ingest(context.Background(), second, "owner", "company")
 	require.NoError(t, err)
 	require.EqualValues(t, 1, response.GetPartialSuccess().GetRejectedSpans())
 	require.Len(t, writer.records, 1)
 	// A trace already accepted under one identity cannot be remapped by later batches.
-	response, err = svc.Ingest(context.Background(), correlatedExport(1, "threadify.external_ref", "other"), "owner", "company")
+	response, err = svc.Ingest(context.Background(), correlatedExport(1, "threadify.thread_key", "other"), "owner", "company")
 	require.NoError(t, err)
 	require.EqualValues(t, 1, response.GetPartialSuccess().GetRejectedSpans())
 	require.Len(t, writer.starts, 1)
 }
 
-func TestOTelExternalReferenceConcurrentReplicas(t *testing.T) {
+func TestOTelThreadKeyConcurrentReplicas(t *testing.T) {
 	writer := newFakeOTelThreadWriter()
 	repo := newFakeOTelCorrelationRepository()
 	a := NewOTelTraceService(writer, repo, zap.NewNop())
@@ -113,7 +113,7 @@ func TestOTelExternalReferenceConcurrentReplicas(t *testing.T) {
 			if i%2 == 0 {
 				svc = b
 			}
-			r, err := svc.Ingest(context.Background(), correlatedExport(i, "threadify.external_ref", "shared"), "owner", "company")
+			r, err := svc.Ingest(context.Background(), correlatedExport(i, "threadify.thread_key", "shared"), "owner", "company")
 			if err == nil && r.GetPartialSuccess().GetRejectedSpans() > 0 {
 				err = fmt.Errorf("rejected: %s", r.GetPartialSuccess().GetErrorMessage())
 			}
@@ -129,12 +129,12 @@ func TestOTelExternalReferenceConcurrentReplicas(t *testing.T) {
 	require.Len(t, writer.records, 32)
 }
 
-func TestOTelExternalReferenceValidationAndCompletion(t *testing.T) {
+func TestOTelThreadKeyValidationAndCompletion(t *testing.T) {
 	for _, value := range []*commonpb.AnyValue{otelInt(3), otelString(strings.Repeat("x", 1025))} {
 		writer := newFakeOTelThreadWriter()
 		svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
 		req := correlatedExport(1, "", "")
-		req.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes = []*commonpb.KeyValue{otelKV("threadify.external_ref", value)}
+		req.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes = []*commonpb.KeyValue{otelKV("threadify.thread_key", value)}
 		r, err := svc.Ingest(context.Background(), req, "owner", "company")
 		require.NoError(t, err)
 		require.EqualValues(t, 1, r.GetPartialSuccess().GetRejectedSpans())
@@ -142,17 +142,17 @@ func TestOTelExternalReferenceValidationAndCompletion(t *testing.T) {
 	}
 	writer := newFakeOTelThreadWriter()
 	svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
-	req := correlatedExport(1, "threadify.external_ref", "run")
+	req := correlatedExport(1, "threadify.thread_key", "run")
 	req.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes = append(req.ResourceSpans[0].ScopeSpans[0].Spans[0].Attributes, otelKV("threadify.run.complete", &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: true}}))
 	_, err := svc.Ingest(context.Background(), req, "owner", "company")
 	require.NoError(t, err)
 	require.Len(t, writer.completions, 1)
 }
 
-func TestOTelSDKAndHTTPShareExternalIdentity(t *testing.T) {
+func TestOTelSDKAndHTTPShareThreadKeyIdentity(t *testing.T) {
 	writer := newFakeOTelThreadWriter()
 	svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
-	response := svc.startSDKThread(context.Background(), &domain.StartThreadCmd{Label: "SDK", Refs: map[string]string{"threadify.external_ref": "run", "otel_trace_id": "ff02030405060708090a0b0c0d0e0f10"}}, "owner", "company")
+	response := svc.startSDKThread(context.Background(), &domain.StartThreadCmd{Label: "SDK", Refs: map[string]string{"threadify.thread_key": "run", "otel_trace_id": "ff02030405060708090a0b0c0d0e0f10"}}, "owner", "company")
 	require.Equal(t, StepStatusSuccess, response.Status, response.Message)
 	r, err := svc.Ingest(context.Background(), correlatedExport(1, "workflow.run_id", "run"), "owner", "company")
 	require.NoError(t, err)

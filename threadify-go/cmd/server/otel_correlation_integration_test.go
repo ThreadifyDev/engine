@@ -104,7 +104,7 @@ func prepareOTelCorrelationSmoke(t *testing.T, url, key, valkeyAddr string, pool
 	}
 	var threadID string
 	await(func() bool {
-		return pool.QueryRow(context.Background(), "SELECT thread_id FROM thread_refs WHERE ref_key='threadify.external_ref' AND ref_value=$1", ref).Scan(&threadID) == nil
+		return pool.QueryRow(context.Background(), "SELECT thread_id FROM thread_refs WHERE ref_key='threadify.thread_key' AND ref_value=$1", ref).Scan(&threadID) == nil
 	})
 	verify := func(steps int) {
 		t.Helper()
@@ -115,7 +115,7 @@ func prepareOTelCorrelationSmoke(t *testing.T, url, key, valkeyAddr string, pool
 		})
 		var count int
 		var status string
-		if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM thread_refs WHERE ref_key='threadify.external_ref' AND ref_value=$1", ref).Scan(&count); err != nil {
+		if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM thread_refs WHERE ref_key='threadify.thread_key' AND ref_value=$1", ref).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		if count != 1 {

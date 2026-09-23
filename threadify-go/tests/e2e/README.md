@@ -126,11 +126,16 @@ See [CLI guide](../../docs/CLI.md).
 
 ### Python and Go SDK parity
 
-The `sdk_parity` subtest starts a contract thread using Python, grants a separate
-Go service account permission to report a charge, validates that exact event
-from both SDKs, and completes the thread from Python. Both clients also exercise
-reference-map lookup against the Engine. Service identities are seeded by the
-fixture; contracts, joins, steps, waits and queries use public APIs.
+The `sdk_parity` subtest initializes a contracted thread in Python using
+`await conn.thread(thread_key, {"contract": contract, ...})`, with
+`parity:<THREADIFY_PARITY_ID>` as its durable key. A separate Go service account
+resumes with `conn.Thread(ctx, threadKey)` and reports a charge after receiving
+permission. Python then resumes by the same key without repeating the contract,
+validates the Go event, and completes the thread. Both clients also exercise
+reference-map lookup against the Engine. The test compares internal thread IDs
+to verify that both SDKs resolved the same thread; callers resume using the key.
+Service identities are seeded by the fixture; contracts, keyed resolution,
+steps, waits, and queries use public APIs.
 
 ```sh
 # Build the Go participant from the sibling SDK checkout:

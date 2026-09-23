@@ -1,3 +1,31 @@
+# Historical implementation plan
+
+This file preserves an early implementation prompt. Its `Thread.create`,
+`start_thread`, routing examples, and implementation checklist below are
+historical design material, not the current SDK or WebSocket contract. Do not
+copy those old entry points into new integrations.
+
+Current integrations use JavaScript `connection.thread(threadKey, options?)`,
+Python `await connection.thread(thread_key, options=None)`, or Go
+`connection.Thread(ctx, threadKey, options...)`. The wire action is `thread` with
+required `threadKey`; SDK option `contract` maps to wire field `contractName`.
+Optional creation fields are `label`, `contractName`, `refs`, `tags`,
+`serviceName`, and `role`.
+
+The Engine atomically creates or resumes one thread for a trimmed, nonblank,
+company-scoped key of at most 1024 UTF-8 bytes. Resuming loads the stored contract
+and pinned version; callers need not send the contract again. Conflicting
+contracts are rejected, and creation metadata does not overwrite stored values.
+An unknown key without a contract creates a free-form thread, so initialize
+contracted sessions before workers or telemetry report steps. Closed threads
+cannot resume or accept writes, and their keys cannot create replacement threads.
+OTLP and SDK exporters use `threadify.thread_key` for this same application key.
+
+See [the current WebSocket API](../docs/WEBSOCKET.md) and
+[SDK thread-key usage](../threadify-sdk/Documentation.md#create-or-resume-by-thread-key).
+
+---
+
 ** THis is for Threadify-go **
 ** Ensure to check a file doesn't exist before attempting to create it **
 ** Ensure to check a function doesn't exist before attempting to create it **

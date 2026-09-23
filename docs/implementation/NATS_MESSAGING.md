@@ -306,9 +306,10 @@ func (h *WebSocketHandler) HandleMessage(conn *websocket.Conn, msg []byte) {
         userID := h.authenticate(req.APIKey)
         h.registerConnection(userID, conn)
         
-    case "startThread":
-        // Create thread and subscribe to notifications
-        threadID := h.createThread(req)
+    case "thread":
+        // Resolve or create req.ThreadKey under the authenticated company.
+        // Reject closed threads and conflicting contracts before subscribing.
+        threadID := h.resolveThread(req)
         h.consumer.SubscribeToThread(userID, threadID)
         
     case "recordThreadEvent":

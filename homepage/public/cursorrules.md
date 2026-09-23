@@ -25,15 +25,20 @@ const connection = await Threadify.connect(apiKey, 'payments', {
 });
 
 // Track an execution without rules.
-const observed = await connection.start('Refund-4821');
+const observed = await connection.thread('Refund-4821', { label: 'Refund-4821' });
 
 // Or bind the rules for a workflow that needs validation.
-const guarded = await connection.start('Refund-4822', 'refund_review:1');
+const guarded = await connection.thread('Refund-4822', { label: 'Refund-4822', contract: 'refund_review:1' });
 ```
 
-The start signature is `start(label, contractName, options)`. The label describes
-this run; the second argument selects its contract. Obtain the thread ID from the
-Engine and share it when another authorized service joins the run.
+Use `connection.thread(threadKey, { label, contract, refs, tags, serviceName, role })`.
+The application supplies a durable session or process key; Threadify manages the
+internal ID. Later requests call `connection.thread(threadKey)` to resume with
+the stored contract and pinned version. Options are creation defaults; conflicting
+contracts are rejected. Initialize contracted sessions before telemetry begins,
+because a new key without a contract creates a free-form thread. Closed threads
+cannot resume or accept writes. Use `threadify.thread_key` for the same identity
+in OpenTelemetry instrumentation.
 
 ## Record evidence
 

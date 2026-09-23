@@ -38,22 +38,39 @@ const connection = await Threadify.connect('api-key', 'my-service', {
 });
 ```
 
-### Start Thread
+### Create or Resume a Thread
+
 ```javascript
-// With label (Recommended)
-const thread = await connection.start('Order-123');
+// Initialize once before requests or telemetry use this session.
+const thread = await connection.thread(sessionId, {
+  label: 'Agent session',
+  contract: 'agent_contract:3', // Omit for a free-form session.
+  refs: { customer_id: customerId },
+  tags: ['production'],
+});
 
-// With label and service name
-const thread = await connection.start('Order-789', '', { serviceName: 'merchant-service' });
-
-// With tags (immutable labels for filtering)
-const thread = await connection.start('Order-789', '', { tags: ['production', 'v2.1'] });
-
-// Bind a contract when workflow rules are needed:
-// const thread = await connection.start('Order-789', 'order_fulfillment');
+// A later request or worker uses only the application's session ID.
+const resumed = await connection.thread(sessionId);
 ```
 
-> **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
+Options: `label`, `contract`, `refs` (string values), `tags`, `serviceName`, and optional `role`.
+Use `thread.addRefs(refs)` for explicit reference updates.
+
+The key identifies one workflow or agent session within your company; Threadify
+manages the internal `threadId`. Reuse the same key across requests and workers.
+Keys are trimmed, nonblank strings of at most 1024 UTF-8 bytes. Concurrent calls
+resolve to one thread and normal write permissions still apply.
+
+The optional object supplies creation defaults. Resuming loads the stored contract
+and pinned version without redefining them. A conflicting contract or version is
+rejected. Existing labels, refs, and tags are preserved; update refs explicitly
+with the SDK's reference method.
+
+A new key with no options creates a free-form thread. Initialize contracted
+sessions before their turns or telemetry begin: a free-form thread cannot acquire
+a contract on resume. Closed threads cannot resume or accept writes; choose a new
+key for a new execution. Set `threadify.thread_key` to this same key in OTLP spans
+or `ThreadifySpanExporter` instrumentation.
 
 ### Record Step
 ```javascript
@@ -138,7 +155,7 @@ await childThread.linkThread(parentThread.id, 'parent');
 
 ### Retrieve Thread Data
 
-**Important:** `getThread()` returns a **read-only** thread object for querying data. To add steps or modify a thread, you must use `join()`.
+**Important:** `getThread()` returns a **read-only** thread object for querying data. To add steps or modify a thread, resume with `thread(threadKey)` or use `join()` with an internal ID or invitation.
 
 **Recommended:** Use `getCompleteData()` for efficiency (single query):
 
@@ -322,15 +339,16 @@ trace.setGlobalTracerProvider(provider);
 .addContext({ user_id: '1', user_name: 'John' })
 ```
 
-### ❌ Wrong: Old start() signature
+### Create defaults once; resume by key
 ```javascript
-connection.start({ customer_id: '123' }, 'customer')
-```
+await connection.thread('order:ORD-123', {
+  label: 'Order ORD-123',
+  contract: 'order_fulfillment',
+  refs: { customer_id: '123' },
+});
 
-### ✅ Correct: New start() signature
-```javascript
-const thread = await connection.start();
-await thread.addRefs({ customer_id: '123' });
+// Later requests recover the stored contract automatically.
+const thread = await connection.thread('order:ORD-123');
 ```
 
 ---
@@ -341,7 +359,7 @@ await thread.addRefs({ customer_id: '123' });
 import { Threadify } from '@threadify/sdk';
 
 const connection = await Threadify.connect('api-key', 'checkout-service');
-const thread = await connection.start('Checkout Process');
+const thread = await connection.thread('order:ORD-789', { label: 'Checkout Process' });
 
 // Add external references to the thread
 await thread.addRefs({

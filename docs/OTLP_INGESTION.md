@@ -33,22 +33,36 @@ as the base URL and allow the SDK to append `/v1/traces`.
 
 | OpenTelemetry | Threadify |
 | --- | --- |
-| Trace | Thread |
+| Thread key (or fallback trace ID) | Thread |
 | Span | Step |
 | Span event | Sub-step |
 | Resource/span attributes | Context or refs |
 | `UNSET` or `OK` status | Successful step |
 | `ERROR` status | Failed step |
 
-Trace IDs are correlated to Thread IDs in Valkey and scoped by company. Span
-retries are deduplicated using the company, trace ID, and span ID. Invalid spans
+Identity is scoped by company and selected in this order: explicit
+`threadify.thread_id`, `threadify.thread_key`, `workflow.run_id`, then trace ID.
+The application key uses the same resolver as JavaScript `connection.thread(key)`,
+Python `await connection.thread(key)`, and Go `connection.Thread(ctx, key)`.
+Thread keys are trimmed, nonblank strings of at most 1024 UTF-8 bytes. Set the
+same key on every span or on a resource dedicated to that run; several traces
+can contribute to one thread. Disable only the workflow fallback with
+`/v1/traces?use_workflow_run_id=false`.
+
+Span retries are deduplicated using the company, trace ID, and span ID. Invalid spans
 are reported using OTLP partial-success responses; temporary backend failures
 return a retryable `503` response.
 
-Directly ingested Threads are not closed merely because a root span arrives.
-OTLP batches from different services can arrive later and OTLP has no explicit
-end-of-trace signal. Thread completion will require an explicit or durable
-quiescence policy rather than prematurely rejecting late spans.
+Shared free-form threads remain open when a root span ends. Complete the run
+explicitly with the Boolean attribute `threadify.run.complete = true` or through
+the SDK after its work has arrived. Trace-only threads complete on root export;
+contracted threads complete according to their contract. Closed threads reject
+further writes, including delayed spans, and their keys cannot create replacements.
+
+Resuming loads the stored contract and pinned version; subsequent spans can omit
+`threadify.contract`. A conflicting contract or version is rejected. Initialize
+contracted runs before telemetry begins: a new key without a contract creates a
+free-form thread and cannot acquire a contract later.
 
 ## Threadify attributes
 
@@ -60,6 +74,9 @@ Threadify directives can be set as resource or span attributes:
 | `threadify.contract` | Contract used when creating the Thread |
 | `threadify.label` | Thread label |
 | `threadify.thread_id` | Attach the trace to an existing writable Thread |
+| `threadify.thread_key` | Create or resume using the application session/process key |
+| `workflow.run_id` | Shared-key fallback when no explicit thread key is supplied |
+| `threadify.run.complete` | Explicitly complete a shared free-form run |
 | `threadify.role` | Contract role used for Thread creation |
 | `threadify.service` | Override `service.name` for the step actor service |
 | `threadify.step_name` | Override the current span's step name |

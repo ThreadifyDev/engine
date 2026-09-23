@@ -288,11 +288,11 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
 
 ### JavaScript/Node.js SDK
 ```javascript
-import Threadify from 'threadify-sdk';
+import { Threadify } from '@threadify/sdk';
 
 // Connect and start thread
 const connection = await Threadify.connect(API_KEY, 'service-name');
-const thread = await connection.start('product_delivery', 'merchant');
+const thread = await connection.thread('delivery:ORD-12345', { label: 'Product delivery ORD-12345', contract: 'product_delivery', serviceName: 'merchant' });
 
 // Add refs to thread
 await thread.addRefs({
@@ -343,7 +343,7 @@ class ThreadInstance {
 
 ### 1. Order Processing
 ```javascript
-const thread = await connection.start('order_fulfillment', 'merchant');
+const thread = await connection.thread('order:ORD-12345', { label: 'Order ORD-12345', contract: 'order_fulfillment', serviceName: 'merchant' });
 
 // Link to external systems
 await thread.addRefs({
@@ -373,7 +373,7 @@ await thread.addRefs({
 ### 3. Incremental Reference Addition
 ```javascript
 // Start with minimal refs
-const thread = await connection.start('product_delivery', 'merchant');
+const thread = await connection.thread('delivery:ORD-12345', { label: 'Product delivery ORD-12345', contract: 'product_delivery', serviceName: 'merchant' });
 await thread.addRefs({ orderId: 'ORD-12345' });
 
 // Add customer info when available

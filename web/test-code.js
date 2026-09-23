@@ -1,5 +1,5 @@
 const code = `// Start tracking
-const thread = await threadify.start();
+const thread = await threadify.thread('order:ORD-123');
 thread.step("payment_captured")
 
 // Add context

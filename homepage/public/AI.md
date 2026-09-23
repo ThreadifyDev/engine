@@ -42,30 +42,46 @@ Threadify records the steps of existing workflows, checks them against explicit 
 
 ---
 
-### 2. Starting a Thread
+### 2. Creating or Resuming a Thread
 
-**What it does:** Creates a new execution thread
+**What it does:** Atomically creates or resumes a workflow using an application-owned
+`threadKey`, such as a session ID, order ID, or case ID. Threadify owns the internal
+`threadId`; callers do not need to retain it between requests.
 
-**Variants:**
-1. **With label** - (Recommended) Give the thread a human-readable name (e.g., "Checkout-cust-123")
-2. **With a contract** - Bind the workflow rules for this execution
-3. **With tags** - Immutable labels for filtering (e.g., `["production", "v2.1"]`)
+**Signatures:**
+- JavaScript: `connection.thread(threadKey, options?)`
+- Python: `await connection.thread(thread_key, options=None)`
+- Go: `connection.Thread(ctx, threadKey, options...)`
 
-**Parameters:**
-- `label` (optional, recommended) - A descriptive name for the thread
-- `contractName` (optional) - Contract name and version when rules are needed
-- `serviceName` (optional) - Service identifier, supplied through the SDK options
-- `tags` (optional) - Immutable labels for filtering (e.g., `["production", "v2.1"]`)
+**Creation options:**
+- `label` — Human-readable name for this execution
+- `contract` — Optional contract name, optionally with a version (`name:version`)
+- `refs` — Business reference names mapped to string values
+- `tags` — Immutable string labels for filtering
+- `serviceName` — Reporting service (`service_name` in Python, `ServiceName` in Go)
+- `role` — Optional contract role (`Role` in Go)
+- Go uses `threadify.ThreadOptions` with capitalized fields.
 
-> Use basic tracking for observation. Bind a contract when the goal includes checking workflow rules or requesting permission before an action.
+The key identifies one workflow or agent session within your company; Threadify
+manages the internal `threadId`. Reuse the same key across requests and workers.
+Keys are trimmed, nonblank strings of at most 1024 UTF-8 bytes. Concurrent calls
+resolve to one thread and normal write permissions still apply.
 
-**Returns:** Thread instance
+The optional object supplies creation defaults. Resuming loads the stored contract
+and pinned version without redefining them. A conflicting contract or version is
+rejected. Existing labels, refs, and tags are preserved; update refs explicitly
+with the SDK's reference method.
 
-**Tags:**
-- Immutable string labels attached at thread creation
-- Used for categorization, filtering, and organizing threads
-- Set via SDK `start()` or OTel span attributes (if the codebase already uses OpenTelemetry)
-- Queryable via GraphQL `threads(tags: ["production"])`
+A new key with no options creates a free-form thread. Initialize contracted
+sessions before their turns or telemetry begin: a free-form thread cannot acquire
+a contract on resume. Closed threads cannot resume or accept writes; choose a new
+key for a new execution. Set `threadify.thread_key` to this same key in OTLP spans
+or `ThreadifySpanExporter` instrumentation.
+
+**Returns:** A thread handle ready to record steps.
+
+Tags can also be supplied through OTel span attributes and queried through
+GraphQL `threads(tags: ["production"])`.
 
 ---
 
@@ -187,7 +203,7 @@ Every step must have one of three statuses:
 
 **What it does:** Query thread execution data for analysis
 
-**Important:** `getThread()` returns a **read-only** thread object. To add steps or modify a thread, you must use `join()`.
+**Important:** `getThread()` returns a **read-only** thread object. To add steps or modify a thread, resume with `thread(threadKey)` or use `join()` with an internal ID or invitation.
 
 **Use cases:**
 - Analyze completed threads
@@ -307,16 +323,16 @@ and [execution waits](https://github.com/ThreadifyDev/engine/blob/main/threadify
 
 ### Integration Pattern
 1. Connect once, reuse connection
-2. Start thread per request
+2. Create or resume a thread using the workflow/session key in each request
 3. Record steps as actions execute
 4. Add context for queryability
 
 ### Microservices Pattern
-1. Service A starts thread
+1. Service A initializes a thread with a durable process key and optional contract
 2. Service A records its steps
-3. Service A passes `thread.id` to Service B
-4. Service B joins thread
-5. Service B records its steps
+3. Service B uses the same process key already carried by the application's request
+4. Service B resumes the thread with the stored contract, under normal access checks
+5. Service B records its steps; use invitations for cross-party access when needed
 
 ---
 
@@ -328,7 +344,7 @@ steps through a Threadify SDK. Both feed execution evidence into the Engine.
 **Mapping:**
 - A reported span becomes a step, with span events represented as sub-steps.
 - Explicit `threadify.thread_id` takes precedence. Otherwise correlation uses
-  `threadify.external_ref`, then `workflow.run_id`, then the trace ID.
+  `threadify.thread_key`, then `workflow.run_id`, then the trace ID.
 - Use a unique reference for each logical run, not a shared business category.
   Different traces can join the same run; incompatible contracts are rejected.
 - Teams wanting trace-based grouping can disable `workflow.run_id` fallback in

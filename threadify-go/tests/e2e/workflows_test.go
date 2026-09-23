@@ -353,6 +353,33 @@ versioning:
 		checks[t.Name()] = true
 	})
 
+	t.Run("thread_key_sdk", func(t *testing.T) {
+		code, data := request(t, "POST", "/v1/contracts", "text/plain", []byte(contractYAML), true)
+		if code != 200 {
+			require.Equal(t, 400, code, string(data))
+			require.NotEmpty(t, contractID)
+		}
+		result := testThreadKeySDK(t, base, key, contractName)
+		poll(t, "SELECT count(*) FROM threads WHERE id=$1 AND status='completed'", 1, result["threadId"])
+		poll(t, "SELECT count(*) FROM thread_step_states WHERE thread_id=$1", 2, result["threadId"])
+		poll(t, "SELECT count(*) FROM threads WHERE id=$1 AND contract_name=$2 AND contract_version=1", 1, result["contractThreadId"], contractName)
+		// A fresh trace using the same key must also reject writes through OTLP/HTTP.
+		now := time.Now()
+		payload := &collectpb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
+			Name: "late-http", TraceId: []byte{9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5}, SpanId: []byte{1, 2, 3, 4, 5, 6, 7, 8},
+			StartTimeUnixNano: uint64(now.Add(-time.Second).UnixNano()), EndTimeUnixNano: uint64(now.UnixNano()),
+			Attributes: []*commonpb.KeyValue{{Key: "threadify.thread_key", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: result["threadKey"]}}}},
+		}}}}}}}
+		body, err := proto.Marshal(payload)
+		require.NoError(t, err)
+		code, data = request(t, "POST", "/v1/traces", "application/x-protobuf", body, true)
+		require.Equal(t, 200, code)
+		var rejected collectpb.ExportTraceServiceResponse
+		require.NoError(t, proto.Unmarshal(data, &rejected))
+		require.EqualValues(t, 1, rejected.GetPartialSuccess().GetRejectedSpans())
+		require.Contains(t, rejected.GetPartialSuccess().GetErrorMessage(), "completed thread")
+	})
+
 	t.Run("otel_conversion_and_replay", func(t *testing.T) {
 		traceID := make([]byte, 16)
 		_, err := rand.Read(traceID)
@@ -374,7 +401,12 @@ versioning:
 			require.Equal(t, 200, code)
 			var result collectpb.ExportTraceServiceResponse
 			require.NoError(t, proto.Unmarshal(response, &result))
-			require.Zero(t, result.GetPartialSuccess().GetRejectedSpans(), result.GetPartialSuccess().GetErrorMessage())
+			if i == 0 {
+				require.Zero(t, result.GetPartialSuccess().GetRejectedSpans(), result.GetPartialSuccess().GetErrorMessage())
+			} else {
+				require.EqualValues(t, 2, result.GetPartialSuccess().GetRejectedSpans())
+				require.Contains(t, result.GetPartialSuccess().GetErrorMessage(), "completed thread")
+			}
 		}
 		id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(company+":"+hex.EncodeToString(traceID))).String()
 		poll(t, "SELECT count(*) FROM threads WHERE id=$1 AND company_id=$2", 1, id, company)
@@ -421,8 +453,8 @@ versioning:
 		require.NoError(t, proto.Unmarshal(response, &rejected))
 		require.EqualValues(t, 1, rejected.GetPartialSuccess().GetRejectedSpans())
 		poll(t, "SELECT count(*) FROM threads WHERE id=$1 AND status='completed' AND completed_at=$2", 1, id, now.Add(time.Second))
-		// The root has already ended. A delayed child still persists and extends
-		// the HMAC chain without reopening the execution or changing its end.
+		// The root has already ended. Late writes are rejected and cannot extend
+		// the audit chain or change the completed execution.
 		late := proto.Clone(span2).(*tracepb.Span)
 		late.SpanId = []byte{3, 4, 5, 6, 7, 8, 9, 10}
 		late.Name = "late-child"
@@ -436,15 +468,16 @@ versioning:
 			require.Equal(t, 200, code)
 			var accepted collectpb.ExportTraceServiceResponse
 			require.NoError(t, proto.Unmarshal(response, &accepted))
-			require.Zero(t, accepted.GetPartialSuccess().GetRejectedSpans(), accepted.GetPartialSuccess().GetErrorMessage())
+			require.EqualValues(t, 1, accepted.GetPartialSuccess().GetRejectedSpans())
+			require.Contains(t, accepted.GetPartialSuccess().GetErrorMessage(), "completed thread")
 		}
-		poll(t, "SELECT count(*) FROM thread_step_states WHERE thread_id=$1", 3, id)
-		poll(t, "SELECT count(*) FROM thread_activities WHERE thread_id=$1 AND activity_type='step_recorded'", 3, id)
+		poll(t, "SELECT count(*) FROM thread_step_states WHERE thread_id=$1", 2, id)
+		poll(t, "SELECT count(*) FROM thread_activities WHERE thread_id=$1 AND activity_type='step_recorded'", 2, id)
 		poll(t, "SELECT count(*) FROM threads WHERE id=$1 AND status='completed' AND completed_at=$2", 1, id, now.Add(time.Second))
 		integrity := gql(t, `query($id:ID!,$tid:String!){verifyThreadIntegrity(threadId:$tid){verified totalEvents error} thread(id:$id){status completedAt steps{verified verificationError}}}`, map[string]any{"id": id, "tid": id})
 		chain := integrity["verifyThreadIntegrity"].(map[string]any)
 		require.Equal(t, true, chain["verified"])
-		require.EqualValues(t, 3, chain["totalEvents"])
+		require.EqualValues(t, 2, chain["totalEvents"])
 		require.Nil(t, chain["error"])
 		for _, raw := range integrity["thread"].(map[string]any)["steps"].([]any) {
 			require.Equal(t, true, raw.(map[string]any)["verified"])

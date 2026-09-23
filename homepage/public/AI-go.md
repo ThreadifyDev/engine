@@ -47,35 +47,45 @@ conn, err := threadify.Connect(ctx, "api-key",
 )
 ```
 
-### Start Thread
+### Create or Resume a Thread
+
 ```go
-// With label (Recommended)
-thread, err := conn.Start(ctx, "Checkout-123", "")
+// Initialize once before requests or telemetry use this session.
+thread, err := conn.Thread(ctx, sessionID, threadify.ThreadOptions{
+    Label:    "Agent session",
+    Contract: "agent_contract:3", // Omit for a free-form session.
+    Refs:     map[string]string{"customer_id": customerID},
+    Tags:     []string{"production"},
+})
 if err != nil {
     log.Fatal(err)
 }
 
-// With label and service name
-thread, err := conn.Start(ctx, "Order-789", "",
-    threadify.WithService("merchant-service"),
-)
+// A later request or worker uses only the application's session ID.
+resumed, err := conn.Thread(ctx, sessionID)
 if err != nil {
     log.Fatal(err)
 }
-
-// With tags (immutable labels for filtering)
-thread, err := conn.Start(ctx, "Order-789", "",
-    threadify.WithTags("production", "v2.1"),
-)
-if err != nil {
-    log.Fatal(err)
-}
-
-// Bind a contract when workflow rules are needed:
-// thread, err := conn.Start(ctx, "Order-789", "order_fulfillment")
 ```
 
-> **Tip:** Always provide a human-readable `label` when starting a thread. This makes it much easier to find and identify threads in the Threadify UI.
+`ThreadOptions` fields: `Label`, `Contract`, `Refs` (`map[string]string`), `Tags`,
+`ServiceName`, and `Role`. Use `thread.AddRefs(ctx, refs)` for explicit reference updates.
+
+The key identifies one workflow or agent session within your company; Threadify
+manages the internal `threadId`. Reuse the same key across requests and workers.
+Keys are trimmed, nonblank strings of at most 1024 UTF-8 bytes. Concurrent calls
+resolve to one thread and normal write permissions still apply.
+
+The optional object supplies creation defaults. Resuming loads the stored contract
+and pinned version without redefining them. A conflicting contract or version is
+rejected. Existing labels, refs, and tags are preserved; update refs explicitly
+with the SDK's reference method.
+
+A new key with no options creates a free-form thread. Initialize contracted
+sessions before their turns or telemetry begin: a free-form thread cannot acquire
+a contract on resume. Closed threads cannot resume or accept writes; choose a new
+key for a new execution. Set `threadify.thread_key` to this same key in OTLP spans
+or `ThreadifySpanExporter` instrumentation.
 
 ### Record Step
 ```go
@@ -239,7 +249,7 @@ for _, thread := range threads {
 
 ### Retrieve Thread Data
 
-**Important:** `GetThread()` returns a **read-only** thread object for querying data. To add steps or modify a thread, you must use `Join()`.
+**Important:** `GetThread()` returns a **read-only** thread object for querying data. To add steps or modify a thread, resume with `Thread(ctx, threadKey)` or use `Join()` with an internal ID or invitation.
 
 **Recommended:** Use `GetCompleteData()` for efficiency (single query):
 
@@ -559,7 +569,7 @@ import (
     "context"
     "log"
     "time"
-    "https://github.com/ThreadifyDev/go-sdk.git"
+    "github.com/ThreadifyDev/go-sdk"
 )
 
 func main() {
@@ -570,7 +580,7 @@ func main() {
     )
     defer conn.Close()
 
-    thread, _ := conn.Start(ctx, "Checkout Process", "")
+    thread, _ := conn.Thread(ctx, "order:ORD-789", threadify.ThreadOptions{Label: "Checkout Process"})
 
     thread.AddRefs(ctx, map[string]string{
         "customer_id": "123",

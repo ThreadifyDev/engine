@@ -32,8 +32,13 @@ local ttl = tonumber(ARGV[3]) or 604800  -- Default to 7 days if not provided
 local currentStatus = redis.call('HGET', metaKey, 'status')
 
 -- If already terminal, return 0 (skip) with current status
-if currentStatus == 'completed' or currentStatus == 'cancelled' then
-    return {0, currentStatus}
+local storedJSON = redis.call('GET', threadKey)
+local storedStatus = storedJSON and cjson.decode(storedJSON).status
+local function terminal(value)
+    return value == 'completed' or value == 'cancelled' or value == 'closed' or value == 'failed'
+end
+if terminal(currentStatus) or terminal(storedStatus) then
+    return {0, terminal(currentStatus) and currentStatus or storedStatus}
 end
 
 -- ============================================================================

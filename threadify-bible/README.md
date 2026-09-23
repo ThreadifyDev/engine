@@ -13,7 +13,7 @@ Each case is documented in a separate file with complete pseudocode flows, datab
    - In-memory connection management
    - WebSocket client registration
 
-2. **[CASE_2_startThread.md](./CASE_2_startThread.md)** - Thread Creation
+2. **[Create or resume a thread](./CASE_2_startThread.md)** - Thread-key resolution and creation (legacy filename retained for links)
    - Contract validation (3-tier cache)
    - Thread initialization
    - Access control setup

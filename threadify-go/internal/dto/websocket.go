@@ -21,6 +21,8 @@ type ConnectResponse struct {
 
 type StartThreadRequest struct {
 	Action       string            `json:"action"`
+	ThreadKey    string            `json:"threadKey,omitempty"`
+	ServiceName  string            `json:"serviceName,omitempty"`
 	Label        string            `json:"label,omitempty"`
 	ContractName string            `json:"contractName"`
 	Role         string            `json:"role"`
@@ -29,10 +31,17 @@ type StartThreadRequest struct {
 }
 
 type StartThreadResponse struct {
-	Action   string `json:"action"`
-	Status   string `json:"status"`
-	Message  string `json:"message"`
-	ThreadID string `json:"threadId,omitempty"`
+	Action          string            `json:"action"`
+	Status          string            `json:"status"`
+	Message         string            `json:"message"`
+	ThreadID        string            `json:"threadId,omitempty"`
+	ThreadKey       string            `json:"threadKey,omitempty"`
+	Label           string            `json:"label,omitempty"`
+	ContractID      *string           `json:"contractId,omitempty"`
+	ContractName    string            `json:"contractName,omitempty"`
+	ContractVersion *int              `json:"contractVersion,omitempty"`
+	Refs            map[string]string `json:"refs,omitempty"`
+	Tags            []string          `json:"tags,omitempty"`
 }
 
 type RecordEventRequest struct {

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from harnest.context import context
-from harnest.extensions.threadify import threadify
+from harnest.extensions.threadify import is_duplicate_error, threadify
 from harnest.tool import tool
 
 
@@ -20,20 +20,32 @@ async def submit_work(request: str) -> dict[str, str]:
         "harnestInvocation", invocation_id
     )
     if existing is not None:
-        return {"thread_id": existing.thread_id, "status": "already_submitted"}
-    thread = await threadify.start_thread(
-        label=f"nanite-job-{invocation_id[-12:]}",
-        contract_name=contract_name,
-        refs={"harnestInvocation": invocation_id},
-        role="dispatcher",
+        submitted = await existing.steps(
+            step_name="work_requested", idempotency_key=invocation_id, status="success"
+        )
+        if submitted:
+            return {"thread_id": existing.id, "status": "already_submitted"}
+    thread = await threadify.thread(
+        f"nanite:{invocation_id}",
+        None if existing is not None else {
+            "label": f"nanite-job-{invocation_id[-12:]}",
+            "contract": contract_name,
+            "refs": {"harnestInvocation": invocation_id},
+            "role": "dispatcher",
+        },
     )
-    await threadify.record_step(
-        thread.thread_id,
-        "work_requested",
-        context={"request": normalized},
-        role="dispatcher",
-        idempotency_key=invocation_id,
-    )
+    try:
+        await threadify.record_step(
+            thread.thread_id,
+            "work_requested",
+            context={"request": normalized},
+            role="dispatcher",
+            idempotency_key=invocation_id,
+        )
+    except Exception as error:
+        if not is_duplicate_error(error):
+            raise
+        return {"thread_id": thread.thread_id, "status": "already_submitted"}
     return {"thread_id": thread.thread_id, "status": "submitted"}
 
 

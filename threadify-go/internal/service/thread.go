@@ -256,9 +256,12 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 }
 
 func (s *ThreadService) HandleStartThread(ctx context.Context, req *domain.StartThreadCmd, ownerID, companyID string) *domain.StartThreadResponse {
+	if req != nil && req.Action == "thread" && strings.TrimSpace(req.ThreadKey) == "" {
+		return &domain.StartThreadResponse{Action: "thread", Status: StepStatusError, Message: "threadKey must be a non-empty string"}
+	}
 	// Reserved SDK correlation refs opt into the same resolver used by OTLP.
-	if req != nil && (req.Refs["threadify.external_ref"] != "" || req.Refs["otel_trace_id"] != "") {
-		if s.otelTrace == nil || !s.connectionMgr.IsConnected(ownerID) {
+	if req != nil && (req.ThreadKey != "" || req.Refs["threadify.thread_key"] != "" || req.Refs["otel_trace_id"] != "") {
+		if s.otelTrace == nil || ownerID == "" || companyID == "" || !s.connectionMgr.IsConnected(ownerID) {
 			return &domain.StartThreadResponse{Action: ActionStartThread, Status: StepStatusError, Message: "correlated starts unavailable"}
 		}
 		return s.otelTrace.startSDKThread(ctx, req, ownerID, companyID)
@@ -439,6 +442,7 @@ func (s *ThreadService) startThread(ctx context.Context, req *domain.StartThread
 	}
 
 	perf.LogStructured("HandleStartThread COMPLETE", zap.Duration("duration", perf.Since(start)), zap.Bool("success", true))
+	metrics.ThreadsCreated.Inc()
 
 	return &domain.StartThreadResponse{
 		Action:   ActionStartThread,
@@ -502,7 +506,7 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 	}
 
 	t := time.Now()
-	thread, err := s.getThread(req.ThreadID)
+	thread, err := s.repo.Get(ctx, req.ThreadID, domain.ThreadReadOptions{WriteBack: true})
 	metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "thread_fetch").Observe(time.Since(t).Seconds())
 	if err != nil {
 		return errResp("Thread not found: " + req.ThreadID)
@@ -513,6 +517,13 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 	metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "permission_check").Observe(time.Since(t).Seconds())
 	if err != nil || !hasAccess {
 		return errResp("Access denied: You don't have write permission for this thread")
+	}
+
+	if err := writableThread(thread); err != nil {
+		return errResp(err.Error())
+	}
+	if err := validateThreadKeyRefs(thread, req.Refs); err != nil {
+		return errResp(err.Error())
 	}
 
 	t = time.Now()
@@ -550,14 +561,6 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 				IsDuplicate: true,
 			}
 		}
-	}
-
-	// OTLP arrival order is independent of execution completion. Only the
-	// authenticated ingestion path may append to its own completed trace.
-	allowLateOTel := !requireConnection && isOwnedOTelThread(thread, companyID, req.Refs["otel_trace_id"]) &&
-		req.Type == "otel_span" && strings.HasPrefix(req.IdempotencyKey, "otel:"+req.Refs["otel_trace_id"]+":")
-	if thread.Status == domain.ThreadStatusCompleted && !allowLateOTel {
-		return errResp("Cannot add steps to completed thread")
 	}
 
 	if req.IdempotencyKey == "" && idempotencyKey != "" {
@@ -920,6 +923,12 @@ func (s *ThreadService) HandleAddRefs(ctx context.Context, req *domain.AddRefsCm
 	}
 	if !hasWriteAccess {
 		return errResp("Access denied: write permission required")
+	}
+	if err := writableThread(thread); err != nil {
+		return errResp(err.Error())
+	}
+	if err := validateThreadKeyRefs(thread, req.Refs); err != nil {
+		return errResp(err.Error())
 	}
 
 	refsCtx, refsCancel := context.WithTimeout(ctx, 5*time.Second)

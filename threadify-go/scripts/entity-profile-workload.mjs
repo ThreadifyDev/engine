@@ -86,11 +86,11 @@ try {
   const started = performance.now();
   const workers = await Promise.allSettled(connections.map(async (connection, worker) => {
     // One unrelated entity per connection must never leak into the target profile.
-    const control = await connection.start('Control entity', contract + ':1', { refs: { agent_id: 'unrelated-control' } });
+    const control = await connection.thread(`${runRef}:control:${worker}`, { label: 'Control entity', contract: contract + ':1', refs: { agent_id: 'unrelated-control' } });
     await passed(control, 'requested'); await passed(control, 'approval'); await allowed(control); await passed(control, 'refund'); await passed(control, 'finish');
     for (let i = worker; i < count; i += concurrency) {
       const scenario = i % 4;
-      const thread = await connection.start(`Refund-${String(i + 1).padStart(4, '0')}`, contract + ':1', { refs: { agent_id: runRef } });
+      const thread = await connection.thread(`${runRef}:refund:${i}`, { label: `Refund-${String(i + 1).padStart(4, '0')}`, contract: contract + ':1', refs: { agent_id: runRef } });
       await passed(thread, 'requested');
       if (scenario === 1) {
         await blocked(thread);
