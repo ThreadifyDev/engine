@@ -5,6 +5,14 @@ registry:
   browser_origin: "$THREADIFY_BROWSER_ORIGIN:"
   license_key: "$THREADIFY_LICENSE_KEY"
 
+# Optional AI: start with `threadify serve --with-agent` and configure ai.gateway.
+# Alternatively set ai.agent.url to an external agent's HTTP(S) origin.
+# With neither option, all agentic UI features are hidden. See docs/AGENT.md.
+# ai:
+#   gateway:
+#     base_url: http://127.0.0.1:11434/v1
+#     model: your-installed-tool-capable-model
+
 server:
   # Public address for SDKs and exporters; Settings > Engine can override it.
   public_url: "$THREADIFY_PUBLIC_URL:"
@@ -172,27 +180,6 @@ archiver:
     batch_size: 100
     step_state_flush_interval_ms: 5000  # Flush interval for step state archival (default: 5 seconds)
 
-# External Web API configuration (the engine binary does not serve it)
-web_api:
-  enabled: true
-  port: 3001
-  host: 0.0.0.0
-  frontend_url: "https://threadify.dev"  # Used for email links (password reset, welcome emails)
-  outbox_encryption_key: "$OUTBOX_ENCRYPTION_KEY:"
-
-  # Email service (Plunk)
-  email:
-    plunk_api_key: "$PLUNK_API_KEY:"
-    plunk_from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.dev"
-    plunk_api_url: "$PLUNK_API_URL:https://next-api.useplunk.com/v1/send"
-
-  # Threadify Engine integration
-  threadify_engine:
-    url: "$THREADIFY_ENGINE_URL:http://localhost:8081"
-    graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://localhost:8081/graphql"
-
-  # API Key settings
-  api_key_ttl_hours: 8760  # 365 days
 
 # Worker pool configuration for bounded concurrency
 worker_pools:

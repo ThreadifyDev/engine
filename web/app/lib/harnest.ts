@@ -32,6 +32,15 @@ export interface HarnestStreamEvent {
   outputText?: string;
   status?: string;
   error?: string;
+  clientTool?: HarnestClientTool;
+  requiredAction?: { type: string } & Partial<HarnestClientTool>;
+}
+
+export interface HarnestClientTool {
+  id: string;
+  callId: string;
+  name: string;
+  arguments: Record<string, unknown>;
 }
 
 type SessionPage = { sessions: HarnestSession[]; nextCursor: string | null };
@@ -59,9 +68,10 @@ async function request(path: string, init: RequestInit = {}) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
-    throw new Error(
-      payload?.detail || payload?.error || `Threadify agent request failed (${response.status})`
-    );
+    const detail = payload?.detail || payload?.error;
+    throw new Error(typeof detail === 'string' ? detail : response.status === 503 || response.status === 502 || response.status === 404
+      ? 'The agent is unavailable. Check the Engine’s agent connection.'
+      : `Threadify agent request failed (${response.status})`);
   }
   return response;
 }
@@ -72,10 +82,11 @@ export const harnest = {
     return ((await response.json()) as SessionPage).sessions || [];
   },
 
-  async createSession(title: string): Promise<HarnestSession> {
+  async createSession(title: string, signal?: AbortSignal): Promise<HarnestSession> {
     const response = await request('sessions', {
       method: 'POST',
       body: JSON.stringify({ state: { title, source: 'threadify-web' } }),
+      signal,
     });
     return response.json();
   },
@@ -93,7 +104,9 @@ export const harnest = {
     input: string,
     sessionId: string,
     onEvent: (event: HarnestStreamEvent) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    executeClientTool?: (tool: HarnestClientTool) => Promise<unknown>,
+    pageContext?: unknown,
   ): Promise<void> {
     const response = await request('responses', {
       method: 'POST',
@@ -101,7 +114,7 @@ export const harnest = {
         input,
         sessionId,
         stream: true,
-        metadata: { source: 'threadify-web' },
+        metadata: { source: 'threadify-web', pageContext },
       }),
       signal,
       headers: { Accept: 'text/event-stream' },
@@ -109,6 +122,8 @@ export const harnest = {
 
     if (!response.body) throw new Error('The Threadify agent returned an empty stream.');
 
+    let pending: HarnestClientTool | undefined;
+    let completed = false;
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -121,10 +136,24 @@ export const harnest = {
         .join('\n');
       if (!data) return;
       const event = JSON.parse(data) as HarnestStreamEvent;
+      if (event.type === 'client_tool.requested') pending = event.clientTool;
+      if (event.type === 'response.completed') {
+        completed = true;
+        if (event.status === 'requires_action' && event.requiredAction?.type !== 'client_tool') {
+          throw new Error('The agent requested an unsupported action. Start a new conversation.');
+        }
+        if (event.status === 'requires_action') {
+          const action = event.requiredAction;
+          if (!action?.id || !action.name || !action.arguments) throw new Error('The agent returned an incomplete frontend action.');
+          pending = action as HarnestClientTool;
+        } else if (event.status !== 'completed') {
+          throw new Error('The agent did not complete the response.');
+        }
+      }
       onEvent(event);
     };
 
-    while (true) {
+    try { while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -135,6 +164,34 @@ export const harnest = {
 
     buffer += decoder.decode();
     if (buffer.trim()) consumeFrame(buffer);
+    } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+    if (!completed) throw new Error('The agent connection ended before the response completed.');
+
+    // Harnest closes SSE at a client-tool boundary. Submit the result to resume
+    // that exact suspended invocation; JSON continuations may request more tools.
+    const handled = new Set<string>();
+    for (let count = 0; pending; count++) {
+      signal?.throwIfAborted();
+      if (count >= 24 || handled.has(pending.id)) throw new Error('The agent exceeded the client action limit.');
+      if (!executeClientTool || !pending.id || !pending.name) throw new Error('The agent requested an unavailable frontend tool.');
+      handled.add(pending.id);
+      const output = await executeClientTool(pending);
+      signal?.throwIfAborted();
+      const resumed = await request(`client-tools/${encodeURIComponent(pending.id)}`, {
+        method: 'POST', body: JSON.stringify({ output }), signal,
+      });
+      const result = await resumed.json() as HarnestStreamEvent;
+      if (result.status === 'requires_action') {
+        const action = result.requiredAction;
+        if (action?.type !== 'client_tool' || !action.id || !action.name || !action.arguments) throw new Error('The agent requested an unsupported action.');
+        pending = action as HarnestClientTool;
+        onEvent({ ...result, type: 'client_tool.requested', clientTool: pending });
+      } else {
+        if (result.status !== 'completed') throw new Error('The agent did not complete the response.');
+        pending = undefined;
+        onEvent({ ...result, type: 'response.completed' });
+      }
+    }
   },
 };
 

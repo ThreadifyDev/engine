@@ -30,6 +30,9 @@ func LoadFromViper(v *viper.Viper) (*Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
+	if cfg.AI != nil {
+		cfg.AI.Agent.URL = expandEnv(cfg.AI.Agent.URL)
+	}
 
 	cfg.Registry.URL = expandEnv(cfg.Registry.URL)
 	publicURL, err := sharedconfig.NormalizePublicURL(expandEnv(cfg.Server.PublicURL))

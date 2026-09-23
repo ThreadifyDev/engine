@@ -187,26 +187,7 @@ archiver:
     batch_size: 100
     step_state_flush_interval_ms: 5000  # Flush interval for step state archival (default: 5 seconds)
 
-# Web API service configuration
-web_api:
-  enabled: true
-  port: 3001
-  host: 0.0.0.0
-  
-  # Email service (Plunk)
-  email:
-    plunk_api_key: "$PLUNK_API_KEY:"
-    plunk_from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.dev"
-  
-  # Threadify Engine integration
-  threadify_engine:
-    url: "$THREADIFY_ENGINE_URL:http://th-engine:8081"
-    graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://th-engine:8081/graphql"
 
-
-  # API Key settings
-  api_key_ttl_hours: 8760  # 365 days
-  
 # Worker pool configuration for bounded concurrency
 worker_pools:
   validation:

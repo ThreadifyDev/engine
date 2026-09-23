@@ -2,6 +2,7 @@ import { Component, Suspense, useEffect, type ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useParams } from 'react-router';
 import { QueryProvider } from '~/lib/query-client';
 import { pages, redirects, type Page } from './routes';
+import AgentProvider from '~/components/agent/AgentProvider';
 
 function PageView({ page }: { page: Page }) {
   const params = useParams();
@@ -29,14 +30,16 @@ export default function App() {
   return (
     <AppErrorBoundary>
       <QueryProvider>
-        <Suspense fallback={<div role="status" className="p-8 text-sm text-gray-500">Loading Threadify…</div>}>
-          <Routes>
-            {pages.map(page => <Route key={page.path} path={page.path} element={<PageView page={page} />} />)}
-            {Object.entries(redirects).map(([path, to]) => <Route key={path} path={path} element={<Navigate to={to} replace />} />)}
-            <Route path="/pricing" element={<PricingRedirect />} />
-            <Route path="*" element={<div className="p-8 text-sm">Page not found. <Link to="/u/dashboard" className="underline">Open dashboard</Link></div>} />
-          </Routes>
-        </Suspense>
+        <AgentProvider>
+          <Suspense fallback={<div role="status" className="p-8 text-sm text-gray-500">Loading Threadify…</div>}>
+            <Routes>
+              {pages.map(page => <Route key={page.path} path={page.path} element={<PageView page={page} />} />)}
+              {Object.entries(redirects).map(([path, to]) => <Route key={path} path={path} element={<Navigate to={to} replace />} />)}
+              <Route path="/pricing" element={<PricingRedirect />} />
+              <Route path="*" element={<div className="p-8 text-sm">Page not found. <Link to="/u/dashboard" className="underline">Open dashboard</Link></div>} />
+            </Routes>
+          </Suspense>
+        </AgentProvider>
       </QueryProvider>
     </AppErrorBoundary>
   );

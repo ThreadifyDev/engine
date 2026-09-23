@@ -58,6 +58,33 @@ func testEngineManagement(t *testing.T, base string, client *http.Client) {
 	require.Equal(t, true, dry["dry_run"])
 	created := request("PUT", path, profile, "", 200)
 	require.Equal(t, "created", created["status"])
+	viewPath := "/v1/entity-profile-views/" + created["data"].(map[string]any)["id"].(string)
+	emptyView := request("GET", viewPath, nil, "", 200)
+	require.Nil(t, emptyView["data"].(map[string]any)["definition"])
+	require.Equal(t, true, emptyView["can_manage"])
+	viewDefinition := map[string]any{"schemaVersion": 1, "title": "Customer health", "description": "Live delivery health", "range": "30d", "columns": 2, "blocks": []any{map[string]any{"id": "health", "source": "deliveryHealth", "title": "Health"}}}
+	viewPayload := map[string]any{"expected_revision": 0, "definition": viewDefinition}
+	savedView := request("PUT", viewPath, viewPayload, "", 200)
+	require.EqualValues(t, 1, savedView["data"].(map[string]any)["revision"])
+	persistedView := request("GET", viewPath, nil, "", 200)
+	require.Equal(t, savedView["data"], persistedView["data"])
+	require.Equal(t, "PROFILE_VIEW_CONFLICT", request("PUT", viewPath, viewPayload, "", 409)["code"])
+	forbiddenPlan := map[string]any{"expected_revision": 1, "definition": viewDefinition, "requests": []any{map[string]any{"operation": "arbitraryQuery"}}}
+	request("PUT", viewPath, forbiddenPlan, "", 400)
+	historyDefinition := map[string]any{"schemaVersion": 1, "title": "History", "description": "", "range": "30d", "columns": 1, "blocks": []any{map[string]any{"id": "history", "source": "history", "title": "History"}}}
+	request("PUT", viewPath, map[string]any{"expected_revision": 1, "definition": historyDefinition}, "", 400)
+	// A cookie-authenticated write must also carry the session CSRF value.
+	csrfBody, err := json.Marshal(map[string]any{"expected_revision": 1, "definition": viewDefinition})
+	require.NoError(t, err)
+	csrfRequest, err := http.NewRequest("PUT", base+viewPath, bytes.NewReader(csrfBody))
+	require.NoError(t, err)
+	csrfRequest.Header.Set("Content-Type", "application/json")
+	csrfRequest.Header.Set("Origin", base)
+	csrfResponse, err := client.Do(csrfRequest)
+	require.NoError(t, err)
+	require.Equal(t, 403, csrfResponse.StatusCode)
+	csrfResponse.Body.Close()
+
 	repeat := request("PUT", path, profile, "", 200)
 	require.Equal(t, "unchanged", repeat["status"])
 	profile["description"] = "updated through Engine"
@@ -69,6 +96,10 @@ func testEngineManagement(t *testing.T, base string, client *http.Client) {
 	keyID := credential["api_key"].(map[string]any)["id"].(string)
 	request("GET", "/v1/entity-profile-types", nil, key, 200)
 	request("PUT", path, profile, key, 403)
+	readerView := request("GET", viewPath, nil, key, 200)
+	require.Equal(t, false, readerView["can_manage"])
+	require.Equal(t, persistedView["data"], readerView["data"])
+	request("PUT", viewPath, map[string]any{"expected_revision": 1, "definition": viewDefinition}, key, 403)
 	request("GET", "/v1/service-accounts", nil, key, 403)
 	request("POST", "/v1/api-keys", map[string]any{"name": "forbidden"}, key, 403)
 	request("PUT", "/v1/service-accounts/"+id, map[string]any{"name": name, "description": "Disabled", "is_active": false}, "", 200)
@@ -79,4 +110,6 @@ func testEngineManagement(t *testing.T, base string, client *http.Client) {
 	request("GET", "/v1/entity-profile-types", nil, key, 401)
 	request("DELETE", "/v1/service-accounts/"+id, nil, "", 200)
 	request("DELETE", path, nil, "", 200)
+	request("GET", viewPath, nil, "", 404)
+	request("PUT", viewPath, map[string]any{"expected_revision": 1, "definition": viewDefinition}, "", 404)
 }

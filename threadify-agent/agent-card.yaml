@@ -20,7 +20,7 @@ skills:
       - Why did thread 5d724fa5-1234-5678-9abc-def012345678 fail?
   - id: design-contract
     name: Design a Threadify contract
-    description: Infers a valid Threadify YAML contract from an observed execution graph.
-    tags: [threadify, contracts, yaml, design]
+    description: Drafts and previews Gherkin contracts in the connected Threadify editor.
+    tags: [threadify, contracts, gherkin, design]
     examples:
       - Create a contract from thread 5d724fa5-1234-5678-9abc-def012345678.

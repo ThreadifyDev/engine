@@ -94,7 +94,7 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 	// the entire Valkey hash for the profile when refs are added) combined with a 30m TTL.
 	// We no longer include LastActiveAt here to prevent field bloat inside the Valkey hash.
 	timeWindow := time.Now().Truncate(5 * time.Minute).Unix()
-	cacheVersion := fmt.Sprintf("%s:%d", configHash, timeWindow)
+	cacheVersion := fmt.Sprintf("metric_bindings_v1:%s:%d", configHash, timeWindow)
 
 	if cached, found := r.metricsRepo.GetCachedEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion); found {
 		return cached, nil
@@ -115,6 +115,7 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 	}
 
 	combinedResults := make(map[string]interface{})
+	metricResults := make(map[string]interface{})
 
 	// Keep main's concurrent evaluation while preserving custom metric shapes.
 	var mu sync.Mutex
@@ -199,6 +200,12 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 			metricKey := toSnakeCase(metricDisplayName)
 			mu.Lock()
 			defer mu.Unlock()
+			if results == nil {
+				results = []map[string]interface{}{}
+			}
+			if metricConfig.ID != nil {
+				metricResults[*metricConfig.ID] = results
+			}
 
 			if len(results) == 0 {
 				var emptyVal interface{} = 0
@@ -236,6 +243,7 @@ func (r *entityProfileResolver) ComputedMetrics(ctx context.Context, obj *genera
 		return nil, nil
 	}
 
+	combinedResults["__metricResults"] = metricResults
 	r.metricsRepo.CacheEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion, combinedResults)
 
 	return combinedResults, nil
@@ -262,7 +270,7 @@ func (r *entityProfileResolver) DeliveryHealth(ctx context.Context, obj *generat
 		return nil, fmt.Errorf("unsupported range format, expected 7d, 30d, or 90d")
 	}
 
-	cacheVersion := "delivery_health_v2_numeric_scores"
+	cacheVersion := "delivery_health_v3_daily_outcomes_" + end.UTC().Format("2006-01-02")
 
 	if cached, found := r.metricsRepo.GetCachedEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion); found {
 		return cached, nil
@@ -350,6 +358,16 @@ func (r *entityProfileResolver) DeliveryHealth(ctx context.Context, obj *generat
 	// Calculate health score
 	healthScore := calculateHealthScore(combinedResults)
 	combinedResults["health_score"] = healthScore
+	days := map[string]int{"7d": 7, "30d": 30, "90d": 90}[rangeVal]
+	trend, trendErr := r.metricsRepo.DeliveryOutcomeTrend(ctx, obj.CompanyID, obj.RefKey, refKeys, days, end)
+	if trendErr != nil {
+		r.logger.Warn("failed to load delivery outcome trend", zap.Error(trendErr))
+	} else {
+		combinedResults["daily_outcomes"] = map[string]interface{}{
+			"value":       trend,
+			"description": "Current outcomes by thread creation day (UTC). Failure includes cancelled threads; today is partial.",
+		}
+	}
 
 	r.metricsRepo.CacheEntityMetrics(ctx, obj.ID, rangeVal, cacheVersion, combinedResults)
 

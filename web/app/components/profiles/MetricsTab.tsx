@@ -63,8 +63,10 @@ function humanizeLabel(value: string) {
     .trim();
 }
 
-export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey: string; type: string; hasMetricsConfig: boolean }) {
-  const [range, setRange] = useState<MetricsRange>('7d');
+export default function MetricsTab({ refKey, type, hasMetricsConfig, initialRange = '7d', selectedRange, onRangeChange }: { refKey: string; type: string; hasMetricsConfig: boolean; initialRange?: MetricsRange; selectedRange?: MetricsRange; onRangeChange?: (range: MetricsRange) => void }) {
+  const [localRange, setLocalRange] = useState<MetricsRange>(initialRange);
+  const range = selectedRange ?? localRange;
+  const setRange = onRangeChange ?? setLocalRange;
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +134,7 @@ export default function MetricsTab({ refKey, type, hasMetricsConfig }: { refKey:
     const groups: Record<string, Record<string, any[]>> = {};
     
     Object.entries(data as Record<string, any>).forEach(([metricName, result]) => {
+      if (metricName === '__metricResults') return;
       // Backend format is typically: "BaseTagline: Header (Status)"
       // e.g. "OUTCOME RATE: MATCHED THREADS (STATUS: ACTIVE)"
       const parts = metricName.split(' (');

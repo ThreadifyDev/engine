@@ -9,6 +9,7 @@ interface YamlEditorProps {
   height?: string;
   readOnly?: boolean;
   contractSource?: boolean;
+  appearance?: 'default' | 'soft';
 }
 
 export default function YamlEditor({
@@ -18,17 +19,28 @@ export default function YamlEditor({
   height = '400px',
   readOnly = false,
   contractSource = false,
+  appearance = 'default',
 }: YamlEditorProps) {
   const firstLine = value.split(/\r?\n/).map(line => line.trim()).find(line => line && !line.startsWith("#"));
   const isGherkin = contractSource && firstLine?.startsWith("Feature:");
   return (
-    <div className="border-2 border-black">
+    <div className={appearance === 'soft' ? 'overflow-hidden' : 'border-2 border-black'}>
       <CodeMirror
         value={value}
         height={height}
         extensions={[
           ...(isGherkin ? [] : [yaml()]),
           EditorView.lineWrapping,
+          EditorView.contentAttributes.of({ 'aria-label': contractSource ? 'Contract source' : 'YAML source' }),
+          ...(appearance === 'soft' ? [EditorView.theme({
+            '&': { backgroundColor: '#fff' },
+            '&.cm-focused': { outline: 'none' },
+            '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', lineHeight: '1.8' },
+            '.cm-content': { padding: '20px 0' },
+            '.cm-line': { padding: '0 16px' },
+            '.cm-gutters': { backgroundColor: '#fafaf9', color: '#a8a29e', border: 'none', padding: '0 4px 0 8px' },
+            '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: '#f5f7f4' },
+          })] : []),
         ]}
         onChange={onChange}
         placeholder={placeholder}

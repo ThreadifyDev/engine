@@ -1,12 +1,12 @@
 import os
 
-from harnest.context import context
+from harnest import context
 from harnest.lib.threadify_graphql import ThreadifyGraphQLClient
-from harnest.lifecycle import lifecycle
+from harnest import lifecycle
 
 
 @lifecycle.resource
-@context("threadify_graphql")
+@context.provider("threadify_graphql")
 async def threadify_graphql():
     """Own one pooled Threadify client and expose it inside managed invocations."""
 

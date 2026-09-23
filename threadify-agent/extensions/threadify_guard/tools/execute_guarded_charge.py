@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from harnest.extensions.threadify_guard import guarded_step
-from harnest.tool import tool
+from harnest.agent import tool
 
 
 @tool

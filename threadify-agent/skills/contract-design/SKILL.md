@@ -1,52 +1,30 @@
 ---
 name: contract-design
-description: Use when creating, generating, inferring, reviewing, or explaining a Threadify YAML contract, especially from an observed thread.
+description: Create, revise, review, or explain a Threadify Gherkin contract using observed workflow evidence and the connected frontend editor.
 ---
 
 # Threadify contract design
 
-When a user asks for a contract based on a thread, use the typed Threadify tools
-to fetch the complete evidence needed for the design. Do not refuse merely
-because an earlier turn contains only partial step data.
-
-1. Load `references/graphql.md` for the exact tool workflow.
-2. If no thread ID is provided, call `search_threads` with `limit=1`, then call
-   `get_thread` once with the returned ID.
-3. Fetch the thread's contract identity, steps, actors, timestamps, statuses,
-   and bounded history context with `get_thread`.
-4. Infer candidate partial-order prerequisites from observed ordering and
-   timestamps. A successful step may depend on an earlier successful step even
-   when unrelated work ran between them. Preserve parallel starts or branches;
-   do not turn adjacency in one trace into a strict transition.
-5. Derive `parties` and step `owner` values from `actorService`. Derive required
-   business-context keys only from context observed in successful history.
-6. Put prerequisites on each step with `depends_on`. Use `transitions` only when
-   the evidence explicitly requires the next step to be immediate; normally
-   omit transitions for an inferred agent workflow. Treat steps with no
-   observed successors as terminal steps. State that one execution provides a
-   candidate dependency graph rather than proving every possible branch.
-7. Produce schema-valid YAML with this top-level shape:
-
-```yaml
-contract_name: example_workflow
-version: 1
-description: Example workflow inferred from an observed thread.
-entry_points: [first_step]
-parties: [service_name]
-steps:
-  - id: first_step
-    owner: service_name
-    type: managed
-    business_context:
-      required: [business_key]
-  - id: final_step
-    owner: service_name
-    type: managed
-    depends_on: [first_step]
-    business_context:
-      required: []
-terminal_steps: [final_step]
-```
-
-Introduce the result in one sentence, leave a blank line, then put the complete
-contract in a fenced `yaml` block. Do not present raw tool JSON.
+1. Read `references/gherkin.md` for the exact supported language. Do not emit
+   arbitrary Gherkin, YAML, scenarios, expressions, or content-based branching.
+2. For an existing thread/contract, recover its identity with get_page_context
+   or a typed search, then read it with get_thread/get_contract. Use
+   get_contract_graph to explain executable dependencies and transitions.
+   Do not silently choose an unrelated recent thread as the user's workflow.
+3. Propose owners and prerequisites from the user's intent and observed evidence.
+   An observed sequence does not prove a strict transition. A field seen once
+   does not establish that it is mandatory. Ask focused questions about unclear
+   owners, required steps, timing, or failure behavior before encoding those
+   decisions in a draft. Surface important assumptions.
+4. Prefer successful prerequisites when unrelated work can intervene. If any
+   strict next-step clause is used, every permitted immediate edge must be listed.
+   Fresh approval before every invocation is distinct from an earlier success.
+5. Call get_page_context to read the current contract draft and revision, then
+   open_contract_draft with the complete source and expected revision. Preserve
+   user edits; on conflict, read again before proposing a new draft.
+6. Call preview_contract_draft with the returned revision. Repair compiler errors
+   at most twice, without silently dropping requirements. Unsupported requirements
+   remain visible to the user. Only report validation success from the tool result.
+7. Summarize the rules and assumptions. The draft is not published; the user saves
+   it from the editor. If no frontend is connected, provide a fenced `gherkin`
+   draft without claiming to have opened or validated it.

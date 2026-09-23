@@ -1,18 +1,21 @@
-from harnest import CredentialProvider
-from harnest.lifecycle import lifecycle
+from harnest.credentials import CredentialProvider
+from harnest import lifecycle
 
 
-_AUDIENCE = "threadify-graphql"
-_ALLOWED_SCOPES = frozenset({"graphql:query"})
+_AUDIENCES = {
+    "threadify-graphql": frozenset({"graphql:query"}),
+    "threadify-management": frozenset({"contracts:read"}),
+}
 
 
 class ThreadifyCredentialProvider(CredentialProvider):
     """Forward the verified browser credential only to Threadify GraphQL."""
 
     async def resolve(self, request):
-        if request.audience != _AUDIENCE:
+        allowed = _AUDIENCES.get(request.audience)
+        if allowed is None:
             return None
-        if not set(request.scopes).issubset(_ALLOWED_SCOPES):
+        if not set(request.scopes).issubset(allowed):
             return None
         return request.principal.credentials.get("threadify_bearer")
 

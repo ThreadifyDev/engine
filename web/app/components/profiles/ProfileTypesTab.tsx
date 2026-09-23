@@ -133,7 +133,7 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                     </button>
                     <button
                       title="Edit"
-                      onClick={() => { setEditData(pt); setIsEditModalOpen(true); }}
+                      onClick={() => navigate(`/u/profile-views/${encodeURIComponent(pt.name)}?tab=data`)}
                       className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-100 rounded transition-colors"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
@@ -165,7 +165,7 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                       if (m.custom_definition) {
                         return (
                           <span key={i} className="inline-flex items-center gap-1 text-[10px] font-medium bg-purple-50 text-purple-600 border border-purple-100 px-1.5 py-0.5 rounded group cursor-pointer hover:bg-purple-100 transition-colors"
-                            onClick={() => { setEditData(pt); setIsEditModalOpen(true); }}
+                            onClick={() => navigate(`/u/profile-views/${encodeURIComponent(pt.name)}?tab=data`)}
                             title="Click to edit this metric"
                           >
                             <Settings className="w-2.5 h-2.5" />

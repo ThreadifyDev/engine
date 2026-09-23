@@ -81,6 +81,12 @@ class EngineVersionTests(unittest.TestCase):
         self.commit("build: node version", ".nvmrc")
         self.assertEqual(version.next_release(), ("v1.0.2", "v1.0.1"))
 
+    def test_bundled_agent_changes_create_engine_releases(self):
+        self.commit("feat: initial")
+        self.git("tag", "v1.0.0")
+        self.commit("fix: agent tool", "threadify-agent/tools/get_thread.py")
+        self.assertEqual(version.next_release(), ("v1.0.1", "v1.0.0"))
+
     def test_installer_changes_create_engine_releases(self):
         self.commit("feat: initial")
         self.git("tag", "v1.0.0")

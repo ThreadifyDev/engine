@@ -9,14 +9,11 @@ import {
   GitBranch,
   FileText,
   Key,
-  Bot,
   Users,
   Settings,
-  UserCircle,
-  Wallet
+  UserCircle
 } from 'lucide-react';
 import { api } from '~/lib/api';
-import { useCurrentPlan } from '~/hooks/useBilling';
 
 interface SideNavProps {
   isCollapsed?: boolean;
@@ -29,21 +26,11 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
   const navigate = useNavigate();
   const location = useLocation();
   const [internalCollapsed, setInternalCollapsed] = useState(true);
-  const { data: billingData } = useCurrentPlan();
 
   // Use controlled state if provided, otherwise use internal state
   const isCollapsed = controlledCollapsed !== undefined ? controlledCollapsed : internalCollapsed;
+  const compact = isCollapsed && !isMobileOpen;
   const handleToggle = onToggle || (() => setInternalCollapsed(!internalCollapsed));
-
-  const formatBalance = (millicents: number) => {
-    const dollars = millicents / 100000;
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(dollars);
-  };
 
   const handleLogout = async () => {
     await api.logout();
@@ -66,11 +53,11 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
 
   return (
     <div
-      className={`h-screen bg-black flex-col fixed left-0 top-0 transition-all duration-300 z-50 ${isMobileOpen ? 'w-64' : isCollapsed ? 'w-16' : 'w-64'} ${isMobileOpen ? 'translate-x-0 flex' : '-translate-x-full lg:translate-x-0 lg:flex'} `}
+      className={`h-screen bg-black flex-col fixed left-0 top-0 transition-all duration-300 z-[90] ${isMobileOpen ? 'w-64' : isCollapsed ? 'w-16' : 'w-64'} ${isMobileOpen ? 'translate-x-0 flex visible' : '-translate-x-full invisible lg:visible lg:translate-x-0 lg:flex'} `}
     >
       {/* Logo & Toggle */}
-      <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-        {!isCollapsed && (
+      <div className={`h-14 border-b border-gray-800 flex items-center ${compact ? 'justify-center' : 'justify-between px-4'}`}>
+        {!compact && (
           <div
             className="cursor-pointer text-white"
             onClick={() => navigate('/u/dashboard')}
@@ -104,8 +91,8 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
         {navItems.map((item) => (
           <button
             key={item.path}
-            onClick={() => navigate(item.path)}
-            className={`w-full px-4 py-3 text-left text-sm font-medium transition-all flex items-center gap-3 ${isActive(item.path)
+            onClick={() => { navigate(item.path); onCloseMobile?.(); }}
+            className={`w-full py-3 text-left text-sm font-medium transition-all flex items-center gap-3 ${compact ? 'justify-center px-0' : 'px-4'} ${isActive(item.path)
                 ? 'bg-white text-black'
                 : 'text-gray-300 hover:bg-gray-900 hover:text-white'
               }`}
@@ -117,44 +104,11 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
         ))}
       </nav>
 
-      {/* Wallet Balance */}
-      <div className="px-4 py-3 border-t border-gray-800">
-        <button
-          onClick={() => navigate('/u/settings?tab=billing')}
-          className={`w-full flex items-center gap-3 transition-colors ${
-            isCollapsed ? 'justify-center' : 'justify-start'
-          }`}
-          title={isCollapsed ? (billingData?.billing_source === 'registry' ? 'Threadify plan' : 'Wallet Balance') : undefined}
-        >
-          <Wallet className="w-5 h-5 flex-shrink-0 text-gray-300" />
-          {(!isCollapsed || isMobileOpen) && (
-            <div className="flex flex-col items-start overflow-hidden">
-              <span className="text-xs text-gray-500">{billingData?.billing_source === 'registry' ? 'Plan' : 'Balance'}</span>
-              {billingData?.billing_source === 'registry' ? (
-                <span className="text-sm font-semibold text-white">Fused Registry</span>
-              ) : billingData?.credit_account ? (
-                <span
-                  className={`text-sm font-semibold ${
-                    billingData.credit_account.balance_millicents < billingData.credit_account.min_balance_millicents
-                      ? 'text-yellow-400'
-                      : 'text-white'
-                  }`}
-                >
-                  {formatBalance(billingData.credit_account.balance_millicents)}
-                </span>
-              ) : (
-                <span className="text-sm text-gray-400">--</span>
-              )}
-            </div>
-          )}
-        </button>
-      </div>
-
       {/* Logout Button */}
       <div className="p-4 border-t border-gray-800">
         <button
           onClick={handleLogout}
-          className={`w-full px-4 py-2 text-sm bg-white text-black hover:bg-gray-200 transition-colors font-medium rounded flex items-center gap-2 ${isCollapsed && !isMobileOpen ? 'justify-center' : 'justify-start'
+          className={`w-full py-2 text-sm bg-white text-black hover:bg-gray-200 transition-colors font-medium rounded flex items-center gap-2 ${compact ? 'justify-center px-0' : 'justify-start px-4'
             }`}
           title={isCollapsed && !isMobileOpen ? 'Logout' : undefined}
         >

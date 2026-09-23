@@ -1,6 +1,6 @@
-from harnest import Credential
+from harnest.credentials import Credential
 from harnest.lib.identity import verify_threadify_bearer
-from harnest.lifecycle import lifecycle
+from harnest import lifecycle
 from harnest.runtime_auth import AuthPrincipal, AuthenticationError
 
 

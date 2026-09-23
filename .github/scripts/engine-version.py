@@ -9,9 +9,10 @@ import subprocess
 PATHS = [
     "threadify-go", ":(exclude)threadify-go/api", ":(exclude)threadify-go/tests/api",
     ":(glob,exclude)threadify-go/**/README.md",
-    "web", ".nvmrc", ".github/actions/setup-engine-go",
+    "web", "threadify-agent", ".nvmrc", ".github/actions/setup-engine-go",
     ".github/workflows/engine-ci.yml", ".github/workflows/engine-release.yml",
     "install.sh", ".github/scripts/test_engine_installer.py",
+    ".github/scripts/stage-engine-agent.py", ".github/scripts/test_stage_engine_agent.py",
     ".github/scripts/engine-version.py", ".github/scripts/test_engine_version.py",
 ]
 STABLE = re.compile(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")

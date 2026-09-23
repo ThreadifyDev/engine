@@ -6,7 +6,7 @@ from harnest.lib.threadify_tooling import (
     execute_threadify_query,
     optional_variables,
 )
-from harnest.tool import tool
+from harnest.agent import tool
 
 
 _QUERY = """

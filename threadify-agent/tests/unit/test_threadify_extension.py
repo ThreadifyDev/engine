@@ -9,8 +9,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from harnest.extensions import ExtensionContext
-from harnest.plugins import runtime_plugin_namespaces
-from harnest.runtime_plugins import discover_application_extensions
+from harnest.extensions import extension_namespaces
+from harnest.extension_descriptors import discover_application_extensions
 
 _ROOT = Path(__file__).resolve().parents[2]
 
@@ -70,22 +70,22 @@ class _Thread:
 class _Connection:
     def __init__(self) -> None:
         self.subscriptions = []
-        self.started = []
+        self.resolved = []
         self.joined = []
-        self.thread = _Thread()
+        self.thread_handle = _Thread()
         self.closed = 0
 
     def subscribe(self, *args):
         self.subscriptions.append(args)
         return self
 
-    async def start(self, **kwargs):
-        self.started.append(kwargs)
-        return self.thread
+    async def thread(self, thread_key, options=None):
+        self.resolved.append((thread_key, options))
+        return self.thread_handle
 
     async def join(self, **kwargs):
         self.joined.append(kwargs)
-        return self.thread
+        return self.thread_handle
 
     async def close(self):
         self.closed += 1
@@ -94,11 +94,11 @@ class _Connection:
 class ThreadifyExtensionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         descriptors = discover_application_extensions(_ROOT)
-        self.namespace = runtime_plugin_namespaces(descriptors)
+        self.namespace = extension_namespaces(descriptors)
         activated = self.namespace.__enter__()
         self.module = importlib.import_module("harnest.extensions.threadify")
         self.extension = next(
-            item.plugin for item in activated if item.descriptor.name == "threadify"
+            item.extension for item in activated if item.descriptor.name == "threadify"
         )
         # Harnest 0.12 activates extension singletons for the compiled test
         # application. Keep each unit isolated from subscriptions registered by
@@ -199,14 +199,15 @@ class ThreadifyExtensionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first.acked, 1)
         self.assertEqual(second.acked, 0)
 
-    async def test_managed_context_starts_joins_and_records_idempotently(self):
+    async def test_managed_context_resolves_joins_and_records_idempotently(self):
         await self._start()
         context = self.extension.create_context(ExtensionContext(extension_name="threadify"))
         token = self.extension._bind_context(context)
         try:
-            started = await self.extension.start_thread(
-                label="job-1", refs={"request": "redacted"}
+            started = await self.extension.thread(
+                "job-1", {"label": "Job 1", "refs": {"request": "redacted"}}
             )
+            resumed = await self.extension.thread("job-1")
             result = await self.extension.record_step(
                 "thread-1",
                 "triaged",
@@ -216,10 +217,12 @@ class ThreadifyExtensionTests(unittest.IsolatedAsyncioTestCase):
         finally:
             self.extension._reset_context(token)
 
-        self.assertIs(started, self.connection.thread)
+        self.assertIs(started, self.connection.thread_handle)
+        self.assertIs(resumed, started)
+        self.assertEqual(self.connection.resolved, [("job-1", {"label": "Job 1", "refs": {"request": "redacted"}}), ("job-1", {})])
         self.assertEqual(result, {"status": "success"})
         self.assertEqual(self.connection.joined, [{"thread_id": "thread-1", "role": ""}])
-        name, step = self.connection.thread.steps[0]
+        name, step = self.connection.thread_handle.steps[0]
         self.assertEqual(name, "triaged")
         self.assertEqual(step.context, {"priority": "high"})
         self.assertEqual(step.key, "delivery-1")

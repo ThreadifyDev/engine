@@ -29,3 +29,15 @@ THREADIFY_E2E_CLI_BINARY=/absolute/path/to/threadify-cli \
 The CLI workflow performs this compatibility test by checking out an explicit
 Engine repository/ref. Interactive login also requires the updated external UI
 and the Engine's configured `registry.browser_origin`.
+
+## Optional agent commands
+
+```sh
+threadify serve --config ./config.yaml --with-agent
+threadify agent install-runtime --agent-cache-dir /var/lib/threadify/agent
+```
+
+`--with-agent` enables local AI. `agent install-runtime` only prepares its cache
+and requires no Engine configuration or database. Both accept
+`--agent-runtime-archive` for a matching offline release archive.
+See [agent setup](AGENT.md) for external agents and configuration.

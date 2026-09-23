@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,6 +54,7 @@ type App struct {
 	hdlrs     *appHandlers
 	logger    *zap.Logger
 	cfg       *config.Config
+	agent     *agentConnection
 }
 
 type infra struct {
@@ -147,6 +149,9 @@ func (s *services) cleanup() {
 }
 
 func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, retErr error) {
+	if err := ValidateAgentConfiguration(cfg); err != nil {
+		return nil, err
+	}
 	inf, err := initInfra(ctx, cfg, logger)
 	if err != nil {
 		return nil, err
@@ -218,7 +223,8 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 	sharedauth.SetBrowserService(browser)
 	ingestionRules := valkey.NewIngestionRules(inf.valkey)
 	hdlrs.otlpTrace.WithIngestionRules(ingestionRules)
-	router := browser.IngestionRulesHandler(ingestionRules, browser.EngineSettingsHandler(cfg.Server.PublicURL, browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger))))
+	agent := newAgentConnection(cfg, logger)
+	router := browser.IngestionRulesHandler(ingestionRules, browser.EngineSettingsHandler(cfg.Server.PublicURL, browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger, agent))))
 	return &App{
 		Handler: dashboard.Wrap(browser.Wrap(licensed.WrapEngine(router))),
 		infra:   inf,
@@ -226,6 +232,7 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 		hdlrs:   hdlrs,
 		logger:  logger,
 		cfg:     cfg,
+		agent:   agent,
 	}, nil
 }
 
@@ -246,6 +253,9 @@ func (a *App) BeginShutdown() { a.infra.shuttingDown.Store(true) }
 func (a *App) Close(ctx context.Context) error {
 	a.closeOnce.Do(func() {
 		a.infra.shuttingDown.Store(true)
+		if a.agent != nil {
+			a.closeErr = errors.Join(a.closeErr, a.agent.close())
+		}
 		if a.hdlrs != nil && a.hdlrs.wsHandler != nil {
 			a.closeErr = errors.Join(a.closeErr, a.hdlrs.wsHandler.Shutdown(ctx))
 		}
@@ -563,7 +573,7 @@ func loadRBAC() (*rbac.Loader, error) {
 	return rbac.NewEmbeddedLoader()
 }
 
-func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *repositories, hdlrs *appHandlers, logger *zap.Logger) http.Handler {
+func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *repositories, hdlrs *appHandlers, logger *zap.Logger, agent *agentConnection) http.Handler {
 	gqlHandler := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: hdlrs.graphqlResolver}))
 	gqlHandler.Use(extension.FixedComplexityLimit(1000))
 	gqlHandler.Use(extension.Introspection{})
@@ -579,6 +589,9 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	// Infrastructure endpoints.
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/health", healthHandler(inf))
+	r.Any("/api/harnest/*path", middleware.AuthMiddleware(svcs.auth, middleware.AuthJWT), gin.WrapH(agent))
+	r.GET("/v1/agent/status", middleware.AuthMiddleware(svcs.auth, middleware.AuthJWT), gin.WrapF(agent.statusHandler))
+	r.GET("/v1/agent/identity", middleware.AuthMiddleware(svcs.auth, middleware.AuthJWT), agentIdentity)
 
 	// WebSocket.
 	r.GET("/threads", hdlrs.wsHandler.HandleWebSocket)
@@ -784,5 +797,13 @@ func LoadConfigPath(path string) (*config.Config, error) {
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-	return config.LoadFromViper(v)
+	cfg, err := config.LoadFromViper(v)
+	if err != nil {
+		return nil, err
+	}
+	cfg.ConfigPath, err = filepath.Abs(v.ConfigFileUsed())
+	if err != nil {
+		return nil, fmt.Errorf("resolve config path: %w", err)
+	}
+	return cfg, nil
 }

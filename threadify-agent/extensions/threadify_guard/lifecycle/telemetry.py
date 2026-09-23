@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from harnest.lib.threadify_tooling import execute_threadify_query
-from harnest.lifecycle import lifecycle
+from harnest import lifecycle
 from harnest.extensions.threadify_guard import extension
 from harnest.telemetry import TelemetryExporter
 from opentelemetry import trace
