@@ -208,6 +208,13 @@ This builds `agent.tar.gz`, `runtime-<os>-<arch>.tar.gz`, and the matching
 `manifest-<os>-<arch>.json`. The runtime contains portable Python and hash-pinned
 dependencies; only the agent artifact and manifest are embedded in Go.
 
+The runtime uses the production dependency lock. Before packaging, the builder
+removes bootstrap installers, tests, caches, headers, static libraries and duplicate
+interpreter aliases, then runs the shared import smoke check. Package metadata,
+licenses, provider data and native runtime libraries remain intact. Build tools
+stay in build stages; the Engine Docker image downloads this optional runtime only
+when local agent execution is enabled.
+
 For a local macOS ARM64 development build, for example:
 
 ```bash
