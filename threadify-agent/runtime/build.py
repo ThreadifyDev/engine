@@ -77,7 +77,7 @@ def main():
             requirements = work / "requirements.txt"
             requirements.write_text(lock)
             subprocess.run(["uv", "pip", "sync", "--python", python, "--target", str(packages), "--require-hashes", str(requirements)], check=True)
-            subprocess.run([python, "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import harnest.runtime, google.adk, httpx, yaml, graphql, openai", str(packages)], env=dict(os.environ, LITELLM_LOCAL_MODEL_COST_MAP="True"), check=True)
+            subprocess.run([python, "-I", str(ROOT / "runtime/smoke.py"), str(packages)], check=True)
             runtime_archive = output / f"runtime-{target}-{arch}.tar.gz"
             archive(runtime, runtime_archive)
             entry = {"sha256": hashlib.sha256(runtime_archive.read_bytes()).hexdigest(), "archive": runtime_archive.name, "python": executable}
