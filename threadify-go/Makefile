@@ -9,7 +9,7 @@
 	test-api test-api-integration \
 	test-shared test-all \
 	test-coverage-api test-coverage-shared \
-	mocks-engine mocks-api mocks-shared mocks-all \
+	mocks-engine mocks-shared mocks-all \
 	test-engine \
 	lint fmt clean \
 	docker-up docker-down docker-logs dev
@@ -61,8 +61,8 @@ build: ## Build the combined Threadify binary (engine, broker, persistence)
 	GOMAXPROCS=$(BUILD_PROCS) CGO_ENABLED=0 $(GO) build -p $(BUILD_JOBS) -trimpath -ldflags="-s -w" -o bin/threadify ./cmd/server
 	@echo "✓ Binary created at bin/threadify"
 
-build-api: ## Build the Web API binary
-	@echo "Building Web API..."
+build-api: ## Build the stateless AI gateway binary
+	@echo "Building AI gateway..."
 	@mkdir -p bin
 	cd api && $(GO) build -o ../bin/api cmd/server/main.go
 	@echo "✓ Binary created at bin/api"
@@ -77,9 +77,8 @@ run: build ## Build and run the server
 	@lsof -ti:8081 | xargs kill -9 2>/dev/null || true
 	./bin/threadify
 
-run-api: build-api ## Build and run the Web API server
-	@lsof -ti:3001 | xargs kill -9 2>/dev/null || true
-	cd api && $(GO) run cmd/server/main.go --config=../config/config.yaml
+run-api: build-api ## Run the AI gateway using THREADIFY_AI_* environment settings
+	./bin/api
 
 run-archiver: build-archiver-binary ## Build and run the archiver
 	@lsof -ti:8082 | xargs kill -9 2>/dev/null || true
@@ -104,16 +103,15 @@ test-engine: ## Run all engine tests (unit)
 	@echo "Running engine unit tests..."
 	@$(GO) test $(ENGINE_PKGS) -count=1
 
-test-api-integration: ## Run API integration tests
-	@echo "Running API integration tests..."
-	@cd tests && $(GO) test -v ./api/... -count=1
+test-api-integration: ## Run gateway HTTP, streaming and TLS integration tests
+	@cd api && $(GO) test -race -v ./gateway/... -count=1
 
 test-archiver: ## Run archiver tests
 	@echo "Running archiver tests..."
 	@$(GO) test ./internal/archiver/... -count=1
 
-test-api: ## Run all API module tests
-	@echo "Running all API tests..."
+test-api: ## Run all AI gateway module tests
+	@echo "Running AI gateway tests..."
 	@cd api && $(GO) test ./...
 
 test-shared: ## Run shared module tests
@@ -137,8 +135,8 @@ test-engine-coverage: ## Run engine tests with HTML coverage
 	@rm -f coverage.out coverage.html
 	@./coverage.sh
 
-test-coverage-api: ## Run API tests with HTML coverage
-	@echo "Running API coverage..."
+test-coverage-api: ## Run AI gateway tests with HTML coverage
+	@echo "Running AI gateway coverage..."
 	@rm -f api/coverage.out api/coverage.html
 	@./coverage_api.sh
 
@@ -155,20 +153,14 @@ mocks-engine: ## Generate engine mocks
 	@$(GO) generate ./...
 	@echo "✓ Engine mocks generated"
 
-mocks-api: ## Generate API mocks
-	@echo "Generating API mocks..."
-	@cd api && $(GO) generate ./...
-	@echo "✓ API mocks generated"
-
 mocks-shared: ## Generate shared mocks
 	@echo "Generating shared mocks..."
 	@cd shared && $(GO) generate ./...
 	@echo "✓ Shared mocks generated"
 
-mocks-all: ## Generate all mocks (engine + api + shared)
+mocks-all: ## Generate all mocks (engine + shared)
 	$(MAKE) mocks-engine
 	$(MAKE) mocks-shared
-	$(MAKE) mocks-api
 
 lint: ## Run linter
 	golangci-lint run

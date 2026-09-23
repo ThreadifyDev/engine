@@ -10,7 +10,7 @@ import {
   History as HistoryIcon, LayoutDashboard, BarChart2
 } from 'lucide-react';
 
-import OverviewTab from '~/components/profiles/OverviewTab';
+import SavedProfileOverview from '~/components/profiles/view/SavedProfileOverview';
 import MetricsTab from '~/components/profiles/MetricsTab';
 import DeliveryHealthTab from '~/components/profiles/DeliveryHealthTab';
 import HistoryTab from '~/components/profiles/HistoryTab';
@@ -36,13 +36,18 @@ export default function EntityProfileDetail() {
       return;
     }
     
-    fetchProfile(refKey, type);
+    let active = true;
+    fetchProfile(refKey, type, () => active);
+    return () => { active = false; };
   }, [type, refKey]);
 
-  const fetchProfile = async (rKey: string, pType: string) => {
+  const fetchProfile = async (rKey: string, pType: string, isCurrent: () => boolean) => {
     try {
       setIsLoading(true);
+      setError(null);
+      setProfile(null);
       const res = await graphqlClient.getEntityProfile({ refKey: rKey, type: pType });
+      if (!isCurrent()) return;
       if (res) {
         setProfile(res);
       } else {
@@ -50,26 +55,16 @@ export default function EntityProfileDetail() {
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Entity profile not found or currently unindexed.');
+      if (isCurrent()) setError(err.message || 'Entity profile not found or currently unindexed.');
     } finally {
-      setIsLoading(false);
+      if (isCurrent()) setIsLoading(false);
     }
-  };
-
-  const metrics = profile?.metrics || {
-    deliveryHealthScore: 0,
-    healthTrendSlope: 0,
-    totalDeliveries: 0,
-    completedSuccessfully: 0,
-    validationViolations: 0,
-    averageDeliveryTimeMs: 0,
-    lastCalculatedAt: new Date().toISOString()
   };
 
   const memoizedOverviewTab = useMemo(() => {
     if (!profile) return null;
-    return <OverviewTab profile={profile} metrics={metrics} />;
-  }, [profile, metrics]);
+    return <SavedProfileOverview key={profile.id} profile={profile} type={type!} />;
+  }, [profile, type]);
 
   const memoizedDeliveryHealthTab = useMemo(() => {
     if (!refKey || !type) return null;

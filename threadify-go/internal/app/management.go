@@ -13,6 +13,7 @@ import (
 	ms "threadify-go/shared/management/service"
 	"threadify-go/shared/rbac"
 	"threadify-go/shared/registry"
+	sharedrepo "threadify-go/shared/repository"
 )
 
 //go:embed code_samples.json
@@ -26,6 +27,7 @@ func mountManagementRoutes(v1 *gin.RouterGroup, inf *infra, repos *repositories,
 	userRoles := mr.NewUserRoleRepository(inf.db.Pool)
 	accounts := mr.NewServiceAccountRepository(inf.db.Pool)
 	keys := mr.NewAPIKeyRepository(inf.db.Pool)
+	profileView := mh.NewProfileViewHandler(sharedrepo.NewProfileViewRepository(inf.db.Pool), roles)
 	profile := mh.NewEntityProfileTypeHandler(ms.NewEntityProfileTypeService(repos.entityProfileType, logger))
 	user := mh.NewUserHandler(ms.NewUserService(users, companies, userRoles, nil, nil, nil, logger))
 	account := mh.NewServiceAccountHandler(ms.NewServiceAccountService(logger, accounts, userRoles), roles)
@@ -48,6 +50,8 @@ func mountManagementRoutes(v1 *gin.RouterGroup, inf *infra, repos *repositories,
 	})
 	v1.GET("/roles", role.GetRoles)
 	v1.GET("/roles/:level", role.GetRolesByLevel)
+	v1.GET("/entity-profile-views/:id", profileView.Get)
+	v1.PUT("/entity-profile-views/:id", profileView.Save)
 	v1.GET("/entity-profile-types", guard("entity_profile_type.read"), profile.ListEntityProfileTypes)
 	v1.PUT("/entity-profile-types/:slug", guard("entity_profile_type.update"), profile.ApplyEntityProfileType)
 	v1.POST("/entity-profile-types/:slug/rename", guard("entity_profile_type.update"), profile.RenameEntityProfileType)

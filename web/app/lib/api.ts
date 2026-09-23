@@ -1,4 +1,5 @@
 // API client for backend communication
+import type { ProfileView } from '~/components/profiles/view/profile-view';
 
 import { getConfig } from '../config.client';
 
@@ -28,6 +29,12 @@ function sanitizeErrorMessage(raw: string): string {
     }
   }
   return raw;
+}
+
+export class ProfileViewConflictError extends Error {}
+export interface ProfileViewResponse {
+  data: { profile_type_id: string; definition: ProfileView | null; requests: unknown[]; revision: number; updated_at: string | null; updated_by: string };
+  can_manage: boolean;
 }
 
 export class ValidationError extends Error {
@@ -209,6 +216,8 @@ class ApiClient {
     if (!response.ok) {
       // Prefer 'message' field for user-friendly errors, fallback to 'error' field
       let errorMessage = sanitizeErrorMessage(data.message || data.error || 'An error occurred');
+
+      if (response.status === 409 && data.code === 'PROFILE_VIEW_CONFLICT') throw new ProfileViewConflictError(errorMessage);
 
       // Cleanup internal billing error prefixes
       if (typeof errorMessage === 'string' && errorMessage.startsWith('payment required: insufficient credits: {')) {
@@ -616,6 +625,16 @@ class ApiClient {
     });
   }
 
+  getProfileView(typeId: string): Promise<ProfileViewResponse> {
+    return this.request(`/entity-profile-views/${encodeURIComponent(typeId)}`);
+  }
+
+  saveProfileView(typeId: string, definition: ProfileView, expectedRevision: number): Promise<ProfileViewResponse> {
+    return this.request(`/entity-profile-views/${encodeURIComponent(typeId)}`, {
+      method: 'PUT', body: JSON.stringify({ definition, expected_revision: expectedRevision }),
+    });
+  }
+
   // --- Entity Profile Management ---
   async listEntityProfileTypes(): Promise<any> {
     return this.request('/entity-profile-types');
@@ -751,7 +770,7 @@ export interface EntityProfile {
   refKey: string;
   companyId: string;
   profileTypeId: string;
-  profileType?: { name: string; type: string[]; description?: string; metricsConfig?: Array<{ name?: string; templateId?: string; parameters?: Record<string, unknown> }> };
+  profileType?: { name: string; type: string[]; description?: string; metricsConfig?: Array<{ id?: string; name?: string; templateId?: string; parameters?: Record<string, unknown>; customDefinition?: { name: string; operation: CustomMetricDefinition['operation']; field: string; groupBy?: string } }> };
   name: string;
   createdAt: string;
   lastActiveAt: string;

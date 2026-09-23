@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	shareddb "threadify-go/shared/database"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -1111,7 +1112,7 @@ END $$;
 		END IF;
 	END $$;
 	`
-	_, err = conn.Exec(ctx, schema)
+	_, err = conn.Exec(ctx, schema+shareddb.ProfileViewSchema)
 	return err
 }
 

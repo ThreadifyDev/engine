@@ -7,3 +7,6 @@ coverage.html
 /dist/
 
 /bundle/
+
+# Platform agent runtimes are CI release artifacts, not source files.
+/agent-release/

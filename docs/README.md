@@ -16,6 +16,7 @@
 - **[Archiver Service](./ARCHIVER_SERVICE.md)** - Event archival to Postgres
 
 ### Guides
+- **[Personal AI Gateway](./PERSONAL_AI_GATEWAY.md)** - Configure Ollama or a custom model gateway, bearer authentication, TLS and client certificates
 - **[Docker Setup](./guides/DOCKER.md)** - Container deployment guide
 - **[Notification Testing](./guides/NOTIFICATION_TEST_GUIDE.md)** - Testing real-time notifications
 

@@ -7,29 +7,56 @@ import (
 
 // Config represents the complete application configuration
 type Config struct {
-	Registry           registry.Config          `yaml:"registry" mapstructure:"registry"`
-	RuntimeMode        string                   `yaml:"runtime_mode" mapstructure:"runtime_mode"`
-	Server             ServerConfig             `yaml:"server" mapstructure:"server"`
-	Postgres           PostgresConfig           `yaml:"postgres" mapstructure:"postgres"`
-	Redis              RedisConfig              `yaml:"redis" mapstructure:"redis"`
-	JWT                JWTConfig                `yaml:"jwt" mapstructure:"jwt"`
-	Auth               AuthConfig               `yaml:"auth" mapstructure:"auth"`
-	Queue              QueueConfig              `yaml:"queue" mapstructure:"queue"`
-	ThreadActivities   ThreadActivitiesConfig   `yaml:"thread_activities" mapstructure:"thread_activities"`
-	Cache              CacheConfig              `yaml:"cache" mapstructure:"cache"`
-	Invitations        InvitationsConfig        `yaml:"invitations" mapstructure:"invitations"`
-	Logging            LoggingConfig            `yaml:"logging" mapstructure:"logging"`
-	Timeouts           TimeoutsConfig           `yaml:"timeouts" mapstructure:"timeouts"`
-	NotificationSystem NotificationSystemConfig `yaml:"notification_system" mapstructure:"notification_system"`
-	Archiver           ArchiverConfig           `yaml:"archiver" mapstructure:"archiver"`
-	NATS               NATSConfig               `yaml:"nats" mapstructure:"nats"`
-	Security           SecurityConfig           `yaml:"security" mapstructure:"security"`
-	WebSocket          WebSocketConfig          `yaml:"websocket" mapstructure:"websocket"`
-	WorkerPools        WorkerPoolsConfig        `yaml:"worker_pools" mapstructure:"worker_pools"`
-	Performance        PerformanceConfig        `yaml:"performance" mapstructure:"performance"`
-	JWKS               JWKSSettings             `yaml:"jwks" mapstructure:"jwks"`
-	Supabase           SupabaseSettings         `yaml:"supabase" mapstructure:"supabase"`
-	Batch              BatchConfig              `yaml:"batch" mapstructure:"batch"`
+	// Invocation-only settings are never accepted from YAML.
+	ConfigPath          string                   `yaml:"-" mapstructure:"-"`
+	WithAgent           bool                     `yaml:"-" mapstructure:"-"`
+	AgentVersion        string                   `yaml:"-" mapstructure:"-"`
+	AgentCacheDir       string                   `yaml:"-" mapstructure:"-"`
+	AgentRuntimeArchive string                   `yaml:"-" mapstructure:"-"`
+	AI                  *AIConfig                `yaml:"ai" mapstructure:"ai"`
+	Registry            registry.Config          `yaml:"registry" mapstructure:"registry"`
+	RuntimeMode         string                   `yaml:"runtime_mode" mapstructure:"runtime_mode"`
+	Server              ServerConfig             `yaml:"server" mapstructure:"server"`
+	Postgres            PostgresConfig           `yaml:"postgres" mapstructure:"postgres"`
+	Redis               RedisConfig              `yaml:"redis" mapstructure:"redis"`
+	JWT                 JWTConfig                `yaml:"jwt" mapstructure:"jwt"`
+	Auth                AuthConfig               `yaml:"auth" mapstructure:"auth"`
+	Queue               QueueConfig              `yaml:"queue" mapstructure:"queue"`
+	ThreadActivities    ThreadActivitiesConfig   `yaml:"thread_activities" mapstructure:"thread_activities"`
+	Cache               CacheConfig              `yaml:"cache" mapstructure:"cache"`
+	Invitations         InvitationsConfig        `yaml:"invitations" mapstructure:"invitations"`
+	Logging             LoggingConfig            `yaml:"logging" mapstructure:"logging"`
+	Timeouts            TimeoutsConfig           `yaml:"timeouts" mapstructure:"timeouts"`
+	NotificationSystem  NotificationSystemConfig `yaml:"notification_system" mapstructure:"notification_system"`
+	Archiver            ArchiverConfig           `yaml:"archiver" mapstructure:"archiver"`
+	NATS                NATSConfig               `yaml:"nats" mapstructure:"nats"`
+	Security            SecurityConfig           `yaml:"security" mapstructure:"security"`
+	WebSocket           WebSocketConfig          `yaml:"websocket" mapstructure:"websocket"`
+	WorkerPools         WorkerPoolsConfig        `yaml:"worker_pools" mapstructure:"worker_pools"`
+	Performance         PerformanceConfig        `yaml:"performance" mapstructure:"performance"`
+	JWKS                JWKSSettings             `yaml:"jwks" mapstructure:"jwks"`
+	Supabase            SupabaseSettings         `yaml:"supabase" mapstructure:"supabase"`
+	Batch               BatchConfig              `yaml:"batch" mapstructure:"batch"`
+}
+
+// AIConfig is shared with the separately running agent through the same YAML.
+// Gateway secrets and TLS files are resolved only by the model-calling process.
+type AIConfig struct {
+	Enabled *bool `yaml:"enabled" mapstructure:"enabled"`
+	Agent   struct {
+		URL string `yaml:"url" mapstructure:"url"`
+	} `yaml:"agent" mapstructure:"agent"`
+	Gateway struct {
+		Auth      string `yaml:"auth" mapstructure:"auth"`
+		BaseURL   string `yaml:"base_url" mapstructure:"base_url"`
+		Model     string `yaml:"model" mapstructure:"model"`
+		APIKeyEnv string `yaml:"api_key_env" mapstructure:"api_key_env"`
+		TLS       struct {
+			CAFile   string `yaml:"ca_file" mapstructure:"ca_file"`
+			CertFile string `yaml:"cert_file" mapstructure:"cert_file"`
+			KeyFile  string `yaml:"key_file" mapstructure:"key_file"`
+		} `yaml:"tls" mapstructure:"tls"`
+	} `yaml:"gateway" mapstructure:"gateway"`
 }
 
 // ServerConfig holds server configuration

@@ -357,20 +357,7 @@ export default function SentenceBuilderMetricForm({
           )}
         </div>
 
-        {/* Visualisation — commented out for now
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-sm text-gray-500">shown as</span>
-          <select
-            value={definition.visualisation}
-            onChange={e => updateDefinition({ visualisation: e.target.value })}
-            className="bg-white border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-black focus:border-black outline-none"
-          >
-            {visOptions.map(v => (
-              <option key={v} value={v}>{v}</option>
-            ))}
-          </select>
-        </div>
-        */}
+
       </div>
 
       {/* Complexity & Cost */}

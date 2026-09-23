@@ -4,6 +4,28 @@ server:
   port: 8081
   host: 0.0.0.0
 
+# Optional model gateway for `threadify serve --with-agent`.
+# The bundled agent reads this file; restart the Engine after changing settings.
+# Without --with-agent or ai.agent.url, agentic features stay hidden.
+# Omit api_key_env for gateways without bearer authentication (e.g. local Ollama).
+# ai:
+#   enabled: true
+#   gateway:
+#     base_url: http://127.0.0.1:11434/v1
+#     model: your-installed-tool-capable-model
+#     api_key_env: THREADIFY_AI_GATEWAY_KEY
+#     tls:
+#       ca_file: certs/gateway-ca.pem
+#       cert_file: certs/client.pem
+#       key_file: certs/client-key.pem
+# TLS options require an HTTPS base_url. Paths are relative to this YAML file.
+# For the hosted Threadify gateway, use its deployed /v1 URL, model: threadify-agent,
+# and auth: threadify_license instead of api_key_env. This reuses the server's
+# registry license without a separate model key. Custom gateways never receive
+# the license unless this auth mode is explicitly selected.
+# To connect to an external agent instead, set ai.agent.url to its HTTP(S) origin.
+# Do not combine an external agent URL with --with-agent.
+
 postgres:
   url: "$POSTGRES_URL:postgres://td_engine:tdtdtd@localhost:5434/threadify?sslmode=disable"
   max_connections: 25
@@ -192,36 +214,6 @@ archiver:
     batch_size: 100
     step_state_flush_interval_ms: 5000  # Flush interval for step state archival (default: 5 seconds)
 
-# Web API service configuration
-web_api:
-  enabled: true
-  port: 3001
-  host: 0.0.0.0
-  frontend_url: "https://threadify.dev"  # Used for email links (password reset, welcome emails)
-  outbox_encryption_key: "$OUTBOX_ENCRYPTION_KEY:"
-
-  # Email service
-  email:
-    provider: "plunk"
-    api_key: "$PLUNK_API_KEY:"
-    from_email: "$PLUNK_FROM_EMAIL:noreply@threadify.dev"
-    api_url: "$PLUNK_API_URL:https://next-api.useplunk.com/v1/send"
-  
-  # Threadify Engine integration
-  threadify_engine:
-    url: "$THREADIFY_ENGINE_URL:http://localhost:8081"
-    graphql_url: "$THREADIFY_ENGINE_GRAPHQL_URL:http://localhost:8081/graphql"
-  # Agent LLM configuration 
-  openai_api_key: "$OPENAI_API_KEY:"
-  
-  # API Key settings
-  api_key_ttl_hours: 8760  # 365 days
-  
-  # AI Agent conversation limits
-  agent:
-    max_messages: 100    # Maximum messages per conversation
-    max_tokens: 100000  # Maximum tokens per conversation (100K tokens)
-    summary_max_tokens: 10000  # Maximum tokens for conversation summary when continuing
 
 # Worker pool configuration for bounded concurrency
 worker_pools:

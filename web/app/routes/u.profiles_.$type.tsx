@@ -4,7 +4,7 @@ import AppLayout from '~/components/AppLayout';
 import { api } from '~/lib/api';
 import type { EntityProfileType, MetricsTemplateResponse } from '~/lib/api';
 import { graphqlClient, type EntityProfileListItem } from '~/lib/graphql';
-import { ChevronLeft, ChevronRight, UserCircle, Search, X, Activity, Loader2, Settings, Edit2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserCircle, Search, X, Activity, Loader2, Settings, Edit2, SlidersHorizontal } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ProfileTypeModal } from '~/components/profiles/ProfileTypeModal';
 
@@ -151,13 +151,23 @@ export default function EntityProfilesByType() {
                 </h2>
                 {profileType && (
                   <button
-                    onClick={() => setIsEditModalOpen(true)}
+                    onClick={() => navigate(`/u/profile-views/${encodeURIComponent(type!)}?tab=data`)}
                     className="mt-0.5 shrink-0 rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-900 sm:mt-0"
                     title="Edit Profile Type"
                     aria-label="Edit profile type"
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
+                )}
+                {profileType && (
+                  <Link
+                    to={`/u/profile-views/${encodeURIComponent(type!)}`}
+                    className="mt-0.5 shrink-0 rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gray-500 sm:mt-0"
+                    title="Customize view"
+                    aria-label="Customize view"
+                  >
+                    <SlidersHorizontal className="w-4 h-4" />
+                  </Link>
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -172,7 +182,7 @@ export default function EntityProfilesByType() {
                 ))}
               </div>
             </div>
-            
+
             {/* Explicit search */}
             <div className="w-full min-w-0 lg:w-[28rem] lg:shrink-0">
               <InlineSearch
@@ -192,32 +202,23 @@ export default function EntityProfilesByType() {
             </p>
           )}
           
-          <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50/60 p-4 sm:p-5">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Metrics</span>
-              <span className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600">
-                {total} {total === 1 ? 'profile' : 'profiles'} tracked
-              </span>
+          {!!profileType?.metrics?.length && (
+            <div className="flex min-w-0 flex-wrap items-center gap-2" aria-label="Configured metrics">
+              <span className="text-xs text-gray-500">Metrics</span>
+              {profileType.metrics.map((metric, index) => (
+                <span key={metric.id || index} className={`inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium ${metricBadgeStyles[index % metricBadgeStyles.length]}`}>
+                  <Settings className="h-3 w-3 shrink-0 opacity-70" />
+                  <span className="min-w-0 break-words">{metric.name || metric.custom_definition?.name || metric.template_id}</span>
+                </span>
+              ))}
             </div>
-            <div className="min-w-0">
-              {profileType?.metrics && profileType.metrics.length > 0 ? (
-                <div className="flex min-w-0 flex-wrap gap-2">
-                  {profileType.metrics.map((mc: any, idx: number) => (
-                    <span
-                      key={idx}
-                      className={`inline-flex max-w-full min-w-0 items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium ${metricBadgeStyles[idx % metricBadgeStyles.length]}`}
-                    >
-                      <Settings className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-70" />
-                      <span className="min-w-0 break-words leading-4">{mc.name || mc.template_id}</span>
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <span className="text-[11px] font-medium text-gray-400 italic">No metrics configured</span>
-              )}
-            </div>
-          </div>
+          )}
         </div>
+
+        {!isLoading && !error && <div className="mb-3 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-gray-800">{committed ? 'Matching profiles' : 'Profiles'}</h3>
+          <span className="text-xs tabular-nums text-gray-400">{total}</span>
+        </div>}
 
         {/* Content */}
         {isLoading && items.length === 0 ? (

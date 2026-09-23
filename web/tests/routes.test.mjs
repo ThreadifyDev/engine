@@ -18,6 +18,7 @@ test('deep links preserve thread, contract version and decoded entity identifier
     ['/u/threads/thread-123?tab=history', '/u/threads/:id', {id: 'thread-123'}],
     ['/u/contracts/order-flow/versions/2', '/u/contracts/:id/versions/:version', {id: 'order-flow', version: '2'}],
     ['/u/profiles/E2E%20Customers/customer_123?tab=delivery-health', '/u/profiles/:type/:refKey', {type: 'E2E Customers', refKey: 'customer_123'}],
+    ['/u/profile-views/Customer%20Accounts?ref=ACME%2F42', '/u/profile-views/:type', {type: 'Customer Accounts'}],
     ['/u/settings?tab=engine', '/u/settings', {}],
     ['/cli-login?request_id=cli-123', '/cli-login', {}],
   ]) {

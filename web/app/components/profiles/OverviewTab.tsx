@@ -1,7 +1,7 @@
 import { formatDistanceToNow } from 'date-fns';
 import type { EntityProfile } from '~/lib/api';
 
-export default function OverviewTab({ profile, metrics }: { profile: EntityProfile; metrics: any }) {
+export default function OverviewTab({ profile, metrics, hideHeading = false }: { profile: EntityProfile; metrics: any; hideHeading?: boolean }) {
   return (
     <>
       {/* <div className="grid grid-cols-4 gap-8 py-6 border-b border-gray-200 mb-10">
@@ -27,7 +27,7 @@ export default function OverviewTab({ profile, metrics }: { profile: EntityProfi
         </div>
       </div> */}
 
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">Profile Details</h2>
+      {!hideHeading && <h2 className="text-lg font-semibold text-gray-900 mb-4">Profile Details</h2>}
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <div className="divide-y divide-gray-200">
           <div className="px-4 py-4 hover:bg-gray-50 sm:px-6">

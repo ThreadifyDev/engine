@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import { graphqlClient } from '~/lib/graphql';
 import { Activity, BarChart2, Info } from 'lucide-react';
+import DeliveryTrendChart from './view/DeliveryTrendChart';
+import DeliveryRatesChart from './view/DeliveryRatesChart';
 
 type MetricsRange = '7d' | '30d' | '90d';
 
-export default function DeliveryHealthTab({ refKey, type }: { refKey: string; type: string }) {
-  const [range, setRange] = useState<MetricsRange>('7d');
+export default function DeliveryHealthTab({ refKey, type, initialRange = '7d', selectedRange, onRangeChange, chartOnly = false, trendOnly = false }: { refKey: string; type: string; initialRange?: MetricsRange; selectedRange?: MetricsRange; onRangeChange?: (range: MetricsRange) => void; chartOnly?: boolean; trendOnly?: boolean }) {
+  const [localRange, setLocalRange] = useState<MetricsRange>(initialRange);
+  const range = selectedRange ?? localRange;
+  const setRange = onRangeChange ?? setLocalRange;
   const [data, setData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +102,11 @@ export default function DeliveryHealthTab({ refKey, type }: { refKey: string; ty
         </div>
       )}
 
-      {!isLoading && !error && data && (
+      {!isLoading && !error && data && trendOnly && <DeliveryTrendChart data={data.daily_outcomes?.value} />}
+
+      {!isLoading && !error && data && chartOnly && <DeliveryRatesChart data={data} range={range} />}
+
+      {!isLoading && !error && data && !chartOnly && !trendOnly && (
         <div className="space-y-6">
           {/* Health Score Banner */}
           {data.health_score?.value !== undefined && (

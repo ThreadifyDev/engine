@@ -6,7 +6,7 @@ from harnest.lib.threadify_tooling import (
     required_text,
     tool_error,
 )
-from harnest.tool import tool
+from harnest.agent import tool
 
 
 _ALLOWED_RANGES = frozenset({"7d", "30d", "90d"})

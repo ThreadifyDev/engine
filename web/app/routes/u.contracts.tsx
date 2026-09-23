@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { Trash2, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { api, ValidationError } from '~/lib/api';
+import { Trash2, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
-import YamlEditor from '~/components/YamlEditor';
+import ContractDraftEditor from '~/components/contracts/ContractDraftEditor';
+import { useAgent } from '~/components/agent/agent-context';
 
 const PAGE_SIZE = 20;
 
@@ -15,10 +16,11 @@ export default function Contracts() {
   const [error, setError] = useState('');
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadForm, setUploadForm] = useState({ name: '', yaml: '' });
-  const [uploading, setUploading] = useState(false);
-  const hasFetched = useRef(false);
+  const { contractDraft, editContractDraft, setContractEditorOpen } = useAgent();
+  const showEditor = contractDraft.open;
+  const setShowEditor = setContractEditorOpen;
+  const uploadForm = { name: '', yaml: contractDraft.source };
+  const setUploadForm = (value: { name: string; yaml: string }) => editContractDraft(value.yaml);
 
   useEffect(() => {
     // Check authentication
@@ -48,23 +50,11 @@ export default function Contracts() {
     }
   };
 
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setUploading(true);
-    setError('');
-
-    try {
-      await api.createContract(uploadForm);
-      setShowUploadModal(false);
-      setUploadForm({ name: '', yaml: '' });
-      fetchContracts();
-    } catch (err) {
-      setError(err instanceof ValidationError && err.details?.length
-        ? err.details.map(detail => `${detail.field}: ${detail.message}`).join('\n')
-        : err instanceof Error ? err.message : 'Failed to upload contract');
-    } finally {
-      setUploading(false);
-    }
+  const handleUpload = async () => {
+    await api.createContract(uploadForm);
+    setShowEditor(false);
+    setUploadForm({ name: '', yaml: '' });
+    await fetchContracts();
   };
 
   const handleDelete = async (id: string) => {
@@ -81,6 +71,8 @@ export default function Contracts() {
   return (
     <AppLayout>
       <div className="min-w-0 p-4 sm:p-6 lg:p-8">
+        {showEditor ? <ContractDraftEditor onSave={handleUpload} /> : (<>
+
         <div className="flex flex-wrap justify-between items-center gap-4 mb-8">
           <div>
             <h2 className="text-2xl font-bold mb-2">Contracts</h2>
@@ -89,10 +81,10 @@ export default function Contracts() {
             </p>
           </div>
           <button
-            onClick={() => setShowUploadModal(true)}
-            className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
+            onClick={() => setShowEditor(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-stone-700"
           >
-            Upload Contract
+            <Plus className="h-4 w-4" /> New contract
           </button>
         </div>
 
@@ -113,10 +105,10 @@ export default function Contracts() {
               Upload your first contract to start validating workflows
             </p>
             <button
-              onClick={() => setShowUploadModal(true)}
-              className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
+              onClick={() => setShowEditor(true)}
+              className="inline-flex items-center gap-2 rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-stone-700"
             >
-              Upload Contract
+              <Plus className="h-4 w-4" /> New contract
             </button>
           </div>
         ) : (
@@ -181,74 +173,7 @@ export default function Contracts() {
           </div>
         )}
 
-        {/* Upload Modal */}
-        {showUploadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 backdrop-blur-sm transition-all">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border-2 border-black">
-            <div className="border-b-2 border-black p-6 flex justify-between items-center bg-white">
-              <h2 className="text-xl font-bold text-gray-900">Upload Contract</h2>
-              <button
-                onClick={() => setShowUploadModal(false)}
-                className="text-2xl font-bold hover:text-gray-600"
-              >
-                ×
-              </button>
-            </div>
-
-            <form onSubmit={handleUpload} className="p-6">
-              {error && <p role="alert" className="mb-4 whitespace-pre-wrap text-sm text-red-700">{error}</p>}
-              <div className="mb-6">
-                <label className="block text-sm font-medium mb-2">
-                  Contract source <span className="text-red-600">*</span>
-                </label>
-                {!uploadForm.yaml && (
-                  <button type="button" className="text-sm underline mb-2"
-                    onClick={() => setUploadForm({ ...uploadForm, yaml: `Feature: payment_processing
-Version: 1
-Description: Record valid payments.
-
-Rule: Validate a payment
-  When step "charge" is submitted
-  Then owner must be "payment_processor"
-  And content "amount" must be a number greater than 0
-  And content "currency" must be one of "GBP", "USD", "EUR"
-  And this step is an entry point
-  And this step is terminal
-` })}>
-                    Start with a Gherkin example
-                  </button>
-                )}
-                <YamlEditor contractSource
-                  value={uploadForm.yaml}
-                  onChange={(value) => setUploadForm({ ...uploadForm, yaml: value })}
-                  placeholder="Paste your Gherkin-style contract here..."
-                  height="500px"
-                />
-                <p className="text-sm text-gray-600 mt-2">
-                  Write Gherkin-style rules for steps, prerequisites, and content checks. YAML remains accepted temporarily.
-                </p>
-              </div>
-
-              <div className="flex justify-end items-center gap-6 mt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowUploadModal(false)}
-                  className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={uploading}
-                  className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {uploading ? 'Uploading...' : 'Upload Contract'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-        )}
+        </>)}
       </div>
     </AppLayout>
   );

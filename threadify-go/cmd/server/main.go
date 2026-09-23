@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/threadify/engine/internal/agentbundle"
 	"github.com/threadify/engine/internal/app"
 	"github.com/threadify/engine/internal/config"
 	"go.uber.org/zap"
@@ -37,6 +38,10 @@ func main() {
 }
 
 func run(args []string) error {
+	installRuntime := len(args) >= 2 && args[0] == "agent" && args[1] == "install-runtime"
+	if installRuntime {
+		args = args[2:]
+	}
 	if len(args) > 0 && args[0] == "serve" {
 		args = args[1:]
 	}
@@ -49,6 +54,9 @@ func run(args []string) error {
 	mode := flags.String("mode", "", "combined (default), engine, or writer; split modes require external NATS")
 	showVersion := flags.Bool("version", false, "print version and commit, then exit")
 	healthcheck := flags.Bool("healthcheck", false, "check the configured server's health and exit")
+	withAgent := flags.Bool("with-agent", false, "install the pinned runtime if needed and start the bundled Threadify agent")
+	agentCache := flags.String("agent-cache-dir", os.Getenv("THREADIFY_AGENT_CACHE_DIR"), "persistent agent runtime cache directory")
+	agentArchive := flags.String("agent-runtime-archive", "", "install the matching runtime from a local archive instead of downloading it")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -63,6 +71,19 @@ func run(args []string) error {
 		fmt.Printf("threadify %s (%s)\n", version, commit)
 		return nil
 	}
+	if installRuntime {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		path, err := agentbundle.InstallRuntime(ctx, agentbundle.Options{Version: version, CacheDir: *agentCache, ArchivePath: *agentArchive})
+		if err != nil {
+			return fmt.Errorf("install agent runtime: %w", err)
+		}
+		fmt.Printf("Threadify agent runtime ready: %s\n", path)
+		return nil
+	}
+	if *agentArchive != "" && !*withAgent {
+		return errors.New("--agent-runtime-archive requires --with-agent or agent install-runtime")
+	}
 	cfg, err := app.LoadConfigPath(*configPath)
 	if err != nil {
 		return err
@@ -70,11 +91,16 @@ func run(args []string) error {
 	if *mode != "" {
 		cfg.RuntimeMode = *mode
 	}
+	cfg.WithAgent, cfg.AgentVersion = *withAgent, version
+	cfg.AgentCacheDir, cfg.AgentRuntimeArchive = *agentCache, *agentArchive
 	if err := config.ValidateRuntime(cfg); err != nil {
 		return err
 	}
 	if *healthcheck {
 		return checkHealth(cfg)
+	}
+	if err := app.ValidateAgentConfiguration(cfg); err != nil {
+		return err
 	}
 
 	appLogger, err := logger.NewLogger(os.Getenv("GO_ENV") == "production")
@@ -92,10 +118,21 @@ func run(args []string) error {
 		Addr: net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port)), Handler: engineApp.Handler,
 		ReadTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second,
 	}
+	listener, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		return errors.Join(err, engineApp.Close(shutdownCtx))
+	}
+	agentHost, agentPort, _ := net.SplitHostPort(listener.Addr().String())
+	if agentHost == "" || agentHost == "0.0.0.0" || agentHost == "::" {
+		agentHost = "127.0.0.1"
+	}
+	engineApp.StartAgent(ctx, "http://"+net.JoinHostPort(agentHost, agentPort))
 	serveErr := make(chan error, 1)
 	go func() {
 		appLogger.Info("starting Threadify", zap.String("address", srv.Addr), zap.String("mode", cfg.RuntimeMode), zap.String("broker", cfg.NATS.Mode))
-		serveErr <- srv.ListenAndServe()
+		serveErr <- srv.Serve(listener)
 	}()
 	var runErr error
 	select {

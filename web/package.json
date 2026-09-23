@@ -11,7 +11,9 @@
     "lint": "eslint .",
     "test:engine-routing": "node --test tests/engine-routing.test.mjs",
     "test:auth": "npm run build && node --test tests/browser-auth.test.mjs",
-    "test:routes": "node --test tests/routes.test.mjs"
+    "test:routes": "node --test tests/routes.test.mjs",
+    "test:agent": "node --test tests/agent.test.mjs tests/agent-status.test.mjs",
+    "test:profile-views": "node --test tests/profile-view.test.mjs tests/profile-view-api.test.mjs"
   },
   "dependencies": {
     "@codemirror/lang-yaml": "^6.1.2",

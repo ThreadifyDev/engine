@@ -14,6 +14,7 @@ on:
       - '.github/scripts/*engine*'
       - 'install.sh'
       - 'web/**'
+      - 'threadify-agent/**'
       - '.nvmrc'
 
 # Serialize tagging/publishing so two main pushes cannot claim the same version.
@@ -97,6 +98,12 @@ jobs:
         with:
           name: engine-dashboard
           path: threadify-go/internal/dashboard/dist
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: agent-runtime-*
+          path: agent-artifacts
+      - name: Verify and stage agent release inputs
+        run: python3 .github/scripts/stage-engine-agent.py --input agent-artifacts
       - name: Restore bundled executable permissions
         run: chmod 755 threadify-go/bundle/*/valkey-server
       - uses: docker/setup-buildx-action@v4
@@ -116,9 +123,10 @@ jobs:
           git log --format='* %s (%h)' "$revision" -- \
             threadify-go ':!threadify-go/api' ':!threadify-go/tests/api' \
             ':(glob,exclude)threadify-go/**/README.md' \
-            web .nvmrc .github/actions/setup-engine-go \
+            web threadify-agent .nvmrc .github/actions/setup-engine-go \
             .github/workflows/engine-ci.yml .github/workflows/engine-release.yml \
             install.sh .github/scripts/test_engine_installer.py \
+            .github/scripts/stage-engine-agent.py .github/scripts/test_stage_engine_agent.py \
             .github/scripts/engine-version.py .github/scripts/test_engine_version.py > "$RUNNER_TEMP/engine-notes.md"
       # GITHUB_TOKEN-created tags do not start another workflow. Publish directly
       # from the validated tag on main pushes, and use the same path for tag pushes.

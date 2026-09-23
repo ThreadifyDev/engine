@@ -1,15 +1,11 @@
-import os
-
 from harnest.agent import Agent
-from harnest.model import LiteLLMModel
+from harnest.lib.ai_gateway import configured_model
 
 
 root_agent = Agent(
     name="threadify_agent",
     history="session",
-    model=LiteLLMModel(
-        model=os.getenv("LITELLM_MODEL", "openai/gpt-4o-mini"),
-    ),
+    model=configured_model(),
     description=(
         "Analyzes Threadify execution graphs and designs contracts from "
         "authenticated Threadify data."

@@ -98,32 +98,6 @@ type Config struct {
 	NATS         NATSConfig         `yaml:"nats"`
 	Billing      BillingConfig      `yaml:"billing"`
 	Subscription SubscriptionConfig `yaml:"subscription"`
-
-	WebAPI struct {
-		Enabled                 bool   `yaml:"enabled"`
-		Port                    int    `yaml:"port"`
-		Host                    string `yaml:"host"`
-		FrontendURL             string `yaml:"frontend_url"`
-		OutboxEncryptionKey     string `yaml:"outbox_encryption_key"`
-		SignupCreditsMillicents int64  `yaml:"signup_credits_millicents"`
-		Email                   struct {
-			Provider  string `yaml:"provider"`
-			APIKey    string `yaml:"api_key"`
-			FromEmail string `yaml:"from_email"`
-			APIURL    string `yaml:"api_url"`
-		} `yaml:"email"`
-		ThreadifyEngine struct {
-			URL        string `yaml:"url"`
-			GraphQLURL string `yaml:"graphql_url"`
-		} `yaml:"threadify_engine"`
-		OpenAIAPIKey   string `yaml:"openai_api_key"`
-		APIKeyTTLHours int    `yaml:"api_key_ttl_hours"`
-		Agent          struct {
-			MaxMessages      int `yaml:"max_messages"`
-			MaxTokens        int `yaml:"max_tokens"`
-			SummaryMaxTokens int `yaml:"summary_max_tokens"`
-		} `yaml:"agent"`
-	} `yaml:"web_api"`
 }
 
 func Load(path string) (*Config, error) {
@@ -169,16 +143,6 @@ func (c *Config) expandEnvVars() {
 	c.JWKS.Issuer = expand(c.JWKS.Issuer)
 
 	c.Billing.Provider = expand(c.Billing.Provider)
-
-	c.WebAPI.FrontendURL = expand(c.WebAPI.FrontendURL)
-	c.WebAPI.OutboxEncryptionKey = expand(c.WebAPI.OutboxEncryptionKey)
-	c.WebAPI.OpenAIAPIKey = expand(c.WebAPI.OpenAIAPIKey)
-	c.WebAPI.Email.Provider = expand(c.WebAPI.Email.Provider)
-	c.WebAPI.Email.APIKey = expand(c.WebAPI.Email.APIKey)
-	c.WebAPI.Email.FromEmail = expand(c.WebAPI.Email.FromEmail)
-	c.WebAPI.Email.APIURL = expand(c.WebAPI.Email.APIURL)
-	c.WebAPI.ThreadifyEngine.URL = expand(c.WebAPI.ThreadifyEngine.URL)
-	c.WebAPI.ThreadifyEngine.GraphQLURL = expand(c.WebAPI.ThreadifyEngine.GraphQLURL)
 
 }
 

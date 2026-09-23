@@ -376,6 +376,24 @@ healthchecks use `CONFIG_PATH=/app/config/config.yaml`. Upgrading the binary als
 upgrades the dashboard. The dashboard calls Engine management routes directly;
 no separate Web API is required.
 
+## Optional AI agent
+
+Every Engine embeds the agent artifact. No runtime is installed and agentic UI
+features remain hidden until local or external mode is selected.
+
+```sh
+threadify serve --config ./config/config.yaml --with-agent
+```
+
+Configure `ai.gateway` in the Engine YAML first. The flag installs the matching,
+checksum-verified runtime once and starts the bundled agent. For Docker, append
+`serve --with-agent` after the image name; `/data/agent` shares the existing
+persistent `/data` volume. Hosted Engines can instead use `ai.agent.url` without
+local dependencies. Local and external modes cannot be combined.
+
+See [agent setup](docs/AGENT.md) for cache settings, provisioner/offline installation,
+external services, and gateway credentials or certificates.
+
 ## Verification
 
 Run engine unit tests with `go test -race ./...`. Broker and persistence tests

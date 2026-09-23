@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from typing import Any, Mapping
+import json
 
-from harnest.context import context
+from harnest import context
 from harnest.lib.threadify_graphql import ThreadifyGraphQLClient
 
 
@@ -20,11 +21,12 @@ async def execute_threadify_query(
     )
     client = context.resource("threadify_graphql", ThreadifyGraphQLClient)
     try:
-        return await client.execute(
+        result = await client.execute(
             query,
             variables,
             authorization=credential.reveal(),
         )
+        return runtime_safe_result(result)
     except PermissionError:
         return tool_error("Threadify rejected the caller's credentials.")
     except (RuntimeError, TypeError, ValueError) as error:
@@ -73,3 +75,20 @@ def tool_error(message: str) -> dict[str, Any]:
 
     bounded = " ".join(str(message).split())[:500]
     return {"data": None, "errors": [{"message": bounded}]}
+
+
+def runtime_safe_result(value: dict[str, Any]) -> dict[str, Any]:
+    """Keep JSON schemas intact across Harnest 0.20's media discriminator.
+
+    Its asset walker assumes every dictionary's `type` is hashable. JSON Schema
+    allows arrays there. Return lossless JSON text only for affected results;
+    never change the underlying schema or patch the managed runtime.
+    """
+    def has_schema_type(item: Any) -> bool:
+        if isinstance(item, dict):
+            return isinstance(item.get("type"), (list, dict)) or any(has_schema_type(child) for child in item.values())
+        return isinstance(item, list) and any(has_schema_type(child) for child in item)
+
+    if has_schema_type(value):
+        return {"data_json": json.dumps(value, ensure_ascii=False)}
+    return value

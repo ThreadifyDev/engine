@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useId } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router';
+import { useAgent } from '~/components/agent/agent-context';
 import { X, Settings, Plus, FileJson, LayoutTemplate, Edit2, Copy } from 'lucide-react';
 import Alert, { isCreditError } from '~/components/Alert';
 import { api, ValidationError } from '~/lib/api';
@@ -15,6 +17,10 @@ interface ProfileTypeModalProps {
   metricsTemplates: MetricsTemplateResponse[];
   onRefresh: () => Promise<void>;
   persistedTypes?: string[];
+  embedded?: boolean;
+  onSaved?: (type: EntityProfileType) => void;
+  onDraftChange?: (draft: Partial<EntityProfileType>, dirty: boolean) => void;
+  metricOverride?: EntityTypeMetric[] | null;
 }
 
 export function ProfileTypeModal({
@@ -25,26 +31,51 @@ export function ProfileTypeModal({
   metricsTemplates,
   onRefresh,
   persistedTypes = [],
+  embedded = false, onSaved, onDraftChange, metricOverride,
 }: ProfileTypeModalProps) {
   const navigate = useNavigate();
+  const { isEnabled: agentEnabled } = useAgent();
 
   const defaultData = { name: '', type: [], description: '', metrics: [] };
   const [formData, setFormData] = useState<Partial<EntityProfileType>>(defaultData);
+  const [designAfterSave, setDesignAfterSave] = useState<'none' | 'manual' | 'ai'>('none');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<{ message: string; details?: Array<{ field: string; message: string }> } | null>(null);
   const [addingMode, setAddingMode] = useState<'none' | 'custom' | 'template'>('none');
   const [customFormKey, setCustomFormKey] = useState(0);
   const [editingMetricIndex, setEditingMetricIndex] = useState<number | null>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    if (!isOpen || embedded) return;
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      dialog?.close();
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOpen, embedded]);
 
   // Reset form when modal opens/closes or initialData changes
   useEffect(() => {
     if (isOpen) {
       setFormData(initialData ? { ...initialData } : { ...defaultData });
       setError(null);
+      setDesignAfterSave('none');
       setAddingMode('none');
       setEditingMetricIndex(null);
     }
   }, [isOpen, initialData]);
+
+  useEffect(() => {
+    if (metricOverride) setFormData(current => ({ ...current, metrics: metricOverride }));
+  }, [metricOverride]);
+  useEffect(() => {
+    onDraftChange?.(formData, JSON.stringify(formData) !== JSON.stringify(initialData ?? defaultData));
+  }, [formData, initialData, onDraftChange]);
 
   if (!isOpen) return null;
 
@@ -66,13 +97,27 @@ export function ProfileTypeModal({
         metrics: (formData.metrics || []).map(({ id: _id, ...metric }) => metric),
       };
 
-      const profileSlug = mode === 'edit' && initialData
-        ? initialData.slug
-        : payload.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-      await api.applyEntityProfileType(profileSlug, payload);
-
-      onClose();
+      let profileSlug = payload.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      if (mode === 'edit' && initialData) {
+        // GraphQL profile summaries do not include the management API identity.
+        profileSlug = initialData.slug;
+        if (!profileSlug) {
+          const types = await api.listEntityProfileTypes();
+          profileSlug = types.data?.find((item: EntityProfileType) => item.id === initialData.id)?.slug ?? '';
+          if (!profileSlug) throw new Error('Could not find the saved profile definition. Reload and try again.');
+        }
+      }
+      const result = await api.applyEntityProfileType(profileSlug, payload);
+      if (onSaved) {
+        // Apply returns the declaration; hydrate database-assigned metric IDs for presentation bindings.
+        const persisted = await api.listEntityProfileTypes();
+        const updated = persisted.data?.find((item: EntityProfileType) => item.id === result.data.id);
+        if (!updated) throw new Error('The configuration was saved, but could not be reloaded. Reload before configuring its presentation.');
+        onSaved(updated);
+      }
+      if (!embedded) onClose();
       await onRefresh();
+      if (!embedded && designAfterSave !== 'none') navigate(`/u/profile-views/${encodeURIComponent(payload.name)}${agentEnabled && designAfterSave === 'ai' ? '?ai=1' : ''}`);
     } catch (err: any) {
       if (err instanceof ValidationError) {
         setError({
@@ -150,22 +195,26 @@ export function ProfileTypeModal({
     setFormData({ ...formData, metrics: newMetrics });
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[92vh]">
+  const content = (
+      <div className={embedded ? "min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white" : "flex max-h-[calc(100dvh_-_2rem)] min-h-0 flex-col"}>
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center shrink-0">
-          <h2 className="text-lg font-bold text-gray-900">
-            {mode === 'edit' ? 'Edit Profile Type' : 'Create Profile Type'}
+          <h2 id={titleId} className="text-lg font-bold text-gray-900">
+            {embedded ? 'Data & metrics' : mode === 'edit' ? 'Edit Profile Type' : 'Create Profile Type'}
           </h2>
-          <button
+          {!embedded && <button
+            type="button"
+            aria-label="Close profile definition"
+            disabled={isSubmitting}
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
           >
             <X className="w-5 h-5" />
-          </button>
+          </button>}
         </div>
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
-          <div className="flex-1 overflow-y-auto">
+        <form onSubmit={handleSubmit} className={embedded ? "flex flex-col" : "flex min-h-0 flex-1 flex-col overflow-hidden"}>
+          {/* The embedded editor scrolls with the page. Only the bounded dialog
+              needs its own scroll container and scroll containment. */}
+          <div className={embedded ? undefined : "min-h-0 flex-1 overflow-y-auto overscroll-contain"}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
               {/* Left column — Profile Info */}
               <div className="p-6 border-b md:border-b-0 md:border-r border-gray-200 space-y-5">
@@ -358,14 +407,24 @@ export function ProfileTypeModal({
                 </div>
               </div>
             </div>
+          {!embedded && <div className="border-t border-gray-200 bg-stone-50 px-6 py-4">
+            <label className="block text-sm font-medium text-stone-700">After saving</label>
+            <select aria-label="After saving profile type" value={!agentEnabled && designAfterSave === 'ai' ? 'manual' : designAfterSave} onChange={event => setDesignAfterSave(event.target.value as 'none' | 'manual' | 'ai')} className="mt-2 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm">
+              <option value="none">{mode === 'edit' ? 'Stay on this page' : 'Use the standard profile view'}</option>
+              <option value="manual">Design profile view manually</option>
+              {agentEnabled && <option value="ai">Design profile with AI</option>}
+            </select>
+            <p className="mt-2 text-xs text-stone-500">Optional. Customize the overview now or later from the profile type definition.</p>
+          </div>}
           </div>
           <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3 shrink-0">
             <button
               type="button"
-              onClick={onClose}
+              onClick={embedded ? () => setFormData(initialData ?? defaultData) : onClose}
+              disabled={isSubmitting}
               className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
             >
-              Cancel
+              {embedded ? 'Discard data changes' : 'Cancel'}
             </button>
             <button
               type="submit"
@@ -380,13 +439,14 @@ export function ProfileTypeModal({
                   </svg>
                   Saving...
                 </>
-              ) : mode === 'edit' ? 'Save Changes' : 'Create Profile Type'}
+              ) : embedded ? 'Save data & metrics' : mode === 'edit' ? 'Save Changes' : 'Create Profile Type'}
             </button>
           </div>
         </form>
       </div>
-    </div>
   );
+  if (embedded) return content;
+  return createPortal(<dialog ref={dialogRef} aria-labelledby={titleId} onCancel={event => { event.preventDefault(); if (!isSubmitting) onClose(); }} className="fixed inset-0 m-auto w-[calc(100%_-_2rem)] max-w-5xl max-h-[calc(100dvh_-_2rem)] overflow-hidden rounded-xl bg-white p-0 shadow-xl backdrop:bg-black/50 backdrop:backdrop-blur-sm">{content}</dialog>, document.body);
 }
 
 // Sub-component for Metric Configuration

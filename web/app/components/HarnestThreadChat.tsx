@@ -382,7 +382,7 @@ export default function HarnestThreadChat() {
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-gray-900">{currentTitle}</p>
             <p className="flex items-center gap-1.5 text-xs text-gray-500">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Harnest agent
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Threadify agent
             </p>
           </div>
           <div className="relative lg:hidden">

@@ -5,6 +5,10 @@ metadata:
   version: 0.2.0
 runtime:
   entrypoint: extension:extension
+contributes:
+  lifecycle: [lifecycle]
+  tools: [tools]
+  skills: [skills]
 capabilities:
 - content.skills
 - content.tools

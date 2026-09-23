@@ -12,6 +12,7 @@ on:
       - '.github/scripts/*engine*'
       - 'install.sh'
       - 'web/**'
+      - 'threadify-agent/**'
       - '.nvmrc'
   # Main/tag pushes are validated by Engine release through this same workflow.
   workflow_call:
@@ -42,6 +43,7 @@ jobs:
           npm run typecheck
           npm run test:routes
           npm run test:engine-routing
+          npm run test:agent
         working-directory: web
       - name: Build and test static dashboard
         run: npm run test:auth
@@ -76,8 +78,65 @@ jobs:
           name: valkey-${{ matrix.target }}
           path: threadify-go/bundle
           if-no-files-found: error
+  agent-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, target: linux-amd64}
+          - {os: macos-14, target: darwin-arm64}
+          - {os: windows-latest, target: windows-amd64}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: Usefused/harnest
+          ref: 553638d5a12770c0bc9f777b4d10e18a73a19c05
+          path: .agent-compiler
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: .agent-compiler/go.mod
+          cache-dependency-path: .agent-compiler/go.sum
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.7'
+          enable-cache: true
+          cache-dependency-glob: |
+            threadify-agent/harnest-runtime.lock
+            threadify-agent/runtime/vendor/*.whl
+      - name: Build pinned agent compiler
+        run: |
+          cp threadify-agent/runtime/vendor/*.whl .agent-compiler/internal/runtimewheel/assets/
+          python .agent-compiler/scripts/prepare_uv_assets.py --target '${{ matrix.target }}'
+          launcher_target='${{ matrix.target }}'
+          launcher_target=${launcher_target//-/_}
+          mkdir -p .agent-compiler/internal/agentlauncher/assets
+          (cd .agent-compiler && go build -trimpath -ldflags='-s -w' -o "internal/agentlauncher/assets/agent_$launcher_target" ./cmd/harnest-agent)
+          mkdir -p "$RUNNER_TEMP/agent-tools"
+          executable=harnest
+          if [[ "$RUNNER_OS" == Windows ]]; then executable=harnest.exe; fi
+          compiler_version=$(python -c "from pathlib import Path; print(next(Path('threadify-agent/runtime/vendor').glob('*.whl')).name.split('-')[1])")
+          (cd .agent-compiler && go build -tags harnest_release -ldflags="-X main.version=$compiler_version" -o "$RUNNER_TEMP/agent-tools/$executable" ./cmd/harnest)
+          echo "$RUNNER_TEMP/agent-tools" >> "$GITHUB_PATH"
+      - name: Build portable runtime and compiled agent
+        run: python threadify-agent/runtime/build.py --output agent-output
+      - uses: actions/upload-artifact@v7
+        with:
+          name: agent-runtime-${{ matrix.target }}
+          path: agent-output
+          if-no-files-found: error
+          compression-level: 0
   validate:
-    needs: [valkey, dashboard]
+    needs: [valkey, dashboard, agent-runtime]
     runs-on: ubuntu-latest
     timeout-minutes: 35
     services:
@@ -107,10 +166,19 @@ jobs:
         with:
           name: engine-dashboard
           path: threadify-go/internal/dashboard/dist
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: agent-runtime-*
+          path: agent-artifacts
+      - name: Verify and stage agent release inputs
+        run: python3 .github/scripts/stage-engine-agent.py --input agent-artifacts
+        working-directory: .
       - run: chmod 755 bundle/*/valkey-server
       - uses: ./.github/actions/setup-engine-go
       - name: Test engine release versioning
-        run: python3 ../.github/scripts/test_engine_version.py
+        run: |
+          python3 ../.github/scripts/test_engine_version.py
+          python3 ../.github/scripts/test_stage_engine_agent.py
       - name: Test binary installer
         run: |
           sh -n ../install.sh
@@ -123,6 +191,7 @@ jobs:
       - name: Test engine and managed persistence
         env:
           THREADIFY_TEST_VALKEY_BINARY: ${{ github.workspace }}/threadify-go/bundle/linux_amd64/valkey-server
+          THREADIFY_TEST_AGENT_ARCHIVE: ${{ github.workspace }}/threadify-go/agent-release/runtime-linux-amd64.tar.gz
         run: go test ./...
       - uses: docker/setup-buildx-action@v4
       - name: Check release configuration
@@ -146,6 +215,20 @@ jobs:
           ./dist/threadify_linux_amd64_v1/threadify --version
           (cd dist && sha256sum --check checksums.txt)
           docker run --rm ghcr.io/threadifydev/engine:v0.0.0-amd64 --version
+      - name: Verify offline runtime installation in the Docker wrapper
+        run: |
+          docker volume create threadify-agent-smoke
+          trap 'docker volume rm threadify-agent-smoke' EXIT
+          docker run --rm \
+            -v threadify-agent-smoke:/data \
+            -v "$PWD/agent-release:/runtime:ro" \
+            ghcr.io/threadifydev/engine:v0.0.0-amd64 \
+            agent install-runtime --agent-runtime-archive /runtime/runtime-linux-amd64.tar.gz
+          runtime_sha=$(python3 -c 'import json; print(json.load(open("internal/agentbundle/assets/runtimes.json"))["linux/amd64"]["sha256"])')
+          docker run --rm -v threadify-agent-smoke:/data \
+            --entrypoint "/data/agent/$runtime_sha/python/bin/python3.12" \
+            ghcr.io/threadifydev/engine:v0.0.0-amd64 \
+            -I -c "import sys; sys.path.insert(0, '/data/agent/$runtime_sha/packages'); import ssl, harnest, google.adk, pydantic_core, cryptography, grpc; print('Agent runtime imports passed')"
       - name: Test compiled binary with disposable PostgreSQL and Valkey
         working-directory: threadify-go/tests
         env:

@@ -9,6 +9,7 @@ import os
 from typing import Any, Mapping
 
 import jwt
+import httpx
 from jwt import PyJWKClient
 
 
@@ -38,6 +39,12 @@ async def verify_threadify_bearer(authorization: str) -> VerifiedIdentity | None
     if token is None:
         return None
 
+    mode = os.getenv("THREADIFY_AUTH_MODE", "engine").strip()
+    if mode == "engine":
+        return await _verify_engine_session(authorization)
+    if mode != "jwks":
+        raise RuntimeError("THREADIFY_AUTH_MODE must be engine or jwks")
+
     try:
         claims = await asyncio.to_thread(_decode, token)
     except jwt.PyJWTError:
@@ -64,6 +71,34 @@ async def verify_threadify_bearer(authorization: str) -> VerifiedIdentity | None
         user_id=threadify_user_id or subject,
         claims=public_claims,
     )
+
+
+async def _verify_engine_session(authorization: str) -> VerifiedIdentity | None:
+    # The fixed Engine audience verifies opaque sessions, current membership,
+    # and revocation on every request. No cookies or browser secrets enter state.
+    from harnest.lib.threadify_management import engine_url
+
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+            response = await client.get(
+                engine_url() + "/v1/agent/identity",
+                headers={"Authorization": authorization, "Accept": "application/json"},
+            )
+        if response.status_code != 200 or len(response.content) > 16_384:
+            return None
+        identity = response.json()
+        if not isinstance(identity, dict):
+            return None
+        user = _text(identity.get("user_id"))
+        company = _text(identity.get("company_id"))
+        if not user or not company:
+            return None
+        return VerifiedIdentity(
+            user_id=f"{company}:{user}",
+            claims={"threadify_user_id": user, "company_id": company},
+        )
+    except (httpx.HTTPError, ValueError):
+        return None
 
 
 def _decode(token: str) -> dict[str, Any]:

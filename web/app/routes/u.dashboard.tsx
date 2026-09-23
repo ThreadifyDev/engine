@@ -55,34 +55,34 @@ export default function Dashboard() {
         </div>
 
         {/* Status Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-4 sm:gap-6 mb-8 sm:mb-12">
+          <div className="border border-gray-200 rounded-lg min-w-0 p-5 sm:p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
             <h3 className="text-sm font-medium text-gray-600 mb-2">Email Status</h3>
-            <p className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <p className="text-xl sm:text-2xl font-bold text-gray-900 flex items-center gap-2 whitespace-nowrap">
               {user.email_verified ? (
-                <><CheckCircle className="w-6 h-6 text-green-600" /> Verified</>
+                <><CheckCircle className="w-6 h-6 shrink-0 text-green-600" /> Verified</>
               ) : (
-                <><XCircle className="w-6 h-6 text-red-600" /> Not Verified</>
+                <><XCircle className="w-6 h-6 shrink-0 text-red-600" /> Not Verified</>
               )}
             </p>
           </div>
 
-          <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
+          <div className="border border-gray-200 rounded-lg min-w-0 p-5 sm:p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
             <h3 className="text-sm font-medium text-gray-600 mb-2">Onboarding</h3>
-            <p className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <p className="text-xl sm:text-2xl font-bold text-gray-900 flex items-center gap-2 whitespace-nowrap">
               {user.onboarding_completed ? (
-                <><CheckCircle className="w-6 h-6 text-green-600" /> Complete</>
+                <><CheckCircle className="w-6 h-6 shrink-0 text-green-600" /> Complete</>
               ) : (
                 'Pending'
               )}
             </p>
           </div>
 
-          <div className="border border-gray-200 rounded-lg p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
+          <div className="border border-gray-200 rounded-lg min-w-0 p-5 sm:p-6 bg-white shadow-sm hover:shadow-md transition-shadow">
             <h3 className="text-sm font-medium text-gray-600 mb-2">First Instrumentation</h3>
-            <p className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <p className="text-xl sm:text-2xl font-bold text-gray-900 flex items-center gap-2 whitespace-nowrap">
               {user.first_instrumentation_done ? (
-                <><CheckCircle className="w-6 h-6 text-green-600" /> Done</>
+                <><CheckCircle className="w-6 h-6 shrink-0 text-green-600" /> Done</>
               ) : (
                 'Not Started'
               )}
@@ -91,7 +91,7 @@ export default function Dashboard() {
         </div>
 
         {/* Getting Started */}
-        <div className="border border-gray-200 rounded-lg p-8 bg-white shadow-sm">
+        <div className="border border-gray-200 rounded-lg p-5 sm:p-8 bg-white shadow-sm">
           <h3 className="text-2xl font-bold text-gray-900 mb-4">Getting Started</h3>
           <div className="space-y-4">
             <div className="flex items-start">

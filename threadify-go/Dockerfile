@@ -41,10 +41,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -o bin/threadify ./cmd/server
 
 # The distroless runtime runs as uid 65532 and needs a writable persistent store.
-RUN mkdir -p /data/jetstream /data/valkey && chown -R 65532:65532 /data
+RUN mkdir -p /data/jetstream /data/valkey /data/agent && chown -R 65532:65532 /data
 
 # Final stage - using distroless for minimal size
-FROM gcr.io/distroless/static-debian12:nonroot
+# Python wheels also need C/C++ shared libraries (for example gRPC).
+FROM gcr.io/distroless/cc-debian12:nonroot
 
 WORKDIR /app
 
@@ -54,7 +55,7 @@ COPY --from=valkey-builder /bundle /app/libexec
 COPY --from=builder /app/config/config.selfhost.yaml /app/config/config.yaml
 COPY --from=builder --chown=65532:65532 /data /data
 
-ENV CONFIG_PATH=/app/config/config.yaml NATS_STORE_DIR=/data/jetstream REDIS_STORE_DIR=/data/valkey
+ENV CONFIG_PATH=/app/config/config.yaml NATS_STORE_DIR=/data/jetstream REDIS_STORE_DIR=/data/valkey THREADIFY_AGENT_CACHE_DIR=/data/agent
 VOLUME ["/data"]
 
 # Expose port

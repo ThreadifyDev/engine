@@ -76,10 +76,5 @@ func GenerateTestConfig(pgConn, valkeyURI, natsURL string, jwksURL string) (*con
 	cfg.Cache.ThreadTTLMs = 1000
 	cfg.Cache.ContractTTLMs = 1000
 
-	// Billing/Subscription
-	cfg.Billing.Provider = "noop"
-
-	// Rates
-
 	return cfg, nil
 }

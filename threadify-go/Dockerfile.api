@@ -6,43 +6,30 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
-# Install build dependencies
-RUN apk add --no-cache git make
-
 # Set working directory
 WORKDIR /app
 
-# Copy all necessary files for go mod download
-COPY shared/ ./shared/
-COPY config/ ./config/
+# The gateway is a standalone standard-library-only module.
 COPY api/ ./api/
 
-# Set working directory to api and download dependencies
+# No shared module, dependency downloads or database assets are needed.
 WORKDIR /app/api
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Build the application with optimizations
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
+RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
     -ldflags="-s -w" \
     -trimpath \
-    -o /app/bin/server cmd/server/main.go
+    -o /app/bin/server ./cmd/server
 
 # Final stage - using distroless for minimal size
 FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 
-# Copy the binary, RBAC files, config files, and code samples (distroless already runs as nonroot user)
+# Gateway runtime has no RBAC files, database schema, prompts or customer config.
 COPY --from=builder /app/bin/server /app/server
-COPY --from=builder /app/shared/rbac /app/shared/rbac
-COPY --from=builder /app/api/code_samples /app/code_samples
-COPY --from=builder /app/config/subscription.yaml /app/config/subscription.yaml
-COPY --from=builder /app/config/prompts /app/config/prompts
-
-# Expose ports
-EXPOSE 8081 3001
+EXPOSE 8081
 
 # Health check using the binary itself (no wget needed)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
