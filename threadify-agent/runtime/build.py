@@ -13,6 +13,7 @@ import subprocess
 import tarfile
 import tempfile
 import zipfile
+from prune import prune_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = "3.12.14"
@@ -77,11 +78,6 @@ def main():
             requirements = work / "requirements.txt"
             requirements.write_text(lock)
             subprocess.run(["uv", "pip", "sync", "--python", python, "--target", str(packages), "--require-hashes", str(requirements)], check=True)
-            subprocess.run([python, "-I", str(ROOT / "runtime/smoke.py"), str(packages)], check=True)
-            runtime_archive = output / f"runtime-{target}-{arch}.tar.gz"
-            archive(runtime, runtime_archive)
-            entry = {"sha256": hashlib.sha256(runtime_archive.read_bytes()).hexdigest(), "archive": runtime_archive.name, "python": executable}
-            (output / f"manifest-{target}-{arch}.json").write_text(json.dumps({f"{target}/{arch}": entry}, indent=2) + "\n")
         source = work / "source"
         source.mkdir()
         # SDK extensions are examples; production tools authenticate as the caller.
@@ -96,6 +92,13 @@ def main():
         subprocess.run(["harnest", "compile", str(source), "--output", str(compiled), "--python", str(python)], env=env, check=True)
         shutil.copy2(ROOT / "runtime/launch.py", compiled / "launch.py")
         archive(compiled, output / "agent.tar.gz")
+        if not args.compile_only:
+            prune_runtime(runtime, executable)
+            subprocess.run([python, "-I", str(ROOT / "runtime/smoke.py"), str(packages)], check=True)
+            runtime_archive = output / f"runtime-{target}-{arch}.tar.gz"
+            archive(runtime, runtime_archive)
+            entry = {"sha256": hashlib.sha256(runtime_archive.read_bytes()).hexdigest(), "archive": runtime_archive.name, "python": executable}
+            (output / f"manifest-{target}-{arch}.json").write_text(json.dumps({f"{target}/{arch}": entry}, indent=2) + "\n")
 
 
 if __name__ == "__main__":
