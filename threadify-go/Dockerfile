@@ -19,9 +19,9 @@ RUN apk add --no-cache git make
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files and shared directory (required by replace directive)
+# Keep dependency resolution independent of application and shared-module source.
 COPY go.mod go.sum ./
-COPY shared/ ./shared/
+COPY shared/go.mod shared/go.sum ./shared/
 
 # Download dependencies
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -44,16 +44,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN mkdir -p /data/jetstream /data/valkey /data/agent && chown -R 65532:65532 /data
 
 # Final stage - using distroless for minimal size
-# Python wheels also need C/C++ shared libraries (for example gRPC).
+# The portable Python interpreter and native wheels need C/C++ shared libraries.
 FROM gcr.io/distroless/cc-debian12:nonroot
 
 WORKDIR /app
 
 # Runtime assets are embedded; only sanitized configuration templates are shipped.
-COPY --from=builder /app/bin/threadify /app/threadify
 COPY --from=valkey-builder /bundle /app/libexec
 COPY --from=builder /app/config/config.selfhost.yaml /app/config/config.yaml
 COPY --from=builder --chown=65532:65532 /data /data
+COPY --from=builder /app/bin/threadify /app/threadify
 
 ENV CONFIG_PATH=/app/config/config.yaml NATS_STORE_DIR=/data/jetstream REDIS_STORE_DIR=/data/valkey THREADIFY_AGENT_CACHE_DIR=/data/agent
 VOLUME ["/data"]
