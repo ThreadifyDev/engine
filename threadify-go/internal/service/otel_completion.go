@@ -10,15 +10,16 @@ import (
 )
 
 // Only engine-created, contract-free telemetry threads participate in automatic
-// trace completion and late-span ingestion. Explicit workflow targets retain
+// trace completion. Explicit workflow targets retain
 // their existing lifecycle and terminal-write protections.
 func isOwnedOTelThread(thread *domain.Thread, companyID, traceID string) bool {
 	if traceID == "" || thread.CompanyID != companyID || thread.ContractName != "" || (thread.ContractID != nil && *thread.ContractID != "") {
 		return false
 	}
 	// Shared work remains open until the exporter explicitly marks the run complete.
-	if ref := thread.Refs["threadify.external_ref"]; ref != "" {
-		return thread.ID == correlatedThreadID(companyID, externalCorrelationID(ref))
+	ref := thread.Refs["threadify.thread_key"]
+	if ref != "" {
+		return thread.ID == correlatedThreadID(companyID, threadKeyCorrelationID(ref))
 	}
 	return thread.Refs["otel_trace_id"] == traceID && thread.ID == uuid.NewSHA1(uuid.NameSpaceOID, []byte(companyID+":"+traceID)).String()
 }

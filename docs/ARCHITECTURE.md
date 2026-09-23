@@ -129,7 +129,7 @@ Responsibilities:
 **Message Flow:**
 ```
 1. connect → Authenticate → Store session
-2. startThread → Generate UUID → Return threadId
+2. thread(threadKey) → Atomically create or resolve tenant key → Return threadId
 3. recordThreadEvent → Validate → Store event
 4. closeConnection → Cleanup session
 ```
@@ -265,18 +265,25 @@ Response: {"status": "success", "ownerId": "..."}
   ▼
 Client Connected
   │
-  ├─► {"action": "startThread", "contractId": "..."}
+  ├─► {"action": "thread", "threadKey": "order:12345", "contractName": "order_flow"}
   │
   ▼
 ThreadService.HandleStartThread()
   │
   ├─► Validate session
   │
-  ├─► Generate thread UUID
+  ├─► Resolve company-scoped thread key; create UUID only for a new key
   │
   ▼
 Response: {"status": "success", "threadId": "..."}
 ```
+
+The keyed resolver loads the stored contract and pinned version on resume.
+Creation metadata is preserved, conflicting contracts are rejected, and closed
+threads cannot resume or accept further writes. SDKs, OTLP ingestion, and
+`ThreadifySpanExporter` use this same identity via `threadKey` /
+`threadify.thread_key`. The older `startThread` wire action is retained only for
+compatibility with clients creating unkeyed threads.
 
 ## Security Architecture
 

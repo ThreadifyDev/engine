@@ -142,7 +142,9 @@ func (s *NotificationService) PerformAsyncValidation(
 			s.logger.Debug("no idempotency key provided, using stepID", zap.String("step_id", stepID))
 		}
 
-		s.processValidationNotifications(ctx, threadID, stepID, stepName, ownerID, idempKey, notifications, graph, thread, req.Status, req)
+		if !s.processValidationNotifications(ctx, threadID, stepID, stepName, ownerID, idempKey, notifications, graph, thread, req.Status, req) {
+			return
+		}
 
 		// Schedule transition timeouts AFTER validations complete (inside worker pool)
 		// This ensures scheduling happens in the same async context as cancellation
@@ -307,7 +309,7 @@ func (s *NotificationService) processValidationNotifications(
 	thread *domain.Thread,
 	originalStatus string,
 	req *domain.RecordEventCmd,
-) {
+) bool {
 	s.logger.Debug("processing Go violations",
 		zap.Int("count", len(notifications)),
 		zap.String("thread_id", threadID),
@@ -340,7 +342,7 @@ func (s *NotificationService) processValidationNotifications(
 	rawContext, err := json.Marshal(req.Context)
 	if err != nil {
 		s.logger.Error("failed to encode reference context", zap.Error(err))
-		return
+		return false
 	}
 	params.RawContext = string(rawContext)
 	params.InvocationID = req.InvocationID
@@ -359,7 +361,15 @@ func (s *NotificationService) processValidationNotifications(
 	if err != nil {
 		s.finishWait(ctx, req, stepID, "unavailable", "Validation storage unavailable", nil, false)
 		s.logger.Error("error validating and updating step state", zap.Error(err))
-		return
+		return false
+	}
+	for _, violation := range result.Violations {
+		if violation.Type == "thread_already_terminal" {
+			// Rejection must not be archived as a new step state or schedule work
+			// on a thread that completed while this validation was queued.
+			s.finishWait(ctx, req, stepID, "violated", violation.Message, result.Violations, true)
+			return false
+		}
 	}
 
 	s.logger.Debug("step state updated",
@@ -545,6 +555,7 @@ func (s *NotificationService) processValidationNotifications(
 	_ = contextJSON // used inside buildStepStateSnapshot via req
 
 	s.cacheManager.ClearThreadCache(threadID)
+	return !hasCriticalViolation
 }
 
 // getRequiredPermissionsForNotification returns the permission strings needed to receive

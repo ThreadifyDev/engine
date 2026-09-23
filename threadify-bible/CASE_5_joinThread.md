@@ -281,7 +281,7 @@ Call GrantOrUpdateThreadAccess(
 
 **Location**: `/internal/service/thread.go:950-1022`
 
-**This is the same flow as in CASE 2 (startThread), Step 6**
+**This is the same flow as in CASE 2 (thread creation), Step 6**
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

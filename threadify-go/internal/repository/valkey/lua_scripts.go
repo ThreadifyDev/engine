@@ -24,6 +24,9 @@ var getAndResetChargedScript string
 //go:embed lua/check_and_update_thread_status.lua
 var checkAndUpdateThreadStatusScript string
 
+//go:embed lua/add_thread_refs.lua
+var addThreadRefsScript string
+
 // LuaScriptManager manages Lua script loading and execution
 type LuaScriptManager struct {
 	valkeyClient domain.ValkeyScriptClient

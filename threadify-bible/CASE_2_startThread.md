@@ -1,8 +1,32 @@
-# CASE 2: `startThread` - Thread Creation with Contract Validation
+# CASE 2: `thread` - Create or Resume with a Stored Contract
+
+### Thread-key resolution before creation
+
+The public SDK entry point is `connection.thread(threadKey, options?)` (Go:
+`conn.Thread(ctx, threadKey, options...)`; Python: `await conn.thread(thread_key,
+options=None)`). The wire action is `thread` with required `threadKey` and optional
+`label`, `contractName`, `refs`, `tags`, `serviceName`, and `role` fields.
+`HandleStartThread` and the `StartThreadRequest` / `StartThreadResponse` type names
+remain internal implementation names.
+
+Before the creation path below, the Engine atomically resolves the trimmed,
+nonblank, company-scoped key (at most 1024 UTF-8 bytes). An existing active thread
+returns its stored ID, contract, and pinned version under normal access checks.
+Omitting a contract resumes that binding; a conflicting contract or version is
+rejected. Labels, refs, and tags are creation defaults and do not overwrite the
+stored values. Closed threads reject resolution and further writes, and their
+keys are never reassigned. Only a new key enters the creation path below.
+A new key without a contract creates a free-form thread, so initialize contracted
+sessions before workers or telemetry begin reporting. OTLP and
+`ThreadifySpanExporter` use `threadify.thread_key` for the same identity.
+
+**Compatibility:** The existing filename and `startThread` wire action are retained
+for older links and clients. New integrations use the keyed `thread` operation.
+
 
 **Handler Entry Point**: `/internal/handlers/thread.go:140-160`
 
-**Purpose**: Create a new thread with optional contract validation, initialize access control, and archive metadata to NATS for PostgreSQL persistence.
+**Purpose**: Resolve a durable application key to an active thread, or create one with optional contract validation, access control, and archived metadata.
 
 ---
 
@@ -15,6 +39,8 @@ WebSocket Handler (unmarshal, dispatch)
     ↓
 ThreadService.HandleStartThread
     ↓
+Resolve threadKey atomically (return existing active thread or reject)
+    ↓ new key only
 ├─→ Contract Validation (3-tier cache)
 │   ├─→ Memory Cache (fastest)
 │   ├─→ Valkey Cache (fast)
@@ -45,7 +71,8 @@ ThreadService.HandleStartThread
 ```
 Client sends WebSocket message:
 {
-  "action": "startThread",
+  "action": "thread",
+  "threadKey": "order:12345",
   "contractName": "order_flow",      // Optional
   "role": "merchant",                 // Required if contractName provided
   "refs": {                           // Optional
@@ -56,10 +83,11 @@ Client sends WebSocket message:
 
 Handler processing:
 ├─ conn.ReadJSON(&msg) → Receive message
-├─ Extract action: msg["action"].(string) → "startThread"
+├─ Extract action: msg["action"].(string) → "thread"
 ├─ Unmarshal into StartThreadRequest struct:
 │  {
-│    Action: "startThread",
+│    Action: "thread",
+│    ThreadKey: "order:12345",
 │    ContractName: "order_flow",
 │    Role: "merchant",
 │    Refs: map[string]string{"orderId": "12345", "customerId": "cust-789"}
@@ -783,7 +811,8 @@ IF response.Status == "success":
 
 Send response to client:
 conn.WriteJSON(StartThreadResponse{
-  action: "startThread",
+  action: "thread",
+  threadKey: "order:12345",
   status: "success",
   message: "Thread started successfully",
   threadId: "550e8400-e29b-41d4-a716-446655440000"
@@ -949,4 +978,4 @@ conn.WriteJSON(StartThreadResponse{
 
 ---
 
-*This completes the detailed flow for CASE 2: startThread*
+*This completes the detailed flow for CASE 2: thread*

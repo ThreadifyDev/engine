@@ -42,7 +42,7 @@ NotificationRouter.SubscribeToStep
 
 ```
 Established during:
-- startThread (creator)
+- thread (authorized creator or resumed participant)
 - joinThread (participant)
 
 Receives:

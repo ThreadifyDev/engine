@@ -44,6 +44,8 @@ workers use their own key for joins and step mutations, plus the dispatcher's
 key for subscriptions:
 
 ```bash
+# Run from examples/nanites; use the workspace SDK containing thread(key, options).
+export PYTHONPATH="$PWD/../../threadify-sdk-python${PYTHONPATH:+:$PYTHONPATH}"
 export THREADIFY_WS_URL=ws://127.0.0.1:8081/threads
 export THREADIFY_GRAPHQL_URL=http://127.0.0.1:8081/graphql
 export HARNEST_NANITES_POSTGRES_URL='<postgres-dsn>'
@@ -61,6 +63,8 @@ export THREADIFY_SUBSCRIPTION_API_KEY='<dispatcher-service-account-key>'
 export THREADIFY_API_KEY='<reviewer-service-account-key>'
 export THREADIFY_SUBSCRIPTION_API_KEY='<dispatcher-service-account-key>'
 ```
+
+Keep the workspace SDK on `PYTHONPATH` for compilation, tests, and all runtime processes until the keyed API is published and the extension dependency pins are updated. The pinned SDK 0.2.10 does not expose `thread()`. The dispatcher uses the invocation ID as its durable thread key; later turns can resolve that key without repeating its contract.
 
 `THREADIFY_API_KEY` is always the identity used for actions. Worker startup
 requires `THREADIFY_SUBSCRIPTION_API_KEY` to subscribe as the event owner; it

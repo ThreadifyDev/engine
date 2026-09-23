@@ -19,6 +19,7 @@ type ConnectResponse struct {
 
 type StartThreadCmd struct {
 	Action       string
+	ThreadKey    string // Caller identity, scoped to the authenticated company.
 	ThreadID     string
 	Label        string
 	ContractName string
@@ -30,10 +31,17 @@ type StartThreadCmd struct {
 }
 
 type StartThreadResponse struct {
-	Action   string
-	Status   string
-	Message  string
-	ThreadID string
+	Action          string
+	Status          string
+	Message         string
+	ThreadID        string
+	ThreadKey       string
+	Label           string
+	ContractID      *string
+	ContractName    string
+	ContractVersion *int
+	Refs            map[string]string
+	Tags            []string
 }
 
 type RecordEventCmd struct {

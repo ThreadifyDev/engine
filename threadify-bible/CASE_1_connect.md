@@ -194,7 +194,31 @@ Location: /internal/handlers/thread.go:115-138
 
 ---
 
-## **CASE 2: `startThread` - Thread Creation with Contract Validation**
+## **CASE 2: `thread` - Create or Resume with a Stored Contract**
+
+### Thread-key resolution before creation
+
+The public SDK entry point is `connection.thread(threadKey, options?)` (Go:
+`conn.Thread(ctx, threadKey, options...)`; Python: `await conn.thread(thread_key,
+options=None)`). The wire action is `thread` with required `threadKey` and optional
+`label`, `contractName`, `refs`, `tags`, `serviceName`, and `role` fields.
+`HandleStartThread` and the `StartThreadRequest` / `StartThreadResponse` type names
+remain internal implementation names.
+
+Before the creation path below, the Engine atomically resolves the trimmed,
+nonblank, company-scoped key (at most 1024 UTF-8 bytes). An existing active thread
+returns its stored ID, contract, and pinned version under normal access checks.
+Omitting a contract resumes that binding; a conflicting contract or version is
+rejected. Labels, refs, and tags are creation defaults and do not overwrite the
+stored values. Closed threads reject resolution and further writes, and their
+keys are never reassigned. Only a new key enters the creation path below.
+A new key without a contract creates a free-form thread, so initialize contracted
+sessions before workers or telemetry begin reporting. OTLP and
+`ThreadifySpanExporter` use `threadify.thread_key` for the same identity.
+
+**Compatibility:** The existing filename and `startThread` wire action are retained
+for older links and clients. New integrations use the keyed `thread` operation.
+
 
 ### **Handler Entry Point**
 
@@ -211,7 +235,8 @@ Location: /internal/handlers/thread.go:140-160
    │
    ├─ Client sends WebSocket message:
    │  {
-   │    action: "startThread",
+   │    action: "thread",
+   │    threadKey: "order:12345",
    │    contractName: "order_flow",
    │    role: "merchant",
    │    refs: {
@@ -726,7 +751,8 @@ Location: /internal/handlers/thread.go:140-160
    │
    └─ Send StartThreadResponse to client:
       conn.WriteJSON(StartThreadResponse{
-        action: "startThread",
+        action: "thread",
+        threadKey: "order:12345",
         status: "success",
         message: "Thread started successfully",
         threadId: "550e8400-e29b-41d4-a716-446655440000"

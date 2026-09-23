@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { Threadify } from '@threadify/sdk';
 
@@ -35,10 +36,10 @@ export function createDemoServer(config) {
       let result;
       if (req.method === 'POST' && path === '/threads') {
         const input = await body(req);
-        const thread = await (await connected()).start(input.label || 'Node SDK demonstration', {refs: input.refs || {}});
+        const thread = await (await connected()).thread(input.threadKey ?? randomUUID(), {label: input.label || 'Node SDK demonstration', refs: input.refs || {}, ...(input.contract ? {contract: input.contract} : {})});
         threads.set(thread.id, thread);
         res.statusCode = 201;
-        result = {threadId: thread.id};
+        result = {threadId: thread.id, threadKey: thread.threadKey};
       } else {
         const match = path.match(/^\/threads\/([^/]+)(?:\/(steps|complete|refs))?$/);
         if (!match) throw Object.assign(new Error('Route not found'), {status: 404});
@@ -50,10 +51,11 @@ export function createDemoServer(config) {
           const steps = await archived.steps();
           result = {threadId: archived.id, status: archived.status, refs: archived.refs, steps: steps.map(s => ({stepName: s.stepName, status: s.status, idempotencyKey: s.idempotencyKey}))};
         } else if (req.method === 'POST' && action) {
-          const thread = threads.get(id);
-          if (!thread) throw Object.assign(new Error('Thread was not created by this demo process'), {status: 404});
+          const previous = threads.get(id);
+          if (!previous) throw Object.assign(new Error('Thread was not created by this demo process'), {status: 404});
           const input = await body(req);
-          thread.connection = await connected();
+          const thread = await (await connected()).thread(previous.threadKey);
+          threads.set(id, thread);
           if (action === 'steps') {
             const step = thread.step(input.name || 'processed').addContext(input.context || {});
             if (input.idempotencyKey) step.idempotencyKey(input.idempotencyKey);

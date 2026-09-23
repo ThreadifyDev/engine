@@ -1,6 +1,6 @@
 # Node server using the Threadify SDK
 
-This runnable HTTP server uses the local **@threadify/sdk 0.1.24** for thread creation, steps, completion, references and GraphQL reads. Its `file:../../threadify-sdk` dependency is intentional: the repository root currently has an older installed 0.1.23 SDK.
+This runnable HTTP server uses the workspace **@threadify/sdk** for keyed thread creation/resume, steps, completion, references and GraphQL reads. Its `file:../../threadify-sdk` dependency loads the updated SDK directly.
 
 ## Run
 
@@ -20,11 +20,11 @@ THREADIFY_GRAPHQL_URL='http://127.0.0.1:8081/graphql' \
 PORT=3107 npm start
 ```
 
-The API key belongs to an Engine service account; it is **not** the Registry license key. The server binds loopback and holds created thread handles in memory. Restarting this example loses those handles, while archived threads remain queryable. Add application authentication and durable business state before exposing a real application publicly.
+The API key belongs to an Engine service account; it is **not** the Registry license key. The server binds loopback and holds created thread handles in memory. Restarting this example loses those handles; POST the same `threadKey` to restore an open thread. Archived threads remain queryable. Add application authentication and durable business state before exposing a real application publicly.
 
 ```sh
 curl http://127.0.0.1:3107/threads -H 'Content-Type: application/json' \
-  -d '{"label":"checkout","refs":{"order":"example-1"}}'
+  -d '{"threadKey":"order:example-1","label":"checkout","refs":{"order":"example-1"}}'
 # Use the returned threadId below.
 curl http://127.0.0.1:3107/threads/THREAD_ID/steps -H 'Content-Type: application/json' \
   -d '{"name":"paid","context":{"amount":19},"idempotencyKey":"payment-example-1"}'
@@ -34,6 +34,8 @@ curl http://127.0.0.1:3107/threads/THREAD_ID
 ```
 
 Archival is asynchronous; the final query can briefly return 404 before data is persisted. `POST /threads/THREAD_ID/refs` accepts `{"refs":{"customer":"example"}}`. The demonstration HTTP parser has a 2 MiB transport guard, independent of Registry license limits.
+
+`POST /threads` accepts an application `threadKey` and optional `label`, `refs`, and `contract`. Calling it again with the same key resumes the stored thread and contract. Omit `contract` when resuming. The response includes both `threadId` and `threadKey`; omitted keys are generated for one-off demo clients. A closed thread cannot be resumed for writes.
 
 ## Errors and recovery
 

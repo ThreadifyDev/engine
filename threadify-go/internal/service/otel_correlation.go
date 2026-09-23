@@ -29,8 +29,8 @@ func OTelUseWorkflowRunID(ctx context.Context) bool {
 	return !ok || enabled
 }
 
-// externalCorrelationID keeps arbitrary caller references out of trace-ID and Redis key namespaces.
-func externalCorrelationID(ref string) string {
+// threadKeyCorrelationID keeps arbitrary caller references out of trace-ID and Redis key namespaces.
+func threadKeyCorrelationID(ref string) string {
 	sum := sha256.Sum256([]byte(ref))
 	return "ref:" + hex.EncodeToString(sum[:])
 }
@@ -40,9 +40,9 @@ func correlatedThreadID(companyID, correlationID string) string {
 	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(companyID+":"+correlationID)).String()
 }
 
-// externalRefForTrace resolves a single authoritative reference before any writes.
-func externalRefForTrace(spans []otelSpanEnvelope, useWorkflow bool) (string, error) {
-	keys := []string{"threadify.external_ref"}
+// threadKeyForTrace resolves a single authoritative reference before any writes.
+func threadKeyForTrace(spans []otelSpanEnvelope, useWorkflow bool) (string, error) {
+	keys := []string{"threadify.thread_key"}
 	if useWorkflow {
 		keys = append(keys, "workflow.run_id")
 	}
@@ -63,6 +63,9 @@ func externalRefForTrace(spans []otelSpanEnvelope, useWorkflow bool) (string, er
 				return "", fmt.Errorf("%s exceeds 1024 bytes", key)
 			}
 			if ref == "" {
+				if key == "threadify.thread_key" {
+					return "", errors.New("threadKey must be a non-empty string")
+				}
 				continue
 			}
 			if selected != "" && selected != ref {
@@ -101,11 +104,31 @@ func (s *OTelTraceService) validateCorrelation(ctx context.Context, id, owner, c
 	if err != nil {
 		return err
 	}
+	if err := writableThread(thread); err != nil {
+		return &permanentOTelError{err: err}
+	}
 	if contract != "" {
 		name, version := parseContractIdentifier(contract)
 		if thread.ContractName != name || (version > 0 && (thread.ContractVersion == nil || *thread.ContractVersion != version)) {
 			return &permanentOTelError{err: errors.New("contract conflicts with the existing thread binding")}
 		}
+	}
+	return nil
+}
+
+// Terminal threads retain their key permanently and never accept further steps.
+func writableThread(thread *domain.Thread) error {
+	switch thread.Status {
+	case domain.ThreadStatusCompleted, domain.ThreadStatusCancelled, domain.ThreadStatusClosed, domain.ThreadStatusFailed:
+		return fmt.Errorf("Cannot add steps to %s thread", thread.Status)
+	default:
+		return nil
+	}
+}
+
+func validateThreadKeyRefs(thread *domain.Thread, refs map[string]string) error {
+	if key, supplied := refs["threadify.thread_key"]; supplied && key != thread.Refs["threadify.thread_key"] {
+		return errors.New("threadKey cannot be changed through refs")
 	}
 	return nil
 }
@@ -142,8 +165,15 @@ func (s *OTelTraceService) startSDKThread(ctx context.Context, req *domain.Start
 	if serviceName == "" {
 		serviceName = req.Refs["serviceName"]
 	}
-	for key, value := range map[string]string{"threadify.external_ref": req.Refs["threadify.external_ref"], "threadify.contract": req.ContractName, "threadify.role": req.Role, "threadify.label": StartThreadLabel(req), "threadify.service": serviceName} {
+	for key, value := range map[string]string{"threadify.contract": req.ContractName, "threadify.role": req.Role, "threadify.label": StartThreadLabel(req), "threadify.service": serviceName} {
 		attrs[key] = &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: value}}
+	}
+	key := req.ThreadKey
+	if key == "" {
+		key = req.Refs["threadify.thread_key"]
+	}
+	if key != "" || req.Action == "thread" {
+		attrs["threadify.thread_key"] = &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: key}}
 	}
 	if len(req.Tags) > 0 {
 		values := make([]*commonpb.AnyValue, 0, len(req.Tags))
@@ -153,27 +183,45 @@ func (s *OTelTraceService) startSDKThread(ctx context.Context, req *domain.Start
 		attrs["threadify.tags"] = &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{Values: values}}}
 	}
 	envelope := otelSpanEnvelope{resourceAttrs: attrs, span: &tracepb.Span{Name: StartThreadLabel(req)}}
-	ref, err := externalRefForTrace([]otelSpanEnvelope{envelope}, true)
+	ref, err := threadKeyForTrace([]otelSpanEnvelope{envelope}, true)
 	if err != nil {
 		return fail(err)
 	}
-	if ref == "" && req.Refs["threadify.external_ref"] != "" {
-		return fail(errors.New("external reference must not be blank"))
+	if ref != "" {
+		attrs["threadify.thread_key"] = &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: ref}}
 	}
-	attrs["threadify.external_ref"] = &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: ref}}
 	for key, value := range req.Refs {
-		if key != "threadify.external_ref" && key != "otel_trace_id" {
+		if key != "threadify.thread_key" && key != "otel_trace_id" {
 			attrs["threadify.ref."+key] = &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: value}}
 		}
 	}
 	traceID := req.Refs["otel_trace_id"]
-	raw, err := hex.DecodeString(traceID)
-	if err != nil || !validOTelID(raw, 16) {
-		return fail(errors.New("correlated SDK start requires a valid otel_trace_id"))
+	var id string
+	if traceID == "" && ref != "" {
+		id, err = s.resolveCorrelation(ctx, owner, company, threadKeyCorrelationID(ref), envelope, uint64(time.Now().UnixNano()))
+	} else {
+		raw, decodeErr := hex.DecodeString(traceID)
+		if decodeErr != nil || !validOTelID(raw, 16) {
+			return fail(errors.New("correlated SDK start requires a threadKey or valid otel_trace_id"))
+		}
+		id, err = s.resolveThread(ctx, owner, company, traceID, envelope, uint64(time.Now().UnixNano()))
 	}
-	id, err := s.resolveThread(ctx, owner, company, traceID, envelope, uint64(time.Now().UnixNano()))
 	if err != nil {
 		return fail(err)
 	}
-	return &domain.StartThreadResponse{Action: ActionStartThread, Status: StepStatusSuccess, ThreadID: id}
+	if err := s.validateCorrelation(ctx, id, owner, company, req.ContractName); err != nil {
+		return fail(err)
+	}
+	thread, err := s.threads.LookupThreadForIngestion(ctx, id, owner, company)
+	if err != nil {
+		return fail(err)
+	}
+	if ref == "" {
+		ref = thread.Refs["threadify.thread_key"]
+	}
+	return &domain.StartThreadResponse{
+		Action: ActionStartThread, Status: StepStatusSuccess, ThreadID: id, ThreadKey: ref,
+		Label: thread.Label, ContractID: thread.ContractID, ContractName: thread.ContractName,
+		ContractVersion: thread.ContractVersion, Refs: thread.Refs, Tags: thread.Tags,
+	}
 }

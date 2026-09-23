@@ -57,6 +57,27 @@ local successfulContextKey = 'thread:' .. threadID .. ':successful_contexts'
 local actor = ARGV[14] or ''  -- User who recorded this step (for .own permission filtering)
 local requiredStepsJSON = ARGV[15] or ''
 
+-- Check if thread is already terminal (prevent adding steps to ended threads)
+local currentThreadStatus = redis.call('HGET', metaKey, 'status')
+local threadJSON = redis.call('GET', 'thread:' .. threadID)
+local storedStatus = threadJSON and cjson.decode(threadJSON).status
+if storedStatus == 'completed' or storedStatus == 'cancelled' or storedStatus == 'closed' or storedStatus == 'failed' then
+    currentThreadStatus = storedStatus
+end
+if currentThreadStatus == 'completed' or currentThreadStatus == 'cancelled' or currentThreadStatus == 'closed' or currentThreadStatus == 'failed' then
+    return cjson.encode({
+        status = 'error',
+        violations = {{
+            violationType = 'thread_already_terminal',
+            severity = 'critical',
+            message = 'Cannot add steps to ' .. currentThreadStatus .. ' thread'
+        }},
+        retryCount = 0,
+        hasCriticalViolation = true
+    })
+end
+
+
 -- Extract stepName from stepKey (format: stepName:idempKey)
 local stepName = string.match(stepKey, '([^:]+):')
 
@@ -399,21 +420,6 @@ end
 if #allViolations > 0 then
     local violationsJSON = cjson.encode(allViolations)
     redis.call('HSET', violationsKey, stepID, violationsJSON)
-end
-
--- Check if thread is already terminal (prevent adding steps to ended threads)
-local currentThreadStatus = redis.call('HGET', metaKey, 'status')
-if currentThreadStatus == 'completed' or currentThreadStatus == 'cancelled' then
-    return cjson.encode({
-        status = 'error',
-        violations = {{
-            violationType = 'thread_already_terminal',
-            severity = 'critical',
-            message = 'Cannot add steps to ' .. currentThreadStatus .. ' thread'
-        }},
-        retryCount = 0,
-        hasCriticalViolation = true
-    })
 end
 
 -- Publish a reference snapshot only after every rejection check has passed.

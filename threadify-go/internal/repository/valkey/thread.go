@@ -250,16 +250,11 @@ func (r *ThreadRepository) AddRefs(ctx context.Context, threadID string, refs ma
 		return nil
 	}
 
-	metaKey := r.getThreadMetaKey(threadID)
-	pipe := r.valkey.Pipeline()
-
-	// Atomic ref updates - each HSET is atomic per field
+	args := []interface{}{r.ttl}
 	for key, value := range refs {
-		pipe.HSet(ctx, metaKey, "refs:"+key, value)
+		args = append(args, key, value)
 	}
-	pipe.Expire(ctx, metaKey, time.Duration(r.ttl)*time.Second)
-
-	_, err := pipe.Exec(ctx)
+	_, err := r.valkey.Eval(ctx, addThreadRefsScript, []string{r.getThreadMetaKey(threadID), r.getThreadKey(threadID)}, args...)
 	if err != nil {
 		return fmt.Errorf("failed to add refs: %w", err)
 	}
