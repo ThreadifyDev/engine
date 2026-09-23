@@ -98,6 +98,9 @@ jobs:
         with:
           name: engine-dashboard
           path: threadify-go/internal/dashboard/dist
+      # agent-artifacts/ and the embed targets it's staged into are gitignored
+      # (see .gitignore, threadify-go/.gitignore): goreleaser's release step
+      # fails the build if the checkout is left dirty by this staging.
       - uses: actions/download-artifact@v8
         with:
           pattern: agent-runtime-*
