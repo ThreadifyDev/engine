@@ -230,6 +230,17 @@ jobs:
             --entrypoint "/data/agent/$runtime_sha/python/bin/python3.12" \
             ghcr.io/threadifydev/engine:v0.0.0-amd64 \
             -I /runtime-smoke.py "/data/agent/$runtime_sha/packages"
+      - name: Checkout Node SDK for live parity tests
+        uses: actions/checkout@v7
+        with:
+          repository: ThreadifyDev/node-sdk
+          path: threadify-sdk
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Install Node SDK dependencies
+        working-directory: threadify-sdk
+        run: npm ci
       - name: Test compiled binary with disposable PostgreSQL and Valkey
         working-directory: threadify-go/tests
         env:
