@@ -11,6 +11,7 @@ require (
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/nats-io/nats.go v1.49.0
 	github.com/stretchr/testify v1.11.1
+	github.com/stripe/stripe-go/v82 v82.5.1
 	go.uber.org/zap v1.27.1
 	gopkg.in/yaml.v3 v3.0.1
 )

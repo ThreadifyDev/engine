@@ -1,10 +1,11 @@
 package billing
 
 import (
-	"github.com/stretchr/testify/require"
 	"testing"
 	"threadify-go/shared/config"
 	"threadify-go/shared/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDisabledBillingDoesNotProcessPayments(t *testing.T) {

@@ -46,6 +46,8 @@ type BillingProvider interface {
 	WebhookProvider
 }
 
+var ErrCheckoutUnavailable = errors.New("billing checkout unavailable")
+
 type ProviderFactory interface {
 	Name() string
 	Build(cfg config.BillingConfig) (BillingProvider, error)
@@ -58,11 +60,7 @@ func InitializeProvider(cfg config.BillingConfig) (BillingProvider, error) {
 		return NewNoOpBillingProvider(), nil
 	}
 
-	if defaultFactory.Name() != cfg.Provider {
-		return nil, fmt.Errorf("billing: unknown provider %q", cfg.Provider)
-	}
-
-	return defaultFactory.Build(cfg)
+	return nil, fmt.Errorf("billing: only noop is available")
 }
 
 type NoOpBillingProvider struct{}
@@ -80,18 +78,12 @@ func (p *NoOpBillingProvider) IssueTopupInvoice(_ *domain.BillingSnapshot) (*dom
 }
 
 func (p *NoOpBillingProvider) VerifyAndParse(body []byte, _ string) (*domain.WebhookEvent, error) {
-	if len(body) == 0 {
-		return nil, nil
-	}
-	var event domain.WebhookEvent
-	if err := json.Unmarshal(body, &event); err != nil {
-		return nil, err
-	}
-	return &event, nil
+	_ = body
+	return nil, nil
 }
 
 func (p *NoOpBillingProvider) CreateCheckoutSession(_ domain.CheckoutSessionParams) (string, error) {
-	return "https://example.com/checkout", nil
+	return "", ErrCheckoutUnavailable
 }
 
 func (p *NoOpBillingProvider) CancelSubscription(_ string) error { return nil }
@@ -311,12 +303,6 @@ type StripeProviderFactory struct{}
 func (f *StripeProviderFactory) Name() string { return "stripe" }
 
 func (f *StripeProviderFactory) Build(cfg config.BillingConfig) (BillingProvider, error) {
-	if cfg.WebhookSecret == "" {
-		return nil, errors.New("stripe: missing webhook_secret in billing config")
-	}
-	if cfg.SecretKey == "" {
-		return nil, errors.New("stripe: missing secret_key in billing config")
-	}
-
-	return NewStripeBillingProvider(cfg.SecretKey, cfg.WebhookSecret), nil
+	_ = cfg
+	return nil, errors.New("stripe billing provider is not configured; use provider: noop")
 }
