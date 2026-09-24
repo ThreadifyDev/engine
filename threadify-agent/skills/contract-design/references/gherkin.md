@@ -7,7 +7,8 @@ in a subsequent change. Existing stored contracts are not converted by this chan
 
 This is a Threadify rule language, not a Cucumber test runner. Only the exact
 sentences below are supported. Unknown sentences, scenarios, tags, tables,
-duplicate declarations, and trailing text produce errors. No AI is involved.
+duplicate declarations, and trailing text produce errors. Core flow rules are
+deterministic; an optional classifier can advise during preview.
 
 ## Example
 
@@ -73,6 +74,19 @@ Use `Then` for the first clause and `And` for subsequent clauses.
 | `content "status" must equal "approved"` | Case-sensitive exact match |
 | `content "tracking_number" must match regex "^TRK-[0-9]{8}$"` | Match a literal regex pattern against the submitted string |
 | `content "tracking_number" must equal order_shipped.tracking_number` | Match the same thread's latest successful shipment |
+
+## Human approval as a Contract step
+
+Declare a reviewer-owned approval step and make the protected action depend on
+it. `must have succeeded` accepts any earlier validated success. `must succeed
+before each invocation` requires a fresh validated approval after the previous
+invocation, even if that invocation failed or was abandoned. Ask the user which
+reuse rule they intend; do not infer it from an observed Harnest approval prompt.
+The host application presents the prompt and records the reviewer-approved
+step. Threadify checks the step, its owner role, and an atomic `waitFor` claim
+before the protected side effect. A denial does not satisfy the prerequisite.
+`can` and `next` are read-only decisions used inside action tools; neither
+records approval or opens a prompt.
 
 Each content comparison requires the submitted field to exist in the step's
 `context` map, whose values remain strings. Dotted field names are literal keys,
@@ -197,8 +211,9 @@ Content checks run during submission alongside existing required-field and
 owner checks; invalid content is rejected before the step event is recorded.
 Transition, dependency, retry and timing checks retain the existing asynchronous
 validation path. An accepted event can subsequently be marked `violated`.
-`proposeStep` still checks step eligibility without content input; it does not
-validate these content rules or reserve permission to perform external work.
+GraphQL `can` checks action eligibility and optionally validates submitted
+context; without candidate context it does not validate content rules or reserve
+permission to perform external work.
 Use the optional SDK [waitFor APIs](WAIT_FOR.md) to await flow permission before
 execution or await the exact validation result after reporting an outcome.
 Default event recording remains asynchronous; Threadify does not execute actions.

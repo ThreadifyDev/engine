@@ -22,6 +22,45 @@ import (
 const activeSnapshot = `{"status":"ok","account_id":"account-a","workspace_id":"workspace-a","entitlements":{"revision":"1"},"suspended":false}`
 const chatBody = `{"model":"threadify-agent","messages":[{"role":"user","content":"hello"}],"stream":true,"tools":[{"type":"function","function":{"name":"get_page_context"}}]}`
 
+type testRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f testRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestClassifierRouteUsesJevWireFormatAndSeparateCredential(t *testing.T) {
+	c := configFor("https://registry.example", "https://chat.example/v1")
+	c.ClassifierUpstreamURL = "https://classifier.example/v1"
+	c.ClassifierUpstreamKey = "classifier-secret"
+	c.ClassifierModel = "threadify-classifier"
+	c.ClassifierUpstreamModel = "jev-latest"
+	g, err := New(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.verifier.Transport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/api/threadify/handshake" || req.Header.Get("Authorization") != "Bearer customer-license" {
+			t.Fatal("wrong license verification")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(activeSnapshot)), Header: make(http.Header)}, nil
+	})
+	g.proxy.Transport = testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host != "classifier.example" || req.Host != "classifier.example" || req.URL.Path != "/v1/systemone" || req.Header.Get("Authorization") != "Bearer classifier-secret" {
+			t.Fatal("wrong classifier routing or credential")
+		}
+		var body map[string]json.RawMessage
+		if json.NewDecoder(req.Body).Decode(&body) != nil || string(body["model"]) != `"jev-latest"` || len(body["state"]) == 0 || len(body["questions"]) == 0 {
+			t.Fatal("invalid Jev request")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"answers":{"decision":{"type":"choice","choice":"refund","probabilities":{"refund":0.9}}}}`)), Header: http.Header{"Content-Type": []string{"application/json"}}}, nil
+	})
+	req := httptest.NewRequest("POST", "/v1/systemone", strings.NewReader(`{"model":"threadify-classifier","state":"refund","questions":{"decision":{"type":"choice","instructions":"action","criteria":{"refund":"Refund"}}}}`))
+	req.Header.Set("Authorization", "Bearer customer-license")
+	rec := httptest.NewRecorder()
+	g.ServeHTTP(rec, req)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"choice":"refund"`) {
+		t.Fatal(rec.Code, rec.Body.String())
+	}
+}
+
 func configFor(registry, upstream string) Config {
 	return Config{RegistryURL: registry, UpstreamURL: upstream, Model: "threadify-agent", UpstreamModel: "qwen3.5:cloud", MaxConcurrent: 4, Timeout: 5 * time.Second}
 }

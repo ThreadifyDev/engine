@@ -115,6 +115,7 @@ func ToContractGraphDTO(d *domain.ContractGraph) *dto.ContractGraphDTO {
 				MaxDuration:    v.MaxDuration,
 				ParentGroup:    v.ParentGroup,
 				ContentRules:   v.ContentRules,
+				SemanticRules:  v.SemanticRules,
 			}
 
 			if v.BusinessContext != nil {
@@ -189,6 +190,7 @@ func FromContractGraphDTO(d *dto.ContractGraphDTO) *domain.ContractGraph {
 			MaxDuration:    v.MaxDuration,
 			ParentGroup:    v.ParentGroup,
 			ContentRules:   v.ContentRules,
+			SemanticRules:  v.SemanticRules,
 		}
 
 		if v.BusinessContext != nil {

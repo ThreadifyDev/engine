@@ -34,6 +34,7 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*domain.ContractGraph, error)
 			}
 		}
 		contract.Steps[i].DependsOn = contractcontent.Dependencies(contract.Steps[i].DependsOn, contract.Steps[i].ContentRules)
+		contract.Steps[i].DependsOn = contractcontent.SemanticDependencies(contract.Steps[i].DependsOn, contract.Steps[i].SemanticRules)
 	}
 
 	// Explicit transitions retain their existing immediate-order semantics. Step
@@ -139,6 +140,7 @@ func (b *GraphBuilder) buildNodes(contract *domain.ContractYAML, transitions []d
 			Timeout:         step.Timeout,
 			BusinessContext: step.BusinessContext,
 			ContentRules:    step.ContentRules,
+			SemanticRules:   step.SemanticRules,
 			ParentGroup:     b.findParentGroup(step.ID, contract.Groups),
 		}
 	}

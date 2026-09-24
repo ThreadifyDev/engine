@@ -184,29 +184,42 @@ func TestContractHandler_PreviewContract(t *testing.T) {
 	validYAML := "contractName: Test"
 
 	tests := []struct {
-		name       string
-		body       string
-		setupMock  func(d *MockedEngineHandlers)
-		wantStatus int
-		wantValid  bool
+		name        string
+		body        string
+		setupMock   func(d *MockedEngineHandlers)
+		wantStatus  int
+		wantValid   bool
+		wantWarning bool
 	}{
 		{
 			name: "success_valid",
 			body: validYAML,
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
-					PreviewContract(gomock.Any()).
+					PreviewContract(gomock.Any(), "company", gomock.Any()).
 					Return(nil, nil, &validator.ValidationResult{IsValid: true}, nil)
 			},
 			wantStatus: http.StatusOK,
 			wantValid:  true,
 		},
 		{
+			name: "semantic_warning",
+			body: validYAML,
+			setupMock: func(d *MockedEngineHandlers) {
+				d.ContractSvc.EXPECT().
+					PreviewContract(gomock.Any(), "company", gomock.Any()).
+					Return(nil, nil, &validator.ValidationResult{IsValid: true, Warnings: []string{"Possible semantic conflict"}}, nil)
+			},
+			wantStatus:  http.StatusOK,
+			wantValid:   true,
+			wantWarning: true,
+		},
+		{
 			name: "success_invalid_contract",
 			body: "bad-yaml",
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
-					PreviewContract(gomock.Any()).
+					PreviewContract(gomock.Any(), "company", gomock.Any()).
 					Return(nil, nil, &validator.ValidationResult{IsValid: false, Errors: []validator.ValidationError{{Message: "bad"}}}, nil)
 			},
 			wantStatus: http.StatusOK,
@@ -221,16 +234,18 @@ func TestContractHandler_PreviewContract(t *testing.T) {
 
 			h := NewContractHandler(d.ContractSvc, d.Logger)
 			r := SetupTestRouter()
-			r.POST("/preview", h.PreviewContract)
+			r.POST("/preview", WithAuthContext(AuthIDs{UserID: "user", CompanyID: "company"}), h.PreviewContract)
 
 			w := DoRequest(t, r, http.MethodPost, "/preview", tt.body)
 			assert.Equal(t, tt.wantStatus, w.Code)
 
 			var resp struct {
-				Valid bool `json:"valid"`
+				Valid    bool     `json:"valid"`
+				Warnings []string `json:"warnings"`
 			}
 			json.Unmarshal(w.Body.Bytes(), &resp)
 			assert.Equal(t, tt.wantValid, resp.Valid)
+			assert.Equal(t, tt.wantWarning, len(resp.Warnings) > 0)
 		})
 	}
 }

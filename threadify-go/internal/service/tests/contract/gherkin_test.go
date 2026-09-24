@@ -21,7 +21,7 @@ func TestGherkinPreviewPersistenceAndRuntimeChecks(t *testing.T) {
 	require.NoError(t, err)
 	source = append(source, []byte("  And content \"reference\" must match regex \"^r[0-9]+$\"\n")...)
 	svc := service.NewContractService(nil, nil, zap.NewNop())
-	compiled, preview, result, err := svc.PreviewContract(string(source))
+	compiled, preview, result, err := svc.PreviewContract(context.Background(), "company", string(source))
 	require.NoError(t, err)
 	require.True(t, result.IsValid, "%v", result.Errors)
 	_, content, err := validator.NewContractValidator().SerializeContract(compiled)

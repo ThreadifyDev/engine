@@ -11,9 +11,9 @@ from harnest import lifecycle
 from harnest.extensions.threadify_guard import extension
 
 
-_PROPOSAL_QUERY = """
-query ProposeStep($threadId: ID!, $stepName: String!) {
-  proposeStep(threadId: $threadId, stepName: $stepName) {
+_CAN_QUERY = """
+query Can($threadId: ID!, $stepName: String!) {
+  can(threadId: $threadId, action: $stepName) {
     threadId
     stepName
     allowed
@@ -44,7 +44,7 @@ async def enforce_threadify_execution(context, request):
         return context.finish(_blocked(None, None, str(error)))
 
     result = await execute_threadify_query(
-        _PROPOSAL_QUERY,
+        _CAN_QUERY,
         {"threadId": thread_id, "stepName": step_name},
     )
     proposal, failure = _proposal(result)
@@ -99,7 +99,7 @@ def _proposal(
         message = first.get("message") if isinstance(first, Mapping) else None
         return None, _text(message) or "Threadify could not validate this step."
     data = result.get("data")
-    value = data.get("proposeStep") if isinstance(data, Mapping) else None
+    value = data.get("can") if isinstance(data, Mapping) else None
     if not isinstance(value, Mapping) or not isinstance(value.get("allowed"), bool):
         return None, "Threadify returned an invalid proposal decision."
     return dict(value), None

@@ -67,7 +67,7 @@ def test_guard_short_circuits_handler_with_real_remediation_shape(monkeypatch):
         assert variables == {"threadId": "thread-1", "stepName": "charge"}
         return {
             "data": {
-                "proposeStep": {
+                "can": {
                     "threadId": "thread-1",
                     "stepName": "charge",
                     "allowed": False,
@@ -115,7 +115,7 @@ def test_guard_allows_handler_after_prerequisite_even_with_intervening_step(
     async def execute(_query, _variables):
         return {
             "data": {
-                "proposeStep": {
+                "can": {
                     "threadId": "thread-1",
                     "stepName": "charge",
                     "allowed": True,

@@ -16,24 +16,31 @@ import (
 
 // Config contains deployment settings only, never customer or conversation state.
 type Config struct {
-	Port          int
-	RegistryURL   string
-	UpstreamURL   string
-	UpstreamKey   string
-	Model         string
-	UpstreamModel string
-	MaxConcurrent int
-	Timeout       time.Duration
-	CAFile        string
-	CertFile      string
-	KeyFile       string
+	Port                    int
+	RegistryURL             string
+	UpstreamURL             string
+	UpstreamKey             string
+	Model                   string
+	UpstreamModel           string
+	ClassifierUpstreamURL   string
+	ClassifierUpstreamKey   string
+	ClassifierModel         string
+	ClassifierUpstreamModel string
+	MaxConcurrent           int
+	Timeout                 time.Duration
+	CAFile                  string
+	CertFile                string
+	KeyFile                 string
 }
 
 // LoadConfig reads hosted-service settings independently of the Engine's configuration.
 func LoadConfig() (Config, error) {
-	c := Config{RegistryURL: os.Getenv("THREADIFY_AI_REGISTRY_URL"), UpstreamURL: os.Getenv("THREADIFY_AI_UPSTREAM_URL"), UpstreamKey: os.Getenv("THREADIFY_AI_UPSTREAM_KEY"), Model: os.Getenv("THREADIFY_AI_MODEL"), UpstreamModel: os.Getenv("THREADIFY_AI_UPSTREAM_MODEL"), CAFile: os.Getenv("THREADIFY_AI_CA_FILE"), CertFile: os.Getenv("THREADIFY_AI_CERT_FILE"), KeyFile: os.Getenv("THREADIFY_AI_KEY_FILE")}
+	c := Config{RegistryURL: os.Getenv("THREADIFY_AI_REGISTRY_URL"), UpstreamURL: os.Getenv("THREADIFY_AI_UPSTREAM_URL"), UpstreamKey: os.Getenv("THREADIFY_AI_UPSTREAM_KEY"), Model: os.Getenv("THREADIFY_AI_MODEL"), UpstreamModel: os.Getenv("THREADIFY_AI_UPSTREAM_MODEL"), ClassifierUpstreamURL: os.Getenv("THREADIFY_CLASSIFIER_UPSTREAM_URL"), ClassifierUpstreamKey: os.Getenv("THREADIFY_CLASSIFIER_UPSTREAM_KEY"), ClassifierModel: os.Getenv("THREADIFY_CLASSIFIER_MODEL"), ClassifierUpstreamModel: os.Getenv("THREADIFY_CLASSIFIER_UPSTREAM_MODEL"), CAFile: os.Getenv("THREADIFY_AI_CA_FILE"), CertFile: os.Getenv("THREADIFY_AI_CERT_FILE"), KeyFile: os.Getenv("THREADIFY_AI_KEY_FILE")}
 	if c.Model == "" {
 		c.Model = "threadify-agent"
+	}
+	if c.ClassifierUpstreamURL != "" && c.ClassifierModel == "" {
+		c.ClassifierModel = "threadify-classifier"
 	}
 	var err error
 	if c.Port, err = positiveEnv("THREADIFY_AI_PORT", 8081, 65535); err != nil {

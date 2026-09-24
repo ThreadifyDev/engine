@@ -565,6 +565,22 @@ func initHandlers(
 		repos.entityProfile, repos.entityProfileType, repos.metrics,
 		svcs.plan, logger,
 	)
+	if cfg.Classifier.BaseURL != "" {
+		options := service.ClassifierOptions{
+			BaseURL: cfg.Classifier.BaseURL, Model: cfg.Classifier.Model,
+			APIKeyEnv: cfg.Classifier.APIKeyEnv, TimeoutMs: cfg.Classifier.TimeoutMs,
+		}
+		if cfg.Classifier.Auth == "threadify_license" {
+			options.BearerToken = cfg.Registry.LicenseKey
+			options.InstallationID = cfg.Registry.InstallationID
+		}
+		classifier, err := service.NewHTTPClassifier(options)
+		if err != nil {
+			return nil, err
+		}
+		h.graphqlResolver.SetDecisionClassifier(classifier)
+		svcs.contract.SetCompositionReviewer(classifier)
+	}
 
 	return h, nil
 }

@@ -88,8 +88,20 @@ approval must be recorded before another charge can proceed. Unguarded reported
 calls are checked against the same rule and can be marked violated.
 
 A repeated step must not be a terminal step. Declare a separate explicit terminal
-step when a workflow permits several charges. The existing GraphQL `proposeStep`
+step when a workflow permits several charges. The GraphQL `can` query
 is advisory and directs callers to `waitFor` for per-invocation prerequisites.
+
+### Human approval in an application
+
+Threadify can enforce a reviewer-owned approval step as a prerequisite; it does
+not display or infer a human approval prompt. An application maps that authored
+step to its reviewer UI. On approval, an authorized reviewer reports the
+approval step and waits for its validation to pass. A denial leaves the
+prerequisite unsatisfied. The protected action then calls `waitFor` before its
+side effect, using the same Thread and Contract. A fresh prerequisite ensures a
+previous approval cannot authorize two invocations. See
+[Contract decisions](DECISION_APIS.md#contract-driven-human-approval) for the
+`can` and `next` responses in this flow.
 
 ## Timeout, cancellation and uncertain outcomes
 

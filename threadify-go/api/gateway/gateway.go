@@ -15,16 +15,18 @@ import (
 )
 
 const maxRequestBytes = 2 << 20
+const maxClassifierRequestBytes = 256 << 10
 
 // Gateway holds only immutable configuration, connection pools and in-flight slots.
 // It never stores conversations, credentials, prompts or usage records.
 type Gateway struct {
-	config   Config
-	registry *url.URL
-	upstream *url.URL
-	verifier *http.Client
-	proxy    *httputil.ReverseProxy
-	slots    chan struct{}
+	config             Config
+	registry           *url.URL
+	upstream           *url.URL
+	classifierUpstream *url.URL
+	verifier           *http.Client
+	proxy              *httputil.ReverseProxy
+	slots              chan struct{}
 }
 
 // New constructs a multi-tenant gateway without a database, NATS or installation binding.
@@ -40,6 +42,13 @@ func New(c Config) (*Gateway, error) {
 	if c.Model == "" || c.UpstreamModel == "" || strings.ContainsAny(c.Model+c.UpstreamModel, " \r\n\t") || c.MaxConcurrent < 1 || c.Timeout <= 0 {
 		return nil, errors.New("model, upstream model, positive concurrency and timeout are required")
 	}
+	var classifierUpstream *url.URL
+	if c.ClassifierUpstreamURL != "" {
+		classifierUpstream, err = endpoint(c.ClassifierUpstreamURL)
+		if err != nil || c.ClassifierModel == "" || c.ClassifierUpstreamModel == "" || c.ClassifierModel == c.Model || strings.ContainsAny(c.ClassifierModel+c.ClassifierUpstreamModel, " \r\n\t") {
+			return nil, errors.New("valid classifier upstream and distinct public/upstream models are required")
+		}
+	}
 	if upstream.Scheme != "https" && (c.CAFile != "" || c.CertFile != "" || c.KeyFile != "") {
 		return nil, errors.New("upstream TLS files require HTTPS")
 	}
@@ -49,7 +58,7 @@ func New(c Config) (*Gateway, error) {
 	}
 	registryTransport := http.DefaultTransport.(*http.Transport).Clone()
 	registryTransport.Proxy = nil
-	g := &Gateway{config: c, registry: registry, upstream: upstream, slots: make(chan struct{}, c.MaxConcurrent), verifier: &http.Client{Transport: registryTransport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	g := &Gateway{config: c, registry: registry, upstream: upstream, classifierUpstream: classifierUpstream, slots: make(chan struct{}, c.MaxConcurrent), verifier: &http.Client{Transport: registryTransport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	g.proxy = &httputil.ReverseProxy{
 		ErrorLog:      log.New(io.Discard, "", 0),
 		Transport:     transport,
@@ -89,17 +98,21 @@ func failure(w http.ResponseWriter, status int, code string) {
 }
 
 func (g *Gateway) rewrite(p *httputil.ProxyRequest) {
-	p.SetURL(g.upstream)
-	p.Out.URL.Path = g.upstream.Path + "/chat/completions"
+	upstream, suffix, key := g.upstream, "/chat/completions", g.config.UpstreamKey
+	if p.In.URL.Path == "/v1/systemone" {
+		upstream, suffix, key = g.classifierUpstream, "/systemone", g.config.ClassifierUpstreamKey
+	}
+	p.SetURL(upstream)
+	p.Out.URL.Path = upstream.Path + suffix
 	p.Out.URL.RawPath = ""
 	p.Out.URL.RawQuery = ""
-	p.Out.Host = g.upstream.Host
+	p.Out.Host = upstream.Host
 	// Explicit allowlist: customer license, cookies and forwarded identity never reach the model.
 	p.Out.Header = make(http.Header)
 	p.Out.Header.Set("Content-Type", "application/json")
 	p.Out.Header.Set("Accept", "application/json, text/event-stream")
-	if g.config.UpstreamKey != "" {
-		p.Out.Header.Set("Authorization", "Bearer "+g.config.UpstreamKey)
+	if key != "" {
+		p.Out.Header.Set("Authorization", "Bearer "+key)
 	}
 }
 
@@ -159,7 +172,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	models := r.URL.Path == "/v1/models" && r.Method == http.MethodGet
 	chat := r.URL.Path == "/v1/chat/completions" && r.Method == http.MethodPost
-	if (!models && !chat) || r.URL.RawQuery != "" {
+	classifier := g.classifierUpstream != nil && r.URL.Path == "/v1/systemone" && r.Method == http.MethodPost
+	if (!models && !chat && !classifier) || r.URL.RawQuery != "" {
 		failure(w, http.StatusNotFound, "not_found")
 		return
 	}
@@ -182,10 +196,18 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if models {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []any{map[string]any{"id": g.config.Model, "object": "model", "created": 0, "owned_by": "threadify"}}})
+		available := []any{map[string]any{"id": g.config.Model, "object": "model", "created": 0, "owned_by": "threadify"}}
+		if g.classifierUpstream != nil {
+			available = append(available, map[string]any{"id": g.config.ClassifierModel, "object": "model", "created": 0, "owned_by": "threadify"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": available})
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytes))
+	limit := int64(maxRequestBytes)
+	if classifier {
+		limit = maxClassifierRequestBytes
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
 		failure(w, http.StatusRequestEntityTooLarge, "request_too_large")
 		return
@@ -196,12 +218,20 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var model string
-	if json.Unmarshal(payload["model"], &model) != nil || model != g.config.Model {
+	expectedModel, upstreamModel := g.config.Model, g.config.UpstreamModel
+	if classifier {
+		expectedModel, upstreamModel = g.config.ClassifierModel, g.config.ClassifierUpstreamModel
+	}
+	if json.Unmarshal(payload["model"], &model) != nil || model != expectedModel {
 		failure(w, http.StatusBadRequest, "unsupported_model")
 		return
 	}
 	// The gateway forwards tool definitions and results but never executes tools or accepts a caller-selected endpoint.
-	payload["model"], _ = json.Marshal(g.config.UpstreamModel)
+	if classifier && (len(payload["state"]) == 0 || len(payload["questions"]) == 0) {
+		failure(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	payload["model"], _ = json.Marshal(upstreamModel)
 	body, _ = json.Marshal(payload)
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))

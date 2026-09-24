@@ -767,9 +767,9 @@ func (mr *MockContractServiceMockRecorder) GetContractVersion(ctx, contractID, v
 }
 
 // PreviewContract mocks base method.
-func (m *MockContractService) PreviewContract(yamlString string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
+func (m *MockContractService) PreviewContract(ctx context.Context, companyID, yamlString string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PreviewContract", yamlString)
+	ret := m.ctrl.Call(m, "PreviewContract", ctx, companyID, yamlString)
 	ret0, _ := ret[0].(*validator.Contract)
 	ret1, _ := ret[1].(*domain.ContractGraph)
 	ret2, _ := ret[2].(*validator.ValidationResult)
@@ -778,9 +778,9 @@ func (m *MockContractService) PreviewContract(yamlString string) (*validator.Con
 }
 
 // PreviewContract indicates an expected call of PreviewContract.
-func (mr *MockContractServiceMockRecorder) PreviewContract(yamlString interface{}) *gomock.Call {
+func (mr *MockContractServiceMockRecorder) PreviewContract(ctx, companyID, yamlString interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreviewContract", reflect.TypeOf((*MockContractService)(nil).PreviewContract), yamlString)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreviewContract", reflect.TypeOf((*MockContractService)(nil).PreviewContract), ctx, companyID, yamlString)
 }
 
 // UpdateContract mocks base method.

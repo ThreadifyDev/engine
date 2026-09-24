@@ -7,7 +7,8 @@ in a subsequent change. Existing stored contracts are not converted by this chan
 
 This is a Threadify rule language, not a Cucumber test runner. Only the exact
 sentences below are supported. Unknown sentences, scenarios, tags, tables,
-duplicate declarations, and trailing text produce errors. No AI is involved.
+duplicate declarations, and trailing text produce errors. Execution is
+deterministic; an optional classifier can advise during preview.
 
 ## Example
 
@@ -32,6 +33,54 @@ Rule: Record a charge
 ```
 
 See the complete [payment example](../examples/payment.feature).
+
+## Include a published contract
+
+Place an `Include` after the feature metadata and before `Background` or any
+`Rule`. The name and version identify an existing contract in the same company:
+
+```gherkin
+Feature: refund_processing
+Version: 1
+Include: identity_required:2
+
+Rule: Issue refund
+  When step "issue_refund" is submitted
+  Then owner must be "processor"
+  And step "identity_verified" must have succeeded
+  And this step is terminal
+```
+
+Preview and publication load the named version's stored compiled content, then
+validate the combined steps, dependencies, parties, transitions, and groups.
+The published version stores the expanded content and graph, so later updates
+to `identity_required` do not change existing `refund_processing` versions.
+The original source retains the `Include` line. An included contract may itself
+have been composed from other contracts; its saved compiled content is used.
+
+Step and group IDs must be unique across the combined contract. The parent's
+explicit entry and terminal steps take precedence. When the parent omits them,
+the included contracts supply their entry and terminal steps. Thread-wide
+duration and severity settings are inherited when unspecified; conflicting
+explicit settings are rejected.
+
+Composition validation also rejects impossible content constraints (such as
+`amount > 500` and `amount <= 500` on the same field), dependencies on a
+terminal step, unusable entry points, and steps that cannot be reached under
+strict transitions. For small strict-transition graphs it explores successful
+step sequences to check whether prerequisites can be met. These checks run in
+preview and publication.
+
+When a classifier is configured, preview additionally asks it to flag possible
+semantic conflicts in the authored and expanded contract. A classifier flag is
+shown as a warning; it does not block publication. Classifier review can also
+be unavailable or inconclusive. The classifier receives the authored source
+and expanded contract through the configured classifier endpoint. Publication
+is governed by deterministic validation.
+Missing contracts, missing versions, and invalid combined graphs fail preview
+and publication. A contract may include at most 16 contracts, with at most 512
+steps after expansion. YAML authors can use `includes: [{name:
+identity_required, version: 2}]` with the same behavior.
 
 `Feature` is the contract identifier (letters, digits, underscores). `Version`
 defaults to 1 and must be increased when updating. `Description` defaults to the
@@ -73,6 +122,18 @@ Use `Then` for the first clause and `And` for subsequent clauses.
 | `content "status" must equal "approved"` | Case-sensitive exact match |
 | `content "tracking_number" must match regex "^TRK-[0-9]{8}$"` | Match a literal regex pattern against the submitted string |
 | `content "tracking_number" must equal order_shipped.tracking_number` | Match the same thread's latest successful shipment |
+
+### Approval prerequisites
+
+Use a reviewer-owned step for human approval and make the protected action
+depend on it. `must have succeeded` accepts an earlier validated approval;
+`must succeed before each invocation` requires a new validated approval after
+the previous invocation, including failed or abandoned ones. Choose the clause
+that matches the intended reuse policy. The Contract checks the recorded step
+and its owner role. The application must present the reviewer prompt and record
+the approval outcome; a step name alone does not open an approval UI. See
+[Contract-driven human approval](DECISION_APIS.md#contract-driven-human-approval)
+for the agent and `waitFor` sequence.
 
 Each content comparison requires the submitted field to exist in the step's
 `context` map, whose values remain strings. Dotted field names are literal keys,
@@ -197,8 +258,9 @@ Content checks run during submission alongside existing required-field and
 owner checks; invalid content is rejected before the step event is recorded.
 Transition, dependency, retry and timing checks retain the existing asynchronous
 validation path. An accepted event can subsequently be marked `violated`.
-`proposeStep` still checks step eligibility without content input; it does not
-validate these content rules or reserve permission to perform external work.
+GraphQL `can` checks action eligibility and optionally validates submitted
+context; without candidate context it does not validate content rules or reserve
+permission to perform external work.
 Use the optional SDK [waitFor APIs](WAIT_FOR.md) to await flow permission before
 execution or await the exact validation result after reporting an outcome.
 Default event recording remains asynchronous; Threadify does not execute actions.

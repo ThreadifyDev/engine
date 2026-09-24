@@ -28,7 +28,12 @@ type Resolver struct {
 	entityProfileTypeRepo sharedrepo.EntityProfileTypeRepository
 	metricsRepo           *postgres.MetricsRepository
 	planService           domain.PlanService
+	classifier            service.DecisionClassifier
 	logger                *zap.Logger
+}
+
+func (r *Resolver) SetDecisionClassifier(classifier service.DecisionClassifier) {
+	r.classifier = classifier
 }
 
 func NewResolver(

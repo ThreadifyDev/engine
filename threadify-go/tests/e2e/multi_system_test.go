@@ -177,8 +177,11 @@ func runMultiSystemJoin(t *testing.T, contractBased bool) {
 	if contractBased {
 		prefix := "multi_system_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 		sequentialName, parallelName = prefix+"_sequential", prefix+"_parallel"
-		createContract := func(name string, steps, transitions []any, entry, terminal string) {
+		createContract := func(name string, steps, transitions, includes []any, entry, terminal string) {
 			declaration := map[string]any{"contract_name": name, "version": 1, "description": "Two-system contract E2E", "parties": []string{"orders", "warehouse"}, "steps": steps, "transitions": transitions, "entry_points": []string{entry}, "terminal_steps": []string{terminal}, "validation": map[string]any{"max_duration": "1h"}, "versioning": map[string]any{"threads_lock_to_version": true}}
+			if len(includes) > 0 {
+				declaration["includes"] = includes
+			}
 			body, err := json.Marshal(declaration)
 			require.NoError(t, err) // JSON is valid YAML.
 			result := request(t, provisioner, "/v1/contracts", "text/plain", body)
@@ -196,7 +199,9 @@ func runMultiSystemJoin(t *testing.T, contractBased bool) {
 				transitions = append(transitions, map[string]any{"from": ordered[i-1], "to": []string{step}})
 			}
 		}
-		createContract(sequentialName, steps, transitions, ordered[0], ordered[3])
+		moduleName := prefix + "_first_half"
+		createContract(moduleName, steps[:2], transitions[:1], nil, ordered[0], ordered[1])
+		createContract(sequentialName, steps[2:], transitions[1:], []any{map[string]any{"name": moduleName, "version": 1}}, ordered[0], ordered[3])
 		steps = []any{map[string]any{"id": "order_received", "owner": "orders", "type": "managed"}, map[string]any{"id": "dispatched", "owner": "warehouse", "type": "managed"}}
 		transitions = []any{}
 		branches := []string{}
@@ -208,7 +213,7 @@ func runMultiSystemJoin(t *testing.T, contractBased bool) {
 			}
 		}
 		steps[1].(map[string]any)["depends_on"] = branches
-		createContract(parallelName, steps, transitions, "order_received", "dispatched")
+		createContract(parallelName, steps, transitions, nil, "order_received", "dispatched")
 	}
 	event := func(id, step string) map[string]any {
 		return map[string]any{"action": "recordThreadEvent", "threadId": id, "stepName": step, "type": "managed", "status": "success", "idempotencyKey": uuid.NewString(), "startedAt": time.Now().Add(-time.Millisecond).UTC().Format(time.RFC3339Nano), "finishedAt": time.Now().UTC().Format(time.RFC3339Nano), "context": map[string]string{"scenario": "multi-system-join"}}

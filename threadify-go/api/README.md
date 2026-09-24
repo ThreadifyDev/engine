@@ -96,9 +96,22 @@ Registry owns the durable license/installation records; its handshake may refres
 that installation record. The gateway never starts the single-company Registry
 runtime. The current Registry has **no AI-specific entitlement or token allowance**:
 this release grants inference to active Threadify licenses. Concurrency is a
-service protection, not per-customer billing. No new metering protocol, token
-billing, or classifier migration is introduced. Those policies belong in Registry
-if added later; the gateway should remain stateless.
+service protection, not per-customer billing. The optional classifier uses the
+same license check. No new metering protocol or token billing is introduced;
+those policies belong in Registry if added later. The gateway remains stateless.
+
+## Hosted classifier
+
+The same Web API can expose a Threadify-managed Jev-compatible classifier. Set
+`THREADIFY_CLASSIFIER_UPSTREAM_URL` to the provider's API base URL (ending in
+`/v1`), `THREADIFY_CLASSIFIER_UPSTREAM_MODEL` to its model ID, and optionally
+`THREADIFY_CLASSIFIER_UPSTREAM_KEY`. The public model defaults to
+`threadify-classifier` and can be set with `THREADIFY_CLASSIFIER_MODEL`.
+When configured, the authenticated `POST /v1/systemone` route accepts Jev's
+`state`, `model`, and `questions` shape. It substitutes the deployment model and
+provider credential, and never forwards the customer's license upstream. This
+route is absent when no classifier upstream is configured. See
+[Contract decisions](../docs/DECISION_APIS.md) for Engine configuration.
 
 Only deployment-configured upstream routing is allowed. Customer authorization,
 cookies and forwarded identity headers never reach the model provider. Redirects

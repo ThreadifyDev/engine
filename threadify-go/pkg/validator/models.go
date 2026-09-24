@@ -3,28 +3,36 @@ package validator
 import "github.com/threadify/engine/pkg/contractcontent"
 
 type Contract struct {
-	ContractName  string          `yaml:"contract_name"`
-	Version       int             `yaml:"version"`
-	Description   string          `yaml:"description"`
-	EntryPoints   []string        `yaml:"entry_points,omitempty"`
-	Parties       []string        `yaml:"parties"`
-	Steps         []Step          `yaml:"steps"`
-	Transitions   []Transition    `yaml:"transitions,omitempty"`
-	TerminalSteps []string        `yaml:"terminal_steps,omitempty"`
-	Groups        []Group         `yaml:"groups,omitempty"`
-	Validation    ValidationRules `yaml:"validation"`
-	Versioning    VersioningRules `yaml:"versioning,omitempty"`
+	ContractName  string            `yaml:"contract_name"`
+	Version       int               `yaml:"version"`
+	Description   string            `yaml:"description"`
+	Includes      []ContractInclude `yaml:"includes,omitempty" json:"includes,omitempty"`
+	EntryPoints   []string          `yaml:"entry_points,omitempty"`
+	Parties       []string          `yaml:"parties"`
+	Steps         []Step            `yaml:"steps"`
+	Transitions   []Transition      `yaml:"transitions,omitempty"`
+	TerminalSteps []string          `yaml:"terminal_steps,omitempty"`
+	Groups        []Group           `yaml:"groups,omitempty"`
+	Validation    ValidationRules   `yaml:"validation"`
+	Versioning    VersioningRules   `yaml:"versioning,omitempty"`
+}
+
+// ContractInclude pins a version of another contract in the same company.
+type ContractInclude struct {
+	Name    string `yaml:"name" json:"name"`
+	Version int    `yaml:"version" json:"version"`
 }
 
 type Step struct {
-	ID              string                 `yaml:"id"`
-	Owner           string                 `yaml:"owner"`
-	Type            string                 `yaml:"type,omitempty"`
-	FreshDependsOn  []string               `yaml:"fresh_depends_on,omitempty" json:"fresh_depends_on,omitempty"`
-	DependsOn       []string               `yaml:"depends_on,omitempty"`
-	Timeout         string                 `yaml:"timeout,omitempty"`
-	BusinessContext *BusinessContext       `yaml:"business_context,omitempty"`
-	ContentRules    []contractcontent.Rule `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
+	ID              string                         `yaml:"id"`
+	Owner           string                         `yaml:"owner"`
+	Type            string                         `yaml:"type,omitempty"`
+	FreshDependsOn  []string                       `yaml:"fresh_depends_on,omitempty" json:"fresh_depends_on,omitempty"`
+	DependsOn       []string                       `yaml:"depends_on,omitempty"`
+	Timeout         string                         `yaml:"timeout,omitempty"`
+	BusinessContext *BusinessContext               `yaml:"business_context,omitempty"`
+	ContentRules    []contractcontent.Rule         `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
+	SemanticRules   []contractcontent.SemanticRule `yaml:"semantic_rules,omitempty" json:"semantic_rules,omitempty"`
 }
 
 type Group struct {
@@ -67,8 +75,9 @@ type ValidationError struct {
 }
 
 type ValidationResult struct {
-	IsValid bool              `json:"isValid"`
-	Errors  []ValidationError `json:"errors"`
+	IsValid  bool              `json:"isValid"`
+	Errors   []ValidationError `json:"errors"`
+	Warnings []string          `json:"warnings,omitempty"`
 }
 
 type ContractContent struct {

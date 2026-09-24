@@ -15,7 +15,7 @@ func EvaluateStepProposal(
 	graph *domain.ContractGraph,
 	stepName string,
 	successfulSteps []string,
-) (*domain.StepProposal, error) {
+) (*domain.CanDecision, error) {
 	if graph == nil {
 		return nil, fmt.Errorf("contract graph is required")
 	}
@@ -25,9 +25,10 @@ func EvaluateStepProposal(
 		return nil, fmt.Errorf("step %q is not defined in the contract", stepName)
 	}
 
-	proposal := &domain.StepProposal{
+	proposal := &domain.CanDecision{
 		ThreadID:       threadID,
 		StepName:       stepName,
+		Status:         "denied",
 		RequiredSteps:  append([]string{}, node.DependsOn...),
 		SatisfiedSteps: []string{},
 		MissingSteps:   []string{},
@@ -78,12 +79,18 @@ func EvaluateStepProposal(
 			}
 		}
 	}
+	if proposal.PreviousStep == nil && len(graph.Graph.EntryPoints) > 0 && !slices.Contains(graph.Graph.EntryPoints, stepName) {
+		proposal.Reason = "action is not a contract entry point"
+		return proposal, nil
+	}
 
 	if len(node.FreshDependsOn) > 0 {
+		proposal.Status = "requires_claim"
 		proposal.Reason = "Per-invocation prerequisites require waitFor to check and claim a fresh occurrence"
 		return proposal, nil
 	}
 	proposal.Allowed = true
+	proposal.Status = "allowed"
 	proposal.Reason = "all contract constraints are satisfied"
 	return proposal, nil
 }

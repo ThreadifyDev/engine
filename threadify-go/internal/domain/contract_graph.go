@@ -40,7 +40,8 @@ type GraphNode struct {
 	Timeout         string
 	MaxDuration     string
 	BusinessContext *BusinessContext
-	ContentRules    []contractcontent.Rule `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
+	ContentRules    []contractcontent.Rule         `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
+	SemanticRules   []contractcontent.SemanticRule `yaml:"semantic_rules,omitempty" json:"semantic_rules,omitempty"`
 	ParentGroup     string
 }
 
@@ -62,14 +63,15 @@ type ContractYAML struct {
 
 // Step represents a workflow step
 type Step struct {
-	ID              string                 `yaml:"id"`
-	Owner           string                 `yaml:"owner,omitempty"`
-	Role            string                 `yaml:"role,omitempty"`
-	FreshDependsOn  []string               `yaml:"fresh_depends_on,omitempty" json:"fresh_depends_on,omitempty"`
-	DependsOn       []string               `yaml:"depends_on,omitempty"`
-	Timeout         string                 `yaml:"timeout,omitempty"`
-	BusinessContext *BusinessContext       `yaml:"business_context,omitempty"`
-	ContentRules    []contractcontent.Rule `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
+	ID              string                         `yaml:"id"`
+	Owner           string                         `yaml:"owner,omitempty"`
+	Role            string                         `yaml:"role,omitempty"`
+	FreshDependsOn  []string                       `yaml:"fresh_depends_on,omitempty" json:"fresh_depends_on,omitempty"`
+	DependsOn       []string                       `yaml:"depends_on,omitempty"`
+	Timeout         string                         `yaml:"timeout,omitempty"`
+	BusinessContext *BusinessContext               `yaml:"business_context,omitempty"`
+	ContentRules    []contractcontent.Rule         `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
+	SemanticRules   []contractcontent.SemanticRule `yaml:"semantic_rules,omitempty" json:"semantic_rules,omitempty"`
 }
 
 // Group represents a parallel group of steps

@@ -19,6 +19,7 @@ import (
 type PreviewResponse struct {
 	Valid    bool        `json:"valid"`
 	Errors   []string    `json:"errors,omitempty"`
+	Warnings []string    `json:"warnings,omitempty"`
 	Graph    interface{} `json:"graph,omitempty"`
 	Contract interface{} `json:"contract,omitempty"`
 }
@@ -199,13 +200,17 @@ func (h *ContractHandler) DeleteContractVersion(c *gin.Context) {
 }
 
 func (h *ContractHandler) PreviewContract(c *gin.Context) {
+	companyID, ok := claimsCompanyID(c)
+	if !ok {
+		return
+	}
 	yamlBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, PreviewResponse{Valid: false, Errors: []string{"Failed to read request body"}})
 		return
 	}
 
-	contract, graph, validationResult, err := h.contractService.PreviewContract(string(yamlBody))
+	contract, graph, validationResult, err := h.contractService.PreviewContract(c.Request.Context(), companyID, string(yamlBody))
 	if err != nil {
 		h.logger.Error("failed to preview contract", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, PreviewResponse{Valid: false, Errors: []string{"Failed to process contract"}})
@@ -223,6 +228,7 @@ func (h *ContractHandler) PreviewContract(c *gin.Context) {
 
 	c.JSON(http.StatusOK, PreviewResponse{
 		Valid:    true,
+		Warnings: validationResult.Warnings,
 		Graph:    mapper.ToContractGraphDTO(graph),
 		Contract: contract,
 	})
