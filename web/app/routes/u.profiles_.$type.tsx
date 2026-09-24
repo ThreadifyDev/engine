@@ -117,7 +117,8 @@ export default function EntityProfilesByType() {
 
   return (
     <AppLayout>
-      <div className="max-w-full overflow-hidden p-4 sm:p-6 lg:p-8">
+      <div className="min-h-screen overflow-hidden bg-[#f8f8f6] px-4 py-7 sm:px-7 sm:py-10 lg:px-10">
+        <div className="mx-auto max-w-6xl">
         {/* Edit Modal */}
         {profileType && (
           <ProfileTypeModal
@@ -132,23 +133,24 @@ export default function EntityProfilesByType() {
         )}
 
         {/* Back link */}
-        <div className="mb-4">
+        <div className="mb-6">
           <Link
             to="/u/profiles"
-            className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 transition-colors"
+            className="inline-flex items-center gap-1 text-sm font-medium text-stone-500 transition-colors hover:text-emerald-700"
           >
             <ChevronLeft className="w-4 h-4" /> Back to Entity Profile Types
           </Link>
         </div>
 
         {/* Header */}
-        <div className="mb-6 sm:mb-8">
+        <div className="mb-7 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Entity profiles / {type}</p>
           <div className="mb-4 flex min-w-0 flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0 flex-1">
               <div className="mb-3 flex min-w-0 items-start gap-2 sm:items-center sm:gap-3">
-                <h2 className="min-w-0 break-words text-2xl font-bold font-mono leading-tight tracking-tight text-gray-900 sm:text-3xl">
+                <h1 className="min-w-0 break-words text-3xl font-semibold leading-tight tracking-tight text-stone-950 sm:text-4xl">
                   {profileType?.name || type}
-                </h2>
+                </h1>
                 {profileType && (
                   <button
                     onClick={() => navigate(`/u/profile-views/${encodeURIComponent(type!)}?tab=data`)}
@@ -222,15 +224,15 @@ export default function EntityProfilesByType() {
 
         {/* Content */}
         {isLoading && items.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500 sm:p-12">
+          <div className="flex items-center justify-center gap-2 rounded-2xl border border-stone-200 bg-white shadow-sm p-8 text-center text-gray-500 sm:p-12">
             <Activity className="w-5 h-5 animate-pulse" /> Loading profiles…
           </div>
         ) : error ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center text-red-600 sm:p-8">
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-600 sm:p-8">
             {error}
           </div>
         ) : items.length === 0 ? (
-          <div className="flex flex-col items-center rounded-lg border border-gray-200 bg-white p-8 text-center sm:p-12">
+          <div className="flex flex-col items-center rounded-2xl border border-stone-200 bg-white shadow-sm p-8 text-center sm:p-12">
             <UserCircle className="w-12 h-12 text-gray-300 mb-3" />
             <h3 className="text-lg font-medium text-gray-900">
               {committed ? 'No matches' : 'No profiles yet'}
@@ -273,6 +275,7 @@ export default function EntityProfilesByType() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </AppLayout>
   );

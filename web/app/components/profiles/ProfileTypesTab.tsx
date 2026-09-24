@@ -73,75 +73,75 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
   const persistedTypes = editData?.type || [];
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center border-b border-gray-200 pb-5">
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-stone-200 bg-white px-6 py-5 shadow-sm">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Entity Profile Types</h2>
-          <p className="text-sm text-gray-500 mt-1">Configure the kinds of entities you want to track across your threads.</p>
+          <h2 className="text-lg font-semibold tracking-tight text-stone-900">Profile types <span className="ml-2 rounded-full bg-stone-100 px-2.5 py-1 text-xs font-medium text-stone-600">{profileTypes.length}</span></h2>
+          <p className="mt-1 text-sm text-stone-500">Define the entities and metrics tracked across your threads.</p>
         </div>
         <button
           onClick={() => setIsCreateModalOpen(true)}
-          className="flex items-center gap-2 bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors shadow-sm"
+          className="inline-flex items-center gap-2 rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-stone-700"
         >
-          <Plus className="w-4 h-4" /> Create Profile Type
+          <Plus className="h-4 w-4" /> New profile type
         </button>
       </div>
 
       {/* Content */}
-      <div className="bg-white rounded-lg border border-gray-200">
+      <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
         {isLoading ? (
-          <div className="p-8 text-center text-gray-500 flex flex-col items-center">
+          <div className="flex flex-col items-center p-12 text-center text-stone-500">
             <div className="w-8 h-8 border-2 border-gray-300 border-t-black rounded-full animate-spin mb-3"></div>
             Loading profile types...
           </div>
         ) : error ? (
-          <div className="p-8 text-center text-red-500">
+          <div className="p-8 text-center text-red-600">
             {error}
           </div>
         ) : profileTypes.length === 0 ? (
-          <div className="p-12 text-center flex flex-col items-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-              <Database className="w-8 h-8 text-gray-400" />
+          <div className="flex flex-col items-center p-12 text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50">
+              <Database className="h-7 w-7 text-emerald-700" />
             </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Profile Types Yet</h3>
-            <p className="text-sm text-gray-500 max-w-md mx-auto mb-6">
+            <h3 className="mb-2 text-lg font-semibold text-stone-900">No profile types yet</h3>
+            <p className="mx-auto mb-6 max-w-md text-sm text-stone-500">
               Create a profile type to start tracking entity metrics (like customers, couriers, or vendors) across your threads.
             </p>
             <button
               onClick={() => setIsCreateModalOpen(true)}
-              className="bg-white text-black border border-gray-300 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
+              className="rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-stone-700"
             >
               Create Your First Profile Type
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6 bg-gray-50/50">
+          <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
             {profileTypes.map((pt) => (
               <div 
                 key={pt.id} 
-                className="bg-white rounded-xl border border-gray-200 p-5 hover:border-black/20 hover:shadow-md transition-all duration-200 group flex flex-col"
+                className="group flex min-w-0 flex-col rounded-xl border border-stone-200 bg-white p-5 transition-all duration-200 hover:border-emerald-200 hover:shadow-md"
               >
                 <div className="flex justify-between items-start mb-3">
-                  <h3 className="text-base font-semibold text-gray-900 mb-1">{pt.name}</h3>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <h3 className="min-w-0 break-words text-base font-semibold text-stone-900">{pt.name}</h3>
+                  <div className="flex shrink-0 gap-1">
                     <button
                       title="Duplicate"
                       onClick={() => handleDuplicate(pt)}
-                      className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-100 rounded transition-colors"
+                      className="rounded-md p-1.5 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
                     >
                       <Copy className="w-3.5 h-3.5" />
                     </button>
                     <button
                       title="Edit"
                       onClick={() => navigate(`/u/profile-views/${encodeURIComponent(pt.name)}?tab=data`)}
-                      className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-100 rounded transition-colors"
+                      className="rounded-md p-1.5 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <button
                       title="Archive"
                       onClick={() => setDeleteData(pt)}
-                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                      className="rounded-md p-1.5 text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -150,12 +150,12 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
 
                 <div className="flex flex-wrap gap-1 mb-3">
                   {pt.type.map(t => (
-                    <code key={t} className="text-[10px] font-mono bg-gray-50 text-gray-500 px-1.5 py-0.5 border border-gray-200 rounded">
+                    <code key={t} className="rounded-md border border-emerald-100 bg-emerald-50 px-2 py-0.5 font-mono text-[11px] text-emerald-700">
                       {t}
                     </code>
                   ))}
                 </div>
-                <p className="text-sm text-gray-600 flex-1 line-clamp-2">
+                <p className="line-clamp-2 flex-1 text-sm leading-6 text-stone-600">
                   {pt.description || <span className="text-gray-400 italic">No description</span>}
                 </p>
 
@@ -184,14 +184,14 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
                   </div>
                 )}
 
-                <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+                <div className="mt-5 flex items-center justify-between gap-3 border-t border-stone-100 pt-4 text-xs text-stone-500">
                   <span>{pt.updated_at ? `Updated ${new Date(pt.updated_at).toLocaleDateString()}` : '—'}</span>
-                  <span 
-                    className="flex items-center gap-1 text-gray-700 group-hover:text-black font-medium cursor-pointer"
+                  <button type="button"
+                    className="inline-flex shrink-0 items-center gap-1 font-medium text-emerald-700 hover:text-emerald-900"
                     onClick={() => navigate(`/u/profiles/${encodeURIComponent(pt.name || '')}`)}
                   >
                     View profiles <ArrowRight className="w-3.5 h-3.5" />
-                  </span>
+                  </button>
                 </div>
               </div>
             ))}
@@ -227,7 +227,7 @@ export default function ProfileTypesTab({ profileTypes, isLoading, error, onRefr
       {/* Delete/Archive Confirmation Modal */}
       {deleteData && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 text-center">
+          <div className="w-full max-w-sm rounded-2xl border border-stone-200 bg-white p-6 text-center shadow-xl">
             <div className="w-12 h-12 rounded-full bg-red-100 mx-auto flex items-center justify-center mb-4">
               <Trash2 className="w-6 h-6 text-red-600" />
             </div>

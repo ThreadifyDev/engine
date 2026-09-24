@@ -128,7 +128,7 @@ export function APIKeysTab() {
     <div>
       {/* Copy Success Notification */}
       {copySuccess && (
-        <div className="fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded shadow-lg z-50 flex items-center gap-2">
+        <div role="status" className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-lg bg-emerald-800 px-4 py-3 text-sm text-white shadow-lg">
           <Check className="w-4 h-4" /> Copied to clipboard!
         </div>
       )}
@@ -149,52 +149,53 @@ export function APIKeysTab() {
 
       {/* API Keys List */}
       {loading ? (
-        <div className="text-center py-12">
-          <p className="text-gray-500">Loading API keys...</p>
+        <div role="status" className="space-y-3 rounded-2xl border border-stone-200 bg-white p-6">
+          {[0, 1, 2].map(item => <div key={item} className="h-14 animate-pulse rounded-lg bg-stone-100" />)}
+          <span className="sr-only">Loading API keys</span>
         </div>
       ) : apiKeys.length === 0 ? (
-        <div className="text-center py-16 border border-gray-200 rounded">
+        <div className="rounded-2xl border border-stone-200 bg-white px-6 py-16 text-center shadow-sm shadow-stone-200/40">
           <div className="flex justify-center mb-4">
-            <div className="rounded-full bg-gray-50 p-4">
-              <Key className="w-12 h-12 text-gray-400 stroke-[1.5]" />
+            <div className="rounded-2xl bg-stone-100 p-4">
+              <Key className="h-6 w-6 text-stone-500" />
             </div>
           </div>
-          <h3 className="text-xl font-bold mb-2">No API keys yet</h3>
-          <p className="text-gray-600 mb-6">
+          <h3 className="mb-2 text-base font-semibold text-stone-900">No API keys yet</h3>
+          <p className="mb-6 text-sm text-stone-500">
             Create your first API key to start using the Threadify API
           </p>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="px-6 py-3 bg-black text-white font-medium hover:bg-gray-800 transition-colors rounded"
+            className="rounded-lg bg-stone-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-stone-800"
           >
             Create Your First API Key
           </button>
         </div>
       ) : (
-        <div className="max-w-full border border-gray-200 rounded overflow-x-auto">
+        <div className="max-w-full overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm shadow-stone-200/40">
           <table className="w-full">
-            <thead className="border-b border-gray-200 bg-gray-50">
+            <thead className="border-b border-stone-200 bg-stone-50">
               <tr>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Key</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Service Account</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Last Used</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Expires</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Created</th>
-                <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">Actions</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">Name</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">Key</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">Service Account</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">Last Used</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">Expires</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">Created</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-stone-500">Actions</th>
               </tr>
             </thead>
             <tbody>
               {apiKeys.map((key, index) => (
                 <tr
                   key={key.id}
-                  className={`hover:bg-gray-50 transition-colors ${
-                    index !== apiKeys.length - 1 ? 'border-b border-gray-200' : ''
+                  className={`hover:bg-stone-50 transition-colors ${
+                    index !== apiKeys.length - 1 ? 'border-b border-stone-100' : ''
                   }`}
                 >
                   <td className="px-6 py-4 font-medium text-gray-900">{key.name}</td>
                   <td className="px-6 py-4">
-                    <code className="text-sm bg-gray-100 px-2 py-1 rounded font-mono text-gray-700">
+                    <code className="text-sm rounded-md bg-stone-100 px-2 py-1 font-mono text-gray-700">
                       {key.key_prefix}...
                     </code>
                   </td>
@@ -227,15 +228,15 @@ export function APIKeysTab() {
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
-            <h2 className="text-2xl font-bold mb-6">
+        <div role="dialog" aria-modal="true" aria-label="Create API key" className="fixed inset-0 z-[100] flex items-center justify-center bg-stone-950/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-stone-200 bg-white p-6 shadow-2xl sm:p-8">
+            <h2 className="mb-6 text-xl font-semibold tracking-tight text-stone-900">
               Create API Key
             </h2>
 
             {createdKey ? (
               <div>
-                <div className="mb-6 p-4 border border-green-600 bg-green-50 rounded">
+                <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                   <p className="text-green-800 font-semibold mb-2 flex items-center gap-1">
                     <Check className="w-4 h-4" /> API Key Created!
                   </p>
@@ -248,7 +249,7 @@ export function APIKeysTab() {
                     </code>
                     <button
                       onClick={() => copyToClipboard(createdKey)}
-                      className="px-4 py-2 bg-black text-white hover:bg-gray-800 transition-colors whitespace-nowrap rounded"
+                      className="whitespace-nowrap rounded-lg bg-stone-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-stone-700"
                     >
                       Copy
                     </button>
@@ -259,7 +260,7 @@ export function APIKeysTab() {
                     setCreatedKey(null);
                     setShowCreateModal(false);
                   }}
-                  className="w-full px-6 py-3 bg-black text-white font-medium hover:bg-gray-800 transition-colors rounded"
+                  className="w-full rounded-lg bg-stone-900 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-stone-700"
                 >
                   Done
                 </button>
@@ -276,7 +277,7 @@ export function APIKeysTab() {
                     required
                     value={newKeyName}
                     onChange={(e) => setNewKeyName(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                    className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                     placeholder="Production API Key"
                   />
                 </div>
@@ -289,7 +290,7 @@ export function APIKeysTab() {
                     id="expires"
                     value={expiresIn}
                     onChange={(e) => setExpiresIn(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent bg-white"
+                    className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 bg-white"
                   >
                     <option value="never">Never</option>
                     <option value="30">30 days</option>

@@ -1,7 +1,7 @@
 import { useNavigate, useSearchParams } from 'react-router';
 import { useState, useEffect } from 'react';
 import { Search, Filter, ChevronDown, ChevronUp, X, Calendar, Hash, FileText, ChevronLeft, ChevronRight, PlusCircle } from 'lucide-react';
-import AppLayout from '~/components/AppLayout';
+import WorkspacePage from '~/components/WorkspacePage';
 import { graphqlClient, type Thread } from '~/lib/graphql';
 import { api } from '~/lib/api';
 import { formatDistanceToNow } from 'date-fns';
@@ -332,16 +332,8 @@ export default function ThreadsPage() {
   };
 
   return (
-    <AppLayout>
-      <div className="p-4 sm:p-6 lg:p-8">
-        {/* Compact Header */}
-        <div className="mb-6 sm:mb-8">
-          <h1 className="text-2xl font-bold text-black mb-2">Threads</h1>
-          <p className="text-gray-600">
-            Search and browse workflow execution threads
-          </p>
-        </div>
-
+    <WorkspacePage eyebrow="Workspace / Activity" title="Threads" description="Find and inspect workflow execution across your workspace.">
+      <div className="space-y-5">
         {/* Advanced Search */}
         <div>
             <AdvancedSearchFilters
@@ -354,15 +346,15 @@ export default function ThreadsPage() {
               updateRefFilter={updateRefFilter}
             />
 
-            <div className="mt-8">
+            <div className="mt-6">
               {isSearching && (
                 <div className="flex items-center justify-center py-12">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-stone-200 border-t-emerald-600"></div>
                 </div>
               )}
 
               {error && (
-                <div className="border border-red-200 rounded-lg bg-red-50 p-6 mt-4">
+                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-6">
                   <h3 className="text-red-800 font-bold mb-2">Search Error</h3>
                   <p className="text-red-600">{error}</p>
                 </div>
@@ -392,7 +384,7 @@ export default function ThreadsPage() {
             </div>
           </div>
       </div>
-    </AppLayout>
+    </WorkspacePage>
   );
 }
 
@@ -416,7 +408,7 @@ function PaginationControls({
   const endResult = Math.min(currentPage * resultsPerPage, totalResults);
 
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4 px-4 py-3 bg-white border border-gray-200 rounded-lg">
+    <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
       <div className="text-sm text-gray-600 text-center sm:text-left">
         Showing {startResult}-{endResult} of {totalResults.toLocaleString()} results
       </div>
@@ -424,7 +416,7 @@ function PaginationControls({
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={!hasPrevPage}
-          className="justify-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+          className="flex items-center justify-center gap-1 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ChevronLeft className="w-4 h-4" />
           Previous
@@ -432,7 +424,7 @@ function PaginationControls({
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={!hasNextPage}
-          className="justify-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+          className="flex items-center justify-center gap-1 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Next
           <ChevronRight className="w-4 h-4" />
@@ -469,10 +461,10 @@ function AdvancedSearchFilters({
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+    <div className="space-y-5 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
       {/* Simple Search Box */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="mb-2 block text-sm font-semibold text-stone-800">
           <Search className="inline w-4 h-4 mr-1" />
           Search Threads
         </label>
@@ -483,12 +475,12 @@ function AdvancedSearchFilters({
             value={filters.searchQuery || ''}
             onChange={(e) => onChange({ ...filters, searchQuery: e.target.value })}
             onKeyPress={handleKeyPress}
-            className="min-w-0 flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
           />
           <button
             onClick={() => onSearch(1)}
             disabled={isSearching}
-            className="justify-center px-6 py-2 text-sm bg-gray-900 text-white rounded-md font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-stone-900 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSearching ? (
               <>
@@ -513,7 +505,7 @@ function AdvancedSearchFilters({
       {/* Advanced Filters Toggle */}
       <button
         onClick={() => setShowAdvanced(!showAdvanced)}
-        className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 pt-1"
+        className="flex items-center gap-1.5 border-t border-stone-100 pt-4 text-sm font-medium text-stone-600 hover:text-emerald-700"
       >
         {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         {showAdvanced ? 'Hide' : 'Show'} Advanced Filters
@@ -521,10 +513,10 @@ function AdvancedSearchFilters({
 
       {/* Advanced Filters */}
       {showAdvanced && (
-        <div className="space-y-3 pt-3 border-t border-gray-200">
+        <div className="grid gap-5 border-t border-stone-100 pt-5 md:grid-cols-2">
           {/* Contract Filter (for ref: searches) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="mb-2 block text-sm font-medium text-stone-700">
               <FileText className="inline w-4 h-4 mr-1" />
               Filter by Contract
             </label>
@@ -533,20 +525,20 @@ function AdvancedSearchFilters({
               placeholder="e.g., order_fulfillment (optional)"
               value={filters.contractName || ''}
               onChange={(e) => onChange({ ...filters, contractName: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
             />
           </div>
 
           {/* Time Range */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="mb-2 block text-sm font-medium text-stone-700">
               <Calendar className="inline w-4 h-4 mr-1" />
               Time Range
             </label>
             <select
               value={filters.timeRange}
               onChange={(e) => onChange({ ...filters, timeRange: e.target.value as any })}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
             >
               <option value="all">All Time</option>
               <option value="24h">Last 24 Hours</option>
@@ -560,21 +552,21 @@ function AdvancedSearchFilters({
           {filters.timeRange === 'custom' && (
             <div className="flex flex-col gap-2 sm:flex-row">
               <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Start (From)</label>
+                <label className="mb-2 block text-sm font-medium text-stone-700">Start (From)</label>
                 <input
                   type="datetime-local"
                   value={filters.startedAfter || ''}
                   onChange={(e) => onChange({ ...filters, startedAfter: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                 />
               </div>
               <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">End (To)</label>
+                <label className="mb-2 block text-sm font-medium text-stone-700">End (To)</label>
                 <input
                   type="datetime-local"
                   value={filters.startedBefore || ''}
                   onChange={(e) => onChange({ ...filters, startedBefore: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                 />
               </div>
             </div>
@@ -582,7 +574,7 @@ function AdvancedSearchFilters({
 
           {/* Ref Key/Value Filter */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label className="mb-2 block text-sm font-medium text-stone-700">
               <Hash className="inline w-4 h-4 mr-1" />
               Filter by Reference
             </label>
@@ -594,14 +586,14 @@ function AdvancedSearchFilters({
                     placeholder="Ref key (e.g., customer)"
                     value={ref.key}
                     onChange={(e) => updateRefFilter(index, 'key', e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+                    className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                   />
                   <input
                     type="text"
                     placeholder="Ref value (e.g., customer@example.com)"
                     value={ref.value}
                     onChange={(e) => updateRefFilter(index, 'value', e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+                    className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                   />
                   <div className="flex justify-end gap-1 sm:justify-start">
                     {filters.refs.length > 1 && (
@@ -635,11 +627,11 @@ function AdvancedSearchFilters({
 
           {/* Status Filter */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
+            <label className="mb-2 block text-sm font-medium text-stone-700">Status</label>
             <select
               value={filters.status || ''}
               onChange={(e) => onChange({ ...filters, status: e.target.value || undefined })}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-900"
+              className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
             >
               <option value="">All Statuses</option>
               <option value="active">Active</option>
@@ -666,8 +658,8 @@ function ThreadSearchResults({
 }) {
   if (threads.length === 0) {
     return (
-      <div className="border border-gray-200 rounded-lg p-8 text-center bg-white">
-        <Search className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+      <div className="rounded-2xl border border-stone-200 bg-white p-12 text-center shadow-sm">
+        <Search className="mx-auto mb-4 h-12 w-12 rounded-xl bg-emerald-50 p-2.5 text-emerald-700" />
         <h3 className="text-lg font-semibold text-gray-900 mb-1">No threads found</h3>
         <p className="text-sm text-gray-600">Try adjusting your search criteria</p>
       </div>
@@ -675,10 +667,10 @@ function ThreadSearchResults({
   }
 
   const getStatusBadge = (status: string) => {
-    const baseClasses = 'text-xs px-1.5 py-0.5 rounded-md font-medium';
+    const baseClasses = 'rounded-full px-2.5 py-1 text-xs font-medium capitalize';
     const configs = {
-      active: `${baseClasses} bg-blue-50 text-blue-700`,
-      completed: `${baseClasses} bg-green-50 text-green-700`,
+      active: `${baseClasses} bg-amber-50 text-amber-700`,
+      completed: `${baseClasses} bg-emerald-50 text-emerald-700`,
       failed: `${baseClasses} bg-red-50 text-red-700`,
       cancelled: `${baseClasses} bg-gray-100 text-gray-700`,
     };
@@ -687,7 +679,7 @@ function ThreadSearchResults({
 
   return (
     <div className="space-y-2">
-      <div className="mb-3 text-xs text-gray-600">
+      <div className="mb-3 text-xs font-medium uppercase tracking-wide text-stone-500">
         Found <span className="font-semibold text-gray-900">{threads.length}</span> thread{threads.length !== 1 ? 's' : ''}
       </div>
 
@@ -706,13 +698,22 @@ function ThreadSearchResults({
         return (
           <div
             key={thread.id}
+            role="button"
+            tabIndex={0}
+            aria-label={`Open thread ${threadTitle}`}
             onClick={() => navigate(`/u/threads/${thread.id}`)}
-            className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm hover:border-gray-300 transition-all cursor-pointer overflow-hidden"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                navigate(`/u/threads/${thread.id}`);
+              }
+            }}
+            className="cursor-pointer overflow-hidden rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition-all hover:border-emerald-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-start gap-2 mb-1.5">
-                  <h3 className="min-w-0 flex-1 font-semibold text-sm text-gray-900 break-words sm:truncate">
+                  <h3 className="min-w-0 flex-1 break-words text-base font-semibold text-stone-900 sm:truncate">
                     {threadTitle}
                   </h3>
                   <span className={getStatusBadge(thread.status)}>{thread.status}</span>
@@ -797,7 +798,7 @@ function ThreadSearchResults({
               </div>
 
               <div className="flex-shrink-0 self-stretch sm:self-auto">
-                <button className="w-full px-3 py-1.5 text-right text-xs font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-md transition-colors sm:w-auto sm:text-left">
+                <button className="w-full rounded-lg px-3 py-1.5 text-right text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 hover:text-emerald-900 sm:w-auto sm:text-left">
                   View →
                 </button>
               </div>

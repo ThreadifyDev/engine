@@ -6,6 +6,7 @@ import { useAgent } from './agent/agent-context';
 
 interface AppLayoutProps {
   children: ReactNode;
+  hideDesktopHeader?: boolean;
   showRightSidebar?: boolean;
   rightSidebarContent?: ReactNode;
   rightSidebarWidth?: string;
@@ -13,6 +14,7 @@ interface AppLayoutProps {
 
 export default function AppLayout({
   children,
+  hideDesktopHeader = true,
   showRightSidebar = false,
   rightSidebarContent,
   rightSidebarWidth = '400px'
@@ -67,9 +69,9 @@ export default function AppLayout({
         </div>
 
         <div className="min-w-0 w-full transition-[padding] duration-300 lg:pl-[var(--nav-width)]">
-          <div className="sticky top-0 z-30 hidden lg:block">
+          {!hideDesktopHeader && <div className="sticky top-0 z-30 hidden lg:block">
             <TopHeader />
-          </div>
+          </div>}
           <div ref={content} className={`min-w-0 max-w-full break-words transition-[padding] duration-200 motion-reduce:transition-none ${agentOpen ? 'lg:pr-[360px] xl:pr-[420px]' : ''}`}>{children}</div>
         </div>
       </main>

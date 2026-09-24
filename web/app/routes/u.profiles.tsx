@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { api, type EntityProfileType } from '~/lib/api';
-import AppLayout from '~/components/AppLayout';
+import WorkspacePage from '~/components/WorkspacePage';
 import ProfileTypesTab from '~/components/profiles/ProfileTypesTab';
 
 
@@ -35,15 +35,9 @@ export default function EntityProfiles() {
   };
 
   return (
-    <AppLayout>
-      <div className="min-w-0 p-4 sm:p-6 lg:p-8">
-        <ProfileTypesTab
-          profileTypes={profileTypes}
-          isLoading={isLoading}
-          error={error}
-          onRefresh={fetchProfileTypes}
-        />
-      </div>
-    </AppLayout>
+    <WorkspacePage eyebrow="Entity library" title="Entity profiles"
+      description="Define the entities you track and choose how their data appears across workflows.">
+      <ProfileTypesTab profileTypes={profileTypes} isLoading={isLoading} error={error} onRefresh={fetchProfileTypes} />
+    </WorkspacePage>
   );
 }

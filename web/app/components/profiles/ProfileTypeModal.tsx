@@ -196,9 +196,9 @@ export function ProfileTypeModal({
   };
 
   const content = (
-      <div className={embedded ? "min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white" : "flex max-h-[calc(100dvh_-_2rem)] min-h-0 flex-col"}>
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center shrink-0">
-          <h2 id={titleId} className="text-lg font-bold text-gray-900">
+      <div className={embedded ? "min-w-0 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm" : "flex max-h-[calc(100dvh_-_2rem)] min-h-0 flex-col"}>
+        <div className="flex shrink-0 items-center justify-between border-b border-stone-100 bg-stone-50/60 px-6 py-5">
+          <h2 id={titleId} className="text-lg font-semibold tracking-tight text-stone-900">
             {embedded ? 'Data & metrics' : mode === 'edit' ? 'Edit Profile Type' : 'Create Profile Type'}
           </h2>
           {!embedded && <button
@@ -217,7 +217,7 @@ export function ProfileTypeModal({
           <div className={embedded ? undefined : "min-h-0 flex-1 overflow-y-auto overscroll-contain"}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
               {/* Left column — Profile Info */}
-              <div className="p-6 border-b md:border-b-0 md:border-r border-gray-200 space-y-5">
+              <div className="space-y-5 border-b border-stone-100 p-6 md:border-b-0 md:border-r">
                 {error && (
                   <Alert
                     type="error"
@@ -240,7 +240,7 @@ export function ProfileTypeModal({
                     value={formData.name || ''}
                     onChange={e => setFormData({...formData, name: e.target.value})}
                     placeholder="e.g. Courier Profile"
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-black focus:border-black outline-none disabled:bg-gray-100 disabled:text-gray-500"
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 disabled:bg-gray-100 disabled:text-gray-500"
                   />
                   {mode === 'edit' && <p className="text-xs text-gray-500 mt-1">The name is the profile identity. Rename it with an explicit rename operation.</p>}
                 </div>
@@ -266,7 +266,7 @@ export function ProfileTypeModal({
                     value={formData.description || ''}
                     onChange={e => setFormData({...formData, description: e.target.value})}
                     placeholder="Optional description (max 255 chars)..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-black focus:border-black outline-none resize-none"
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 resize-none"
                   />
                   <div className="text-right text-[10px] text-gray-400 mt-1">
                     {(formData.description || '').length}/255
@@ -310,7 +310,7 @@ export function ProfileTypeModal({
                       );
                     })
                   ) : (
-                    <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <div className="rounded-xl border border-dashed border-stone-300 bg-stone-50 p-6 text-center">
                       <p className="text-sm text-gray-500">No metrics configured yet.</p>
                       <p className="text-xs text-gray-400 mt-1">Add custom metrics or choose from templates.</p>
                     </div>
@@ -324,7 +324,7 @@ export function ProfileTypeModal({
                       <button
                         type="button"
                         onClick={() => setAddingMode('custom')}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+                        className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-stone-700"
                       >
                         <Plus className="w-4 h-4" />
                         Custom Metric
@@ -332,7 +332,7 @@ export function ProfileTypeModal({
                       <button
                         type="button"
                         onClick={() => setAddingMode('template')}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                        className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50"
                       >
                         <LayoutTemplate className="w-4 h-4" />
                         From Template
@@ -341,7 +341,7 @@ export function ProfileTypeModal({
                   )}
 
                   {addingMode === 'custom' && (
-                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <div className="rounded-xl border border-stone-200 bg-stone-50 p-4">
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-sm font-semibold text-gray-900">
                           {editingMetricIndex !== null ? 'Edit Custom Metric' : 'New Custom Metric'}
@@ -370,7 +370,7 @@ export function ProfileTypeModal({
                   )}
 
                   {addingMode === 'template' && (
-                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <div className="rounded-xl border border-stone-200 bg-stone-50 p-4">
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-sm font-semibold text-gray-900">Choose a Template</h4>
                         <button
@@ -417,7 +417,7 @@ export function ProfileTypeModal({
             <p className="mt-2 text-xs text-stone-500">Optional. Customize the overview now or later from the profile type definition.</p>
           </div>}
           </div>
-          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3 shrink-0">
+          <div className="flex shrink-0 justify-end gap-3 border-t border-stone-100 bg-stone-50/70 px-6 py-4">
             <button
               type="button"
               onClick={embedded ? () => setFormData(initialData ?? defaultData) : onClose}
@@ -429,7 +429,7 @@ export function ProfileTypeModal({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors flex items-center"
+              className="rounded-lg bg-stone-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-stone-700 disabled:opacity-50 transition-colors flex items-center"
             >
               {isSubmitting ? (
                 <>
@@ -446,7 +446,7 @@ export function ProfileTypeModal({
       </div>
   );
   if (embedded) return content;
-  return createPortal(<dialog ref={dialogRef} aria-labelledby={titleId} onCancel={event => { event.preventDefault(); if (!isSubmitting) onClose(); }} className="fixed inset-0 m-auto w-[calc(100%_-_2rem)] max-w-5xl max-h-[calc(100dvh_-_2rem)] overflow-hidden rounded-xl bg-white p-0 shadow-xl backdrop:bg-black/50 backdrop:backdrop-blur-sm">{content}</dialog>, document.body);
+  return createPortal(<dialog ref={dialogRef} aria-labelledby={titleId} onCancel={event => { event.preventDefault(); if (!isSubmitting) onClose(); }} className="fixed inset-0 m-auto w-[calc(100%_-_2rem)] max-w-5xl max-h-[calc(100dvh_-_2rem)] overflow-hidden rounded-2xl border border-stone-200 bg-white p-0 shadow-xl backdrop:bg-black/50 backdrop:backdrop-blur-sm">{content}</dialog>, document.body);
 }
 
 // Sub-component for Metric Configuration
@@ -530,8 +530,8 @@ function MetricSelectionCard({
   };
 
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
-      <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+    <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 relative group">
+      <div className="absolute right-3 top-3 flex gap-1">
         <button
           type="button"
           onClick={onDuplicate}
@@ -587,8 +587,8 @@ function CustomMetricCard({
   const targetLabel = def.target === 'step' ? `Step${def.step_name ? ` (${def.step_name})` : ''}` : 'Thread';
 
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 relative group">
-      <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+    <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 relative group">
+      <div className="absolute right-3 top-3 flex gap-1">
         <button
           type="button"
           onClick={onDuplicate}

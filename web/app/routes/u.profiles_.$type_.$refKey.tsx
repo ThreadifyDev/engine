@@ -127,7 +127,8 @@ export default function EntityProfileDetail() {
 
   return (
     <AppLayout>
-      <div className="max-w-full overflow-hidden p-4 sm:p-6 lg:p-8">
+      <div className="min-h-screen overflow-hidden bg-[#f8f8f6] px-4 py-7 sm:px-7 sm:py-10 lg:px-10">
+        <div className="mx-auto max-w-6xl">
         {/* Back */}
         <button
           onClick={() => navigate(type ? `/u/profiles/${encodeURIComponent(type)}` : '/u/profiles')}
@@ -137,8 +138,9 @@ export default function EntityProfileDetail() {
         </button>
 
         {/* Identity header */}
-        <header className="mb-6 min-w-0">
-          <h1 className="break-words text-2xl font-semibold leading-snug tracking-tight text-gray-900">
+        <header className="mb-7 min-w-0 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Entity profiles / {type}</p>
+          <h1 className="break-words text-3xl font-semibold leading-snug tracking-tight text-stone-950 sm:text-4xl">
             {profile.name || refKey}
           </h1>
           {profile.profileType?.name && (
@@ -176,6 +178,7 @@ export default function EntityProfileDetail() {
           {activeTab === 'delivery-health' && memoizedDeliveryHealthTab}
           {activeTab === 'metrics' && memoizedMetricsTab}
           {activeTab === 'history' && memoizedHistoryTab}
+        </div>
         </div>
       </div>
     </AppLayout>

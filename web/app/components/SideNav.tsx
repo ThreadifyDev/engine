@@ -1,5 +1,7 @@
 import { useNavigate, useLocation } from 'react-router';
 import ThreadifyLogo from '~/components/ThreadifyLogo';
+import AgentToggleButton from '~/components/agent/AgentToggleButton';
+import { useAgent } from '~/components/agent/agent-context';
 import { useState } from 'react';
 import {
   ChevronLeft,
@@ -26,6 +28,7 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
   const navigate = useNavigate();
   const location = useLocation();
   const [internalCollapsed, setInternalCollapsed] = useState(true);
+  const { isEnabled: agentEnabled, isSupported: agentSupported, isOpen: agentOpen } = useAgent();
 
   // Use controlled state if provided, otherwise use internal state
   const isCollapsed = controlledCollapsed !== undefined ? controlledCollapsed : internalCollapsed;
@@ -106,6 +109,10 @@ export default function SideNav({ isCollapsed: controlledCollapsed, onToggle, is
 
       {/* Logout Button */}
       <div className="p-4 border-t border-gray-800">
+        {agentEnabled && agentSupported && !agentOpen && <div className={`mb-3 flex items-center ${compact ? 'justify-center' : 'gap-3 px-2'}`}>
+          <AgentToggleButton dark />
+          {!compact && <span className="text-xs text-stone-400">Ask agent</span>}
+        </div>}
         <button
           onClick={handleLogout}
           className={`w-full py-2 text-sm bg-white text-black hover:bg-gray-200 transition-colors font-medium rounded flex items-center gap-2 ${compact ? 'justify-center px-0' : 'justify-start px-4'

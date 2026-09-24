@@ -69,7 +69,7 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
     ? 'bg-red-500'
     : monthlyLimit > 0 && (monthlyCharged / monthlyLimit) >= 0.8
     ? 'bg-yellow-500'
-    : 'bg-blue-500';
+    : 'bg-emerald-500';
 
   // Licensed deployments show the live allowance instead of obsolete credit controls.
   if (billingInfo?.billing_source === 'registry') {
@@ -82,7 +82,7 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
         {/* Left Column - Balance & Credits */}
         <div className="space-y-6">
           {/* Main Balance Section */}
-          <div className="bg-white border border-gray-200 rounded-lg p-8">
+          <div className="bg-white border border-stone-200 rounded-2xl shadow-sm p-8">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h3 className="text-sm font-medium text-gray-500 mb-1">Current Balance</h3>
@@ -127,7 +127,7 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
                     }}
                     className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
                       !showCustomInput && topUpAmount === amt
-                        ? 'bg-gray-900 text-white'
+                        ? 'bg-stone-900 text-white'
                         : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                     }`}
                   >
@@ -141,7 +141,7 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
                   }}
                   className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
                     showCustomInput
-                      ? 'bg-gray-900 text-white'
+                      ? 'bg-stone-900 text-white'
                       : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
                   }`}
                 >
@@ -169,7 +169,7 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
               <button 
                 onClick={handleTopUp}
                 disabled={loading}
-                className="w-full px-6 py-2.5 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-6 py-2.5 bg-stone-900 text-white rounded-md hover:bg-gray-800 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Processing...' : `Add $${customAmount || topUpAmount}`}
               </button>
@@ -180,7 +180,7 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
         {/* Right Column - Billing Details */}
         <div className="space-y-6">
           {/* Billing Cycle */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <div className="bg-white border border-stone-200 rounded-2xl shadow-sm p-6">
             <div className="text-sm text-gray-500 mb-1">Billing Cycle</div>
             <div className="text-lg font-semibold text-gray-900">
               {creditAccount?.billing_cycle_start
@@ -190,7 +190,7 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
           </div>
 
           {/* Auto-Topup Status */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <div className="bg-white border border-stone-200 rounded-2xl shadow-sm p-6">
             <h4 className="text-sm font-medium text-gray-900 mb-4">Auto-Topup Status</h4>
             <div className="space-y-3">
               {creditAccount?.auto_topup_millicents && creditAccount.auto_topup_millicents > 0 ? (
@@ -217,7 +217,7 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
           </div>
 
           {/* Monthly Spending Limit */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <div className="bg-white border border-stone-200 rounded-2xl shadow-sm p-6">
             <h4 className="text-sm font-medium text-gray-900 mb-4">Monthly Spending Limit</h4>
             <div className="space-y-3">
               <div className="relative">
@@ -236,7 +236,7 @@ export function BillingTab({ billingInfo, loading, onTopUp, onUpdateMonthlyLimit
               <button
                 onClick={handleUpdateLimit}
                 disabled={loading}
-                className="w-full px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2 bg-stone-900 text-white rounded-md hover:bg-gray-800 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Saving...' : 'Save Limit'}
               </button>
@@ -266,7 +266,7 @@ function RegistryAllowances({ billingInfo }: { billingInfo: GetCurrentPlanRespon
     ['Entity profiles', formatLimit(limits?.entity_profile_limit)],
   ];
   return (
-    <section className="max-w-3xl rounded-lg border border-gray-200 bg-white p-8">
+    <section className="max-w-3xl rounded-2xl border border-stone-200 bg-white p-8 shadow-sm">
       <h3 className="text-xl font-semibold text-gray-900">Threadify plan</h3>
       <p className="mt-2 text-sm text-gray-600">Your plan is managed in Fused Registry. These are your current allowances.</p>
       <dl className="mt-6 divide-y divide-gray-100">

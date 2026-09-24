@@ -2,7 +2,7 @@ import type { KeyboardEvent, ReactNode } from 'react';
 
 type TabItem<T extends string> = { value: T; label: ReactNode };
 
-/** Content navigation uses an underline, while ordinary actions keep their button styling. */
+/** Keyboard accessible content navigation shared by every tabbed view. */
 export function TabBar<T extends string>({ label, value, items, onChange, panelId, className = '' }: {
   label: string;
   value: T;
@@ -23,7 +23,7 @@ export function TabBar<T extends string>({ label, value, items, onChange, panelI
     const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
     tabs?.[next]?.focus();
   }
-  return <div role="tablist" aria-label={label} className={`flex min-w-0 gap-5 overflow-x-auto border-b border-gray-200 ${className}`}>
+  return <div role="tablist" aria-label={label} className={`flex w-full min-w-0 items-center gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-white p-1.5 shadow-sm ${className}`}>
     {items.map((item, index) => <button
       key={item.value}
       type="button"
@@ -33,7 +33,9 @@ export function TabBar<T extends string>({ label, value, items, onChange, panelI
       tabIndex={value === item.value ? 0 : -1}
       onClick={() => onChange(item.value)}
       onKeyDown={event => navigate(event, index)}
-      className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 bg-transparent px-1 py-2.5 text-[13px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-gray-500 ${value === item.value ? 'border-gray-900 text-gray-950' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-900'}`}
-    >{item.label}</button>)}
+      className={`inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-medium leading-5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 ${value === item.value
+        ? 'bg-stone-900 text-white shadow-sm'
+        : 'text-stone-500 hover:bg-stone-50 hover:text-stone-900'}`}
+    ><span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${value === item.value ? 'bg-emerald-400' : 'bg-transparent'}`} />{item.label}</button>)}
   </div>;
 }

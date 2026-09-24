@@ -124,38 +124,31 @@ export default function GettingStarted() {
     : currentCode; // Show placeholder if no key created yet
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* Header */}
-      <div className="border-b-2 border-black">
-        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
-          <h1 className="text-2xl font-bold" style={{ fontFamily: 'Block, sans-serif' }}>
-            Threadify
-          </h1>
+    <div className="min-h-screen bg-[#f8f8f6]">
+      <div className="border-b border-stone-200 bg-white">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+          <span className="text-sm font-semibold tracking-tight text-stone-900">Threadify</span>
           <AgentToggleButton />
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-12">
-        {/* Title */}
-        <div className="mb-8">
-          <h2 className="text-4xl font-bold mb-4" style={{ fontFamily: 'Block, sans-serif' }}>
-            We've created an API Key so you can get started with Threadify
-          </h2>
-          <p className="text-lg text-gray-600">
-            Complete your first instrumentation to unlock the full Threadify dashboard.
-          </p>
-        </div>
+      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
+        <header className="mb-8">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Welcome / First connection</p>
+          <h1 className="text-3xl font-semibold tracking-tight text-stone-950 sm:text-4xl">Connect your first workflow</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-stone-500">Create an API key, instrument your application, and send your first thread.</p>
+        </header>
 
         {/* Error Message */}
         {error && (
-          <div className="mb-6 p-4 border-2 border-red-600 bg-red-50">
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm">
             <p className="text-red-600">{error}</p>
           </div>
         )}
 
         {/* API Key Section */}
-        <div className="mb-8 p-6 border-2 border-black bg-gray-50">
-          <h3 className="text-xl font-bold mb-2">Your API Key</h3>
+        <div className="mb-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
+          <h3 className="mb-2 text-lg font-semibold tracking-tight text-stone-900">Your API Key</h3>
           {!hasApiKey ? (
             <>
               <p className="text-sm text-gray-600 mb-4">
@@ -164,7 +157,7 @@ export default function GettingStarted() {
               <button
                 onClick={handleCreateAPIKey}
                 disabled={creatingKey}
-                className="px-6 py-3 bg-black rounded-lg text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="rounded-lg bg-stone-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {creatingKey ? 'Creating...' : 'Create API Key'}
               </button>
@@ -174,13 +167,13 @@ export default function GettingStarted() {
               <p className="text-sm text-gray-600 mb-4">
                 This is the <strong>only time</strong> you'll see this key. Copy it now and store it securely.
               </p>
-              <div className="flex gap-2 mb-6">
-                <code className="flex-1 bg-white border-2 border-black px-4 py-3 text-sm break-all font-mono">
+              <div className="mb-6 flex flex-col gap-2 sm:flex-row">
+                <code className="min-w-0 flex-1 break-all rounded-lg border border-stone-200 bg-stone-50 px-4 py-3 font-mono text-sm">
                   {apiKey}
                 </code>
                 <button
                   onClick={copyApiKey}
-                  className="px-6 py-3 bg-black text-white hover:bg-gray-800 transition-colors whitespace-nowrap font-medium"
+                  className="whitespace-nowrap rounded-lg bg-stone-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-stone-700"
                 >
                   {copiedApiKey ? (
                     <span className="flex items-center gap-1">
@@ -191,7 +184,7 @@ export default function GettingStarted() {
               </div>
 
               {/* AI Context Guide */}
-              <div className="pt-6 border-t-2 border-gray-300">
+              <div className="border-t border-stone-100 pt-6">
                 <div className="flex items-start gap-3">
                   <svg className="w-6 h-6 text-gray-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -203,7 +196,7 @@ export default function GettingStarted() {
                     </p>
                     <button
                       onClick={copyAISkill}
-                      className="px-4 py-2 bg-gray-800 rounded-lg text-white hover:bg-gray-900 transition-colors font-medium text-sm"
+                      className="rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-stone-700"
                     >
                       {copiedAISkill ? (
                         <span className="flex items-center gap-1">
@@ -226,16 +219,16 @@ export default function GettingStarted() {
           items={Object.keys(codeSamples).map(lang => ({value:lang,label:lang.charAt(0).toUpperCase()+lang.slice(1)}))} />
 
         {/* Code Sample */}
-        <div id="language-panel" role="tabpanel" aria-label="SDK example" className="mb-8 border-2 border-black">
-          <div className="bg-gray-900 p-6 overflow-x-auto">
+        <div id="language-panel" role="tabpanel" aria-label="SDK example" className="mb-8 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+          <div className="overflow-x-auto bg-stone-950 p-6">
             <pre className="text-sm text-green-400 font-mono">
               <code>{loading ? 'Loading...' : codeWithKey}</code>
             </pre>
           </div>
-          <div className="p-4 bg-gray-50 border-t-2 border-black flex justify-end">
+          <div className="flex justify-end border-t border-stone-100 bg-white p-4">
             <button
               onClick={copyCode}
-              className="px-4 py-2 border-2 rounded-lg border-black hover:bg-black hover:text-white transition-colors font-medium"
+              className="rounded-lg border border-stone-200 px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
             >
               {copiedCode ? (
                 <span className="flex items-center gap-1">
@@ -251,7 +244,7 @@ export default function GettingStarted() {
           <button
             onClick={handleCheckInstrumentation}
             disabled={checkingInstrumentation || !hasApiKey}
-            className="px-8 py-4 bg-black text-white rounded-lg text-lg font-bold hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-lg bg-stone-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {checkingInstrumentation ? 'Checking...' : 'I\'ve Completed My First Instrumentation'}
           </button>

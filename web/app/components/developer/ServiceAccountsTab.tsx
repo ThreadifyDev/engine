@@ -150,51 +150,52 @@ export function ServiceAccountsTab() {
     <div>
       {/* Error Message */}
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-800 rounded text-sm">
+        <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           {error}
         </div>
       )}
 
       {/* Service Accounts List */}
       {loading ? (
-        <div className="text-center py-12">
-          <p className="text-gray-500">Loading service accounts...</p>
+        <div role="status" className="space-y-3 rounded-2xl border border-stone-200 bg-white p-6">
+          {[0, 1, 2].map(item => <div key={item} className="h-14 animate-pulse rounded-lg bg-stone-100" />)}
+          <span className="sr-only">Loading service accounts</span>
         </div>
       ) : serviceAccounts.length === 0 ? (
-        <div className="text-center py-16 bg-white border border-gray-200 rounded-lg">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-2xl text-gray-400">SA</span>
+        <div className="rounded-2xl border border-stone-200 bg-white px-6 py-16 text-center shadow-sm shadow-stone-200/40">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-stone-100">
+            <span className="text-sm font-semibold text-stone-500">SA</span>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">No service accounts yet</h3>
-          <p className="text-sm text-gray-500 mb-6">
+          <h3 className="mb-2 text-base font-semibold text-stone-900">No service accounts yet</h3>
+          <p className="mb-6 text-sm text-stone-500">
             Create a service account to manage API access with specific roles
           </p>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
+            className="rounded-lg bg-stone-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-stone-800"
           >
             Create Your First Service Account
           </button>
         </div>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto">
+        <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm shadow-stone-200/40">
           <table className="w-full min-w-[800px]">
-            <thead className="border-b border-gray-200 bg-gray-50">
+            <thead className="border-b border-stone-200 bg-stone-50">
               <tr>
-                <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Name</th>
-                <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Role</th>
-                <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Last Used</th>
-                <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Created</th>
-                <th className="px-4 sm:px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">Name</th>
+                <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">Role</th>
+                <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">Status</th>
+                <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">Last Used</th>
+                <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-stone-500">Created</th>
+                <th className="px-4 sm:px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-stone-500">Actions</th>
               </tr>
             </thead>
             <tbody>
               {serviceAccounts.map((sa, index) => (
                 <tr
                   key={sa.id}
-                  className={`hover:bg-gray-50 transition-colors ${
-                    index !== serviceAccounts.length - 1 ? 'border-b border-gray-200' : ''
+                  className={`hover:bg-stone-50 transition-colors ${
+                    index !== serviceAccounts.length - 1 ? 'border-b border-stone-100' : ''
                   }`}
                 >
                   <td className="px-4 sm:px-6 py-4">
@@ -229,13 +230,13 @@ export function ServiceAccountsTab() {
                     <div className="flex flex-col sm:flex-row gap-4 justify-end items-center">
                       <button
                         onClick={() => handleViewPermissions(sa.role || 'standard_service')}
-                        className="px-3 py-1 text-sm border border-gray-300 hover:bg-gray-100 transition-colors rounded"
+                        className="rounded-lg border border-stone-200 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50"
                       >
                         Permissions
                       </button>
                       <button
                         onClick={() => handleToggleActive(sa.id, sa.is_active)}
-                        className="px-3 py-1 text-sm border border-gray-300 hover:bg-gray-100 transition-colors rounded"
+                        className="rounded-lg border border-stone-200 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50"
                       >
                         {sa.is_active ? 'Deactivate' : 'Activate'}
                       </button>
@@ -256,9 +257,9 @@ export function ServiceAccountsTab() {
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
-            <h2 className="text-2xl font-bold mb-6">Create Service Account</h2>
+        <div role="dialog" aria-modal="true" aria-label="Create service account" className="fixed inset-0 z-[100] flex items-center justify-center bg-stone-950/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-stone-200 bg-white p-6 shadow-2xl sm:p-8">
+            <h2 className="mb-6 text-xl font-semibold tracking-tight text-stone-900">Create Service Account</h2>
 
             <form onSubmit={handleCreateServiceAccount}>
               <div className="mb-4">
@@ -271,7 +272,7 @@ export function ServiceAccountsTab() {
                   required
                   value={createForm.name}
                   onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                   placeholder="CI/CD Pipeline"
                 />
               </div>
@@ -284,7 +285,7 @@ export function ServiceAccountsTab() {
                   id="description"
                   value={createForm.description}
                   onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                   placeholder="GitHub Actions deployment"
                   rows={3}
                 />
@@ -298,7 +299,7 @@ export function ServiceAccountsTab() {
                   id="role"
                   value={createForm.role}
                   onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent bg-white"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 bg-white"
                 >
                   {(roles || []).map((role) => (
                     <option key={role.value} value={role.value}>

@@ -2,7 +2,7 @@ import { TabBar } from '~/components/TabBar';
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { api, type User, type GetCurrentPlanResponse, ValidationError } from '~/lib/api';
-import AppLayout from '~/components/AppLayout';
+import WorkspacePage from '~/components/WorkspacePage';
 import Alert, { isCreditError } from '~/components/Alert';
 import { ProfileTab } from '~/components/settings/ProfileTab';
 import { BillingTab } from '~/components/settings/BillingTab';
@@ -208,15 +208,8 @@ export default function Settings() {
   };
 
   return (
-    <AppLayout>
-      <div className="min-w-0 p-4 text-sm sm:p-6 lg:p-8">
-        <div className="mb-8">
-          <h2 className="text-xl font-bold mb-2">Settings</h2>
-          <p className="text-gray-600">
-            Manage your profile, company and Engine settings
-          </p>
-        </div>
-
+    <WorkspacePage eyebrow="Workspace / Preferences" title="Settings" description="Manage your account, Engine configuration, and billing.">
+      <div className="min-w-0">
         <TabBar label="Settings" value={activeTab} onChange={tab => navigate(`?tab=${tab}`)} panelId="settings-panel" className="mb-6"
           items={[{value:'engine',label:'Engine'},{value:'traces',label:'Trace ingestion'},{value:'profile',label:'Profile'},{value:'company',label:'Company'},{value:'billing',label:'Billing & Credits'}]} />
         <div id="settings-panel" role="tabpanel" aria-label="Settings content">
@@ -236,7 +229,7 @@ export default function Settings() {
           />
         )}
         {success && (
-          <div className="bg-green-600 text-white px-4 py-3 mb-6">
+          <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             {success}
           </div>
         )}
@@ -273,6 +266,6 @@ export default function Settings() {
         )}
         </div>
       </div>
-    </AppLayout>
+    </WorkspacePage>
   );
 }

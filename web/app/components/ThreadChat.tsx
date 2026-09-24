@@ -1245,7 +1245,7 @@ export default function ThreadChat() {
           </div>
         )}
 
-        <TabBar label="Contract preview" value={activeTab} onChange={setActiveTab} panelId="preview-panel" className="shrink-0 bg-white px-4"
+        <TabBar label="Contract preview" value={activeTab} onChange={setActiveTab} panelId="preview-panel" className="shrink-0 rounded-none border-x-0 border-t-0 shadow-none"
           items={[{value:'diagram',label:'Graph Preview'},{value:'yaml',label:'YAML Source'}]} />
 
         {/* Tab Content */}

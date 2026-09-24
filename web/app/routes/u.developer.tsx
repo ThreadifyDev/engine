@@ -1,11 +1,11 @@
-import { TabBar } from '~/components/TabBar';
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
+import { Plus } from 'lucide-react';
+import { TabBar } from '~/components/TabBar';
 import { api } from '~/lib/api';
-import AppLayout from '~/components/AppLayout';
+import WorkspacePage from '~/components/WorkspacePage';
 import { APIKeysTab } from '~/components/developer/APIKeysTab';
 import { ServiceAccountsTab } from '~/components/developer/ServiceAccountsTab';
-
 
 export default function Developer() {
   const navigate = useNavigate();
@@ -13,72 +13,34 @@ export default function Developer() {
   const [activeTab, setActiveTab] = useState<'api-keys' | 'service-accounts'>('api-keys');
 
   useEffect(() => {
-    // Check authentication
-    const token = api.isAuthenticated();
-    if (!token) {
-      navigate('/login');
-      return;
-    }
+    if (!api.isAuthenticated()) navigate('/login');
   }, [navigate]);
 
   useEffect(() => {
-    // Check for tab in query params
-    const tabParam = searchParams.get('tab');
-    if (tabParam === 'api-keys' || tabParam === 'service-accounts') {
-      setActiveTab(tabParam as any);
-    }
+    const tab = searchParams.get('tab');
+    if (tab === 'api-keys' || tab === 'service-accounts') setActiveTab(tab);
   }, [searchParams]);
 
   const handleTabChange = (tab: 'api-keys' | 'service-accounts') => {
     setActiveTab(tab);
-    navigate(`/u/developer?tab=${tab}`, { replace: true });
+    navigate('/u/developer?tab=' + tab, { replace: true });
+  };
+
+  const create = () => {
+    window.dispatchEvent(new CustomEvent(activeTab === 'api-keys' ? 'create-api-key' : 'create-service-account'));
   };
 
   return (
-    <AppLayout>
-      <div className="min-w-0 p-4 sm:p-6 lg:p-8">
-        <div className="mb-8 flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-bold mb-2">Developer Settings</h1>
-            <p className="text-gray-600">
-              Manage API keys and service accounts for programmatic access
-            </p>
-          </div>
-          <div>
-            {activeTab === 'api-keys' && (
-              <button
-                onClick={() => {
-                  const event = new CustomEvent('create-api-key');
-                  window.dispatchEvent(event);
-                }}
-                className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
-              >
-                + Create New API Key
-              </button>
-            )}
-            {activeTab === 'service-accounts' && (
-              <button
-                onClick={() => {
-                  const event = new CustomEvent('create-service-account');
-                  window.dispatchEvent(event);
-                }}
-                className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
-              >
-                + New Service Account
-              </button>
-            )}
-          </div>
-        </div>
-
-        <TabBar label="Developer" value={activeTab} onChange={handleTabChange} panelId="developer-panel" className="mb-6"
-          items={[{value:'api-keys',label:'API Keys'},{value:'service-accounts',label:'Service Accounts'}]} />
-
-        {/* Tab Content */}
-        <div id="developer-panel" role="tabpanel" aria-label="Developer content">
-          {activeTab === 'api-keys' && <APIKeysTab />}
-          {activeTab === 'service-accounts' && <ServiceAccountsTab />}
-        </div>
+    <WorkspacePage eyebrow="Workspace access" title="Developer"
+      description="Manage the credentials and service identities your integrations use."
+      actions={<button type="button" onClick={create} className="inline-flex items-center gap-2 rounded-lg bg-stone-950 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-stone-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
+        <Plus className="h-4 w-4" /> {activeTab === 'api-keys' ? 'New API key' : 'New service account'}
+      </button>}>
+      <TabBar label="Developer" value={activeTab} onChange={handleTabChange} panelId="developer-panel" className="mb-6"
+        items={[{ value: 'api-keys', label: 'API keys' }, { value: 'service-accounts', label: 'Service accounts' }]} />
+      <div id="developer-panel" role="tabpanel" aria-label="Developer content">
+        {activeTab === 'api-keys' ? <APIKeysTab /> : <ServiceAccountsTab />}
       </div>
-    </AppLayout>
+    </WorkspacePage>
   );
 }

@@ -37,16 +37,17 @@ export default function CLILogin() {
     finally { setBusy(false); }
   }
 
-  return <main className="min-h-screen bg-white flex items-center justify-center px-4 text-sm">
-    <div className="w-full max-w-md rounded-xl border p-7 space-y-5">
-      <h1 className="text-xl font-semibold">{approved ? 'CLI approved' : 'Approve Threadify CLI'}</h1>
+  return <main className="flex min-h-screen items-center justify-center bg-[#f8f8f6] px-4 py-12 text-sm">
+    <div className="w-full max-w-md space-y-5 rounded-2xl border border-stone-200 bg-white p-7 shadow-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Threadify / CLI access</p>
+      <h1 className="text-2xl font-semibold tracking-tight text-stone-950">{approved ? 'CLI approved' : 'Approve Threadify CLI'}</h1>
       {approved ? <p>Return to your terminal. You can close this tab.</p> : <>
         <p>Allow the CLI to access <strong>{getConfig().engineUrl}</strong> as <strong>{identity || '…'}</strong> with your current permissions for up to 30 days.</p>
         <p className="text-gray-600">Approve only if you just ran <code>threadify login</code>. Your CLI credential stays on that computer. Run <code>threadify logout</code> to revoke it.</p>
         {transaction && <p className="text-gray-500">Request: <code>{transaction.id.slice(0, 12)}</code></p>}
         <div className="flex gap-3">
-          <button type="button" onClick={approve} disabled={!transaction || busy} className="rounded bg-black px-4 py-2 text-white disabled:opacity-50">{busy ? 'Approving…' : 'Approve CLI login'}</button>
-          <a href="/u/dashboard" className="rounded border px-4 py-2">Cancel</a>
+          <button type="button" onClick={approve} disabled={!transaction || busy} className="rounded-lg bg-stone-900 px-4 py-2.5 font-medium text-white hover:bg-stone-700 disabled:opacity-50">{busy ? 'Approving…' : 'Approve CLI login'}</button>
+          <a href="/u/dashboard" className="rounded-lg border border-stone-200 px-4 py-2.5 font-medium text-stone-700 hover:bg-stone-50">Cancel</a>
         </div>
       </>}
       {error && <p role="alert" className="text-red-700">{error}</p>}

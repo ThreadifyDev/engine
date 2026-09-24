@@ -56,25 +56,30 @@ export default function Login() {
     finally { tab.close(); popup.current = null; setBusy(false); }
   }
 
-  return <main className="min-h-screen bg-white flex items-center justify-center px-4">
-    <div className="w-full max-w-md space-y-6">
-      <h1 className="text-3xl font-bold text-center">Threadify</h1>
-      <div className="rounded-xl border p-8 space-y-5">
-        <h2 className="text-xl font-semibold">Sign in to your Engine</h2>
-        <p className="text-sm text-gray-600">Use your Fused account with email or SSO.</p>
-        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-        <button type="button" disabled={busy} onClick={() => managed()} className="w-full rounded bg-black px-4 py-3 text-white disabled:opacity-50">
-          {busy ? 'Waiting for sign-in…' : managedRetry ? 'Revalidate sign-in' : 'Continue with email or SSO'}
-        </button>
-        {busy && popup.current && <button type="button" onClick={() => controller.current?.abort()} className="text-sm text-gray-600 underline">Cancel sign-in</button>}
-        <div className="border-t pt-5">
-          <form onSubmit={exchange} className="space-y-3">
-            <label htmlFor="api-key" className="block text-sm font-medium">API key</label>
-            <input id="api-key" type="password" autoComplete="off" required value={key} onChange={e => setKey(e.target.value)} className="w-full rounded border p-3" />
-            <button disabled={busy || !key.trim()} className="w-full rounded border px-4 py-3 disabled:opacity-50">Sign in with API key</button>
-          </form>
+  return <main className="flex min-h-screen items-center justify-center bg-[#f8f8f6] px-4 py-12">
+    <div className="w-full max-w-md">
+      <header className="mb-8 text-center">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Threadify / Engine access</p>
+        <h1 className="text-3xl font-semibold tracking-tight text-stone-950">Welcome to Threadify</h1>
+        <p className="mt-3 text-sm leading-6 text-stone-500">Sign in to manage your workflows and their activity.</p>
+      </header>
+      <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+        <div className="border-b border-stone-100 px-6 py-5 sm:px-8"><h2 className="text-lg font-semibold tracking-tight text-stone-900">Sign in to your Engine</h2><p className="mt-1 text-sm text-stone-500">Use your Fused account with email or SSO.</p></div>
+        <div className="space-y-5 px-6 py-6 sm:px-8">
+          {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+          <button type="button" disabled={busy} onClick={() => managed()} className="w-full rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-stone-700 disabled:opacity-50">
+            {busy ? 'Waiting for sign-in…' : managedRetry ? 'Revalidate sign-in' : 'Continue with email or SSO'}
+          </button>
+          {busy && popup.current && <button type="button" onClick={() => controller.current?.abort()} className="text-sm font-medium text-stone-600 underline hover:text-stone-900">Cancel sign-in</button>}
+          <div className="border-t border-stone-100 pt-5">
+            <form onSubmit={exchange} className="space-y-3">
+              <label htmlFor="api-key" className="block text-sm font-medium text-stone-700">Or sign in with an API key</label>
+              <input id="api-key" type="password" autoComplete="off" required value={key} onChange={e => setKey(e.target.value)} className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" placeholder="Enter API key" />
+              <button disabled={busy || !key.trim()} className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm font-medium text-stone-700 transition hover:bg-stone-50 disabled:opacity-50">Sign in with API key</button>
+            </form>
+          </div>
         </div>
-      </div>
+      </section>
     </div>
   </main>;
 }
