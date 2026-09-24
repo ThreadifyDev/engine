@@ -10,3 +10,8 @@ coverage.html
 
 # Platform agent runtimes are CI release artifacts, not source files.
 /agent-release/
+
+# Compiled by CI from the harnest toolchain on every run; never byte-identical
+# to a prior commit, so keep them untracked like /agent-release/ above.
+/internal/agentbundle/assets/agent.tar.gz
+/internal/agentbundle/assets/runtimes.json
