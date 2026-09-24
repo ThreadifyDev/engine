@@ -33,6 +33,8 @@ func LoadFromViper(v *viper.Viper) (*Config, error) {
 	if cfg.AI != nil {
 		cfg.AI.Agent.URL = expandEnv(cfg.AI.Agent.URL)
 	}
+	cfg.Classifier.BaseURL = expandEnv(cfg.Classifier.BaseURL)
+	cfg.Classifier.Model = expandEnv(cfg.Classifier.Model)
 
 	cfg.Registry.URL = expandEnv(cfg.Registry.URL)
 	publicURL, err := sharedconfig.NormalizePublicURL(expandEnv(cfg.Server.PublicURL))
@@ -182,6 +184,20 @@ func setRuntimeDefaults(v *viper.Viper) {
 }
 
 func ValidateRuntime(cfg *Config) error {
+	if cfg.Classifier.BaseURL != "" {
+		if cfg.Classifier.Model == "" {
+			return fmt.Errorf("classifier.model is required when classifier.base_url is set")
+		}
+		if cfg.Classifier.Auth != "" && cfg.Classifier.Auth != "custom" && cfg.Classifier.Auth != "threadify_license" {
+			return fmt.Errorf("classifier.auth must be custom or threadify_license")
+		}
+		if cfg.Classifier.Auth == "threadify_license" && cfg.Registry.LicenseKey == "" {
+			return fmt.Errorf("classifier.auth=threadify_license requires registry.license_key")
+		}
+		if cfg.Classifier.TimeoutMs < 0 || cfg.Classifier.TimeoutMs > 30000 {
+			return fmt.Errorf("classifier.timeout_ms must be between 0 and 30000")
+		}
+	}
 	switch cfg.Redis.Mode {
 	case "managed", "external":
 	default:

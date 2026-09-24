@@ -201,6 +201,19 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 
 	waitRepo := valkey.NewWaitRepository(b.valkeyService.Client)
 	notificationService.waitRepo = waitRepo
+	contractValidator := NewContractValidationServiceFromParts(valkeyGraphRepo, contractRepo, cacheService, b.logger, valkey.NewSuccessfulContentRepository(b.valkeyService, b.db.Pool))
+	if b.cfg.Classifier.BaseURL != "" {
+		options := ClassifierOptions{BaseURL: b.cfg.Classifier.BaseURL, Model: b.cfg.Classifier.Model, APIKeyEnv: b.cfg.Classifier.APIKeyEnv, TimeoutMs: b.cfg.Classifier.TimeoutMs}
+		if b.cfg.Classifier.Auth == "threadify_license" {
+			options.BearerToken = b.cfg.Registry.LicenseKey
+			options.InstallationID = b.cfg.Registry.InstallationID
+		}
+		classifier, err := NewHTTPClassifier(options)
+		if err != nil {
+			return nil, err
+		}
+		contractValidator.SetSemanticClassifier(classifier)
+	}
 
 	scopeResolver := NewScopeResolver(b.cfg, valkeyGraphRepo, b.threadRepo, b.logger)
 	var notificationConsumer *NotificationConsumer
@@ -218,7 +231,7 @@ func (b *ThreadServiceBuilder) Build() (*ThreadService, error) {
 		stepEventService:      b.stepEventService,
 		cacheManager:          cacheService,
 		connectionMgr:         NewConnectionService(b.logger),
-		contractValidator:     NewContractValidationService(valkeyGraphRepo, contractRepo, cacheService, b.logger, valkey.NewSuccessfulContentRepository(b.valkeyService, b.db.Pool)),
+		contractValidator:     contractValidator,
 		authService:           b.authService,
 		accessService:         accessService,
 		validationService:     validationService,

@@ -14,6 +14,7 @@ type Config struct {
 	AgentCacheDir       string                   `yaml:"-" mapstructure:"-"`
 	AgentRuntimeArchive string                   `yaml:"-" mapstructure:"-"`
 	AI                  *AIConfig                `yaml:"ai" mapstructure:"ai"`
+	Classifier          ClassifierConfig         `yaml:"classifier" mapstructure:"classifier"`
 	Registry            registry.Config          `yaml:"registry" mapstructure:"registry"`
 	RuntimeMode         string                   `yaml:"runtime_mode" mapstructure:"runtime_mode"`
 	Server              ServerConfig             `yaml:"server" mapstructure:"server"`
@@ -37,6 +38,16 @@ type Config struct {
 	JWKS                JWKSSettings             `yaml:"jwks" mapstructure:"jwks"`
 	Supabase            SupabaseSettings         `yaml:"supabase" mapstructure:"supabase"`
 	Batch               BatchConfig              `yaml:"batch" mapstructure:"batch"`
+}
+
+// ClassifierConfig controls optional process-grounded action interpretation.
+// It is separate from the conversational agent's AI gateway settings.
+type ClassifierConfig struct {
+	BaseURL   string `yaml:"base_url" mapstructure:"base_url"`
+	Model     string `yaml:"model" mapstructure:"model"`
+	Auth      string `yaml:"auth" mapstructure:"auth"`
+	APIKeyEnv string `yaml:"api_key_env" mapstructure:"api_key_env"`
+	TimeoutMs int    `yaml:"timeout_ms" mapstructure:"timeout_ms"`
 }
 
 // AIConfig is shared with the separately running agent through the same YAML.

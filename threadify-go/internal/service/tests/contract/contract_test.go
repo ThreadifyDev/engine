@@ -105,7 +105,7 @@ func TestContractService_PreviewContract_Table(t *testing.T) {
 			result := &validator.ValidationResult{IsValid: tc.validateOK}
 			deps.Validator.EXPECT().Validate(tc.yaml).Return(&validator.Contract{ContractName: "c", Version: 1}, result)
 
-			contract, graph, vr, err := svc.PreviewContract(tc.yaml)
+			contract, graph, vr, err := svc.PreviewContract(context.Background(), "company", tc.yaml)
 			if tc.wantErr {
 				require.Error(t, err)
 				require.Nil(t, vr)

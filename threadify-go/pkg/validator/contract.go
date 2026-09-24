@@ -29,6 +29,9 @@ func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationR
 			},
 		}
 	}
+	if len(contract.Includes) > 0 {
+		return contract, &ValidationResult{IsValid: false, Errors: []ValidationError{{Field: "includes", Message: "Includes must be resolved against a company before validation"}}}
+	}
 
 	// Validate contract_name format (alphanumeric with underscores)
 	if !regexp.MustCompile(`^[a-zA-Z0-9_]+$`).MatchString(contract.ContractName) {
@@ -82,6 +85,16 @@ func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationR
 	for _, step := range contract.Steps {
 		if err := contractcontent.Validate(step.ContentRules); err != nil {
 			errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.content_rules", step.ID), Message: err.Error()})
+		}
+		if err := contractcontent.ValidateSemantic(step.SemanticRules); err != nil {
+			errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.semantic_rules", step.ID), Message: err.Error()})
+		}
+		for _, rule := range step.SemanticRules {
+			for _, reference := range rule.ContextSteps {
+				if !stepIds[reference] || reference == step.ID {
+					errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.semantic_rules", step.ID), Message: "Context step must name a different step defined in this contract: " + reference})
+				}
+			}
 		}
 		for _, rule := range step.ContentRules {
 			if rule.Reference != nil && (!stepIds[rule.Reference.Step] || rule.Reference.Step == step.ID) {
@@ -192,6 +205,12 @@ func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationR
 	}
 }
 
+// ParseSource reads a contract before include resolution. It performs syntax
+// parsing and dependency normalization; Validate checks the complete contract.
+func ParseSource(source string) (*Contract, error) {
+	return NewContractValidator().parseContract(source)
+}
+
 func (v *ContractValidator) parseContract(yamlString string) (*Contract, error) {
 	normalized, err := NormalizeSource(yamlString)
 	if err != nil {
@@ -208,6 +227,7 @@ func (v *ContractValidator) parseContract(yamlString string) (*Contract, error) 
 			}
 		}
 		contract.Steps[i].DependsOn = contractcontent.Dependencies(contract.Steps[i].DependsOn, contract.Steps[i].ContentRules)
+		contract.Steps[i].DependsOn = contractcontent.SemanticDependencies(contract.Steps[i].DependsOn, contract.Steps[i].SemanticRules)
 	}
 	return &contract, nil
 }

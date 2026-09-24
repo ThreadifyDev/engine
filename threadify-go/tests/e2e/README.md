@@ -72,6 +72,8 @@ admin role is removed afterwards.
 - The sequential contract assigns `order_received` and `dispatch_requested` to
   Orders, and `inventory_reserved` and `dispatched` to Warehouse. It is tested
   with both direct and invitation-token joins, repeated joining and reconnects.
+  Its first two steps are published as a separate contract version and included
+  by the parent contract, exercising versioned composition through the API.
 - Invalid contract-party roles and Warehouse writing an Orders-owned step must
   be rejected before they create recorded events.
 - The parallel contract starts with Orders, runs four operations per system

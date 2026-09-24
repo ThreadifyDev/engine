@@ -39,6 +39,21 @@ queries or mutations. Frontend tools use an allowlist of shared handlers, not DO
 selectors or arbitrary JavaScript. Concurrent manual edits invalidate stale agent
 writes and preview results. Saving uses the existing user-operated contract button.
 
+### Action tools and approval
+
+The model calls a normal business action tool. Its implementation can query
+Threadify's `next` and `can` decisions internally; those decisions are not
+model-facing tools. An action with a Contract approval prerequisite needs a
+host-managed reviewer prompt, a validated approval step recorded by an
+authorized reviewer, and an atomic `waitFor` claim before an external side
+effect. Threadify does not open the Harnest prompt itself.
+
+`delete_test_record` is a disposable in-memory demo. It calls `next` and `can`
+inside one action-tool call, then uses a hardcoded Harnest approval gate when
+the mock Engine allows deletion. The mock does not record a Contract approval
+step or grant a `waitFor` claim, so this demo must not be read as a test of
+Contract-driven approval. See [Contract decisions](../threadify-go/docs/DECISION_APIS.md#contract-driven-human-approval).
+
 Contract design uses the Engine's supported Gherkin syntax and a bounded preview
 repair loop. Trace ingestion filters can be explained and their settings opened;
 field extraction authoring remains a future capability. There is no WebMCP adapter

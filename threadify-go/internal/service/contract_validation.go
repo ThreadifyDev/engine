@@ -18,13 +18,30 @@ type SuccessfulContentReader interface {
 	GetSuccessfulContent(context.Context, string, string) (map[string]string, error)
 }
 
+// ValidatedStepContent exposes only the latest successful step snapshot.
+func (v *ContractValidationService) ValidatedStepContent(ctx context.Context, threadID, stepName string) (map[string]string, error) {
+	if v.references == nil {
+		return nil, fmt.Errorf("successful content reader is unavailable")
+	}
+	return v.references.GetSuccessfulContent(ctx, threadID, stepName)
+}
+
 // ContractValidationService also resolves thread-bound successful content snapshots.
 type ContractValidationService struct {
 	references   SuccessfulContentReader
+	semantic     SemanticClassifier
 	graphRepo    domain.ContractGraphRepository
 	contractRepo contractRepo
 	cacheManager domain.CacheManager
 	logger       *zap.Logger
+}
+
+type SemanticClassifier interface {
+	EvaluateAssertion(context.Context, any, string) (float64, error)
+}
+
+func (v *ContractValidationService) SetSemanticClassifier(classifier SemanticClassifier) {
+	v.semantic = classifier
 }
 
 type contractRepo interface {
@@ -101,16 +118,63 @@ func (v *ContractValidationService) ValidateStepContext(ctx context.Context, ste
 	if err := contractcontent.CheckWithReferences(stepNode.ContentRules, businessCtx, resolve); err != nil {
 		return err
 	}
-	if stepNode.BusinessContext == nil {
-		return nil
-	}
-
-	for _, field := range stepNode.BusinessContext.Required {
-		if _, exists := businessCtx[field]; !exists {
-			return fmt.Errorf("required context field %q is missing", field)
+	if stepNode.BusinessContext != nil {
+		for _, field := range stepNode.BusinessContext.Required {
+			if _, exists := businessCtx[field]; !exists {
+				return fmt.Errorf("required context field %q is missing", field)
+			}
 		}
 	}
+	return v.validateSemanticRules(ctx, stepNode.SemanticRules, businessCtx, threadID)
+}
 
+func (v *ContractValidationService) validateSemanticRules(ctx context.Context, rules []contractcontent.SemanticRule, candidate map[string]string, threadID []string) error {
+	if err := contractcontent.ValidateSemantic(rules); err != nil {
+		return err
+	}
+	for _, rule := range rules {
+		if v.semantic == nil {
+			return fmt.Errorf("semantic classifier is unavailable")
+		}
+		value, ok := candidate[rule.Field]
+		if !ok || len(value) > 4096 {
+			return fmt.Errorf("semantic field %q is missing or too long", rule.Field)
+		}
+		state := map[string]any{"candidate": map[string]string{rule.Field: value}}
+		if len(rule.ContextSteps) > 0 {
+			if len(threadID) != 1 || threadID[0] == "" || v.references == nil {
+				return fmt.Errorf("semantic rule requires thread context")
+			}
+			contextSteps := make(map[string]map[string]string, len(rule.ContextSteps))
+			for _, step := range rule.ContextSteps {
+				content, err := v.references.GetSuccessfulContent(ctx, threadID[0], step)
+				if err != nil {
+					return fmt.Errorf("validated context for %q is unavailable: %w", step, err)
+				}
+				if len(content) > 32 {
+					return fmt.Errorf("validated context for %q is too large", step)
+				}
+				for field, value := range content {
+					if len(field) > 128 || len(value) > 512 {
+						return fmt.Errorf("validated context for %q is too large", step)
+					}
+				}
+				contextSteps[step] = content
+			}
+			state["successful_steps"] = contextSteps
+		}
+		probability, err := v.semantic.EvaluateAssertion(ctx, state, rule.Question)
+		if err != nil {
+			return fmt.Errorf("semantic classification unavailable: %w", err)
+		}
+		minimum := rule.MinProbability
+		if minimum == 0 {
+			minimum = 0.8
+		}
+		if probability < minimum {
+			return fmt.Errorf("semantic field %q did not satisfy its contract rule", rule.Field)
+		}
+	}
 	return nil
 }
 

@@ -18,7 +18,11 @@ description: Create, revise, review, or explain a Threadify Gherkin contract usi
    decisions in a draft. Surface important assumptions.
 4. Prefer successful prerequisites when unrelated work can intervene. If any
    strict next-step clause is used, every permitted immediate edge must be listed.
-   Fresh approval before every invocation is distinct from an earlier success.
+   For human approval, ask who may approve and whether one validated approval
+   can cover later invocations. Model the reviewer-owned approval as a Contract
+   step, then choose `must have succeeded` or `must succeed before each
+   invocation` accordingly. A Harnest prompt alone is not a Contract step;
+   the host must record an approved outcome under the authorized reviewer.
 5. Call get_page_context to read the current contract draft and revision, then
    open_contract_draft with the complete source and expected revision. Preserve
    user edits; on conflict, read again before proposing a new draft.

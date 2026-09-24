@@ -26,10 +26,11 @@ import (
 // status code mapping to the handler layer.
 
 type ContractService struct {
-	repo      domain.ContractRepository
-	planSvc   domain.PlanService
-	validator domain.ContractValidator
-	logger    *zap.Logger
+	repo                domain.ContractRepository
+	planSvc             domain.PlanService
+	validator           domain.ContractValidator
+	compositionReviewer CompositionReviewer
+	logger              *zap.Logger
 }
 
 type ContractResponse struct {
@@ -100,22 +101,43 @@ func (s *ContractService) enforceCredits(ctx context.Context, companyID string) 
 }
 
 // PreviewContract validates Gherkin-style or YAML source and builds its graph without persisting.
-func (s *ContractService) PreviewContract(yamlString string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
-	contract, validationResult := s.validator.Validate(yamlString)
+func (s *ContractService) PreviewContract(ctx context.Context, companyID, yamlString string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
+	expanded, invalid, err := s.expandContractSource(ctx, companyID, yamlString)
+	if err != nil || invalid != nil {
+		return nil, nil, invalid, err
+	}
+	contract, validationResult := s.validator.Validate(expanded)
 	if !validationResult.IsValid {
 		return nil, nil, validationResult, nil
 	}
 
-	graph, err := NewGraphBuilder().BuildGraph([]byte(yamlString))
+	graph, err := NewGraphBuilder().BuildGraph([]byte(expanded))
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
+	if sourceDeclaresIncludes(yamlString) && s.compositionReviewer != nil {
+		flagged, err := s.compositionReviewer.ReviewComposition(ctx, yamlString, contract)
+		if err != nil {
+			s.logger.Warn("composition classifier review unavailable", zap.Error(err))
+			validationResult.Warnings = append(validationResult.Warnings, "Semantic conflict review was unavailable; deterministic validation passed")
+		} else if flagged {
+			validationResult.Warnings = append(validationResult.Warnings, "Classifier flagged a possible semantic conflict between the included contracts and this contract; review the rules before publishing")
+		}
+	}
 	return contract, graph, validationResult, nil
 }
 
 func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID, createdBy, contractYAML string) (int, interface{}) {
-	contract, validationResult := s.validator.Validate(contractYAML)
+	expanded, invalid, err := s.expandContractSource(ctx, companyID, contractYAML)
+	if err != nil {
+		s.logger.Error("failed to resolve contract includes", zap.Error(err))
+		return 500, map[string]string{"message": "Failed to resolve contract includes"}
+	}
+	if invalid != nil {
+		return 400, map[string]interface{}{"message": "Contract is not valid", "errors": invalid.Errors}
+	}
+	contract, validationResult := s.validator.Validate(expanded)
 	if !validationResult.IsValid {
 		return 400, map[string]interface{}{
 			"message": "Contract is not valid",
@@ -202,7 +224,15 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, compan
 		return 404, map[string]string{"message": "Contract not found or you don't have permission to update it"}
 	}
 
-	contract, validationResult := s.validator.Validate(contractYAML)
+	expanded, invalid, err := s.expandContractSource(ctx, companyID, contractYAML)
+	if err != nil {
+		s.logger.Error("failed to resolve contract includes", zap.Error(err))
+		return 500, map[string]string{"message": "Failed to resolve contract includes"}
+	}
+	if invalid != nil {
+		return 400, map[string]interface{}{"message": "Contract is not valid", "errors": invalid.Errors}
+	}
+	contract, validationResult := s.validator.Validate(expanded)
 	if !validationResult.IsValid {
 		return 400, map[string]interface{}{
 			"message": "Contract is not valid",

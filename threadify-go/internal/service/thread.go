@@ -611,6 +611,9 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 
 		t = time.Now()
 		var referenceThread []string
+		if len(stepNode.SemanticRules) > 0 {
+			referenceThread = []string{thread.ID}
+		}
 		for _, rule := range stepNode.ContentRules {
 			if rule.Reference != nil {
 				referenceThread = []string{thread.ID}

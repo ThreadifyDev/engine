@@ -58,6 +58,7 @@ var (
 
 	contentReferenceRule = regexp.MustCompile(`^content ` + quoted + ` must equal ([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$`)
 	quotedItem           = regexp.MustCompile(`^` + quoted)
+	includeRule          = regexp.MustCompile(`^Include: ([A-Za-z_][A-Za-z0-9_]*):([1-9][0-9]*)$`)
 )
 
 // ParseGherkin parses a deliberately bounded rule language, not executable
@@ -136,6 +137,26 @@ func ParseGherkin(source string) (*Contract, error) {
 				}
 				c.Description = value
 			}
+			continue
+		}
+		if strings.HasPrefix(line, "Include:") {
+			if block != "" {
+				return fail("Include must appear before Background or Rule")
+			}
+			m := includeRule.FindStringSubmatch(line)
+			if m == nil {
+				return fail("Include must use contract_name:positive_version")
+			}
+			version, err := strconv.Atoi(m[2])
+			if err != nil || version < 1 {
+				return fail("Include version must be a positive integer")
+			}
+			for _, included := range c.Includes {
+				if included.Name == m[1] {
+					return fail("contract may be included only once: " + m[1])
+				}
+			}
+			c.Includes = append(c.Includes, ContractInclude{Name: m[1], Version: version})
 			continue
 		}
 		if strings.HasPrefix(line, "Rule:") || line == "Background:" {
@@ -334,8 +355,8 @@ func ParseGherkin(source string) (*Contract, error) {
 	if err := finishRule(); err != nil {
 		return fail(err.Error())
 	}
-	if len(c.Steps) == 0 {
-		return fail("at least one Rule with a step is required")
+	if len(c.Steps) == 0 && len(c.Includes) == 0 {
+		return fail("at least one Rule or Include is required")
 	}
 	for _, t := range c.Transitions {
 		if len(t.To) == 0 {

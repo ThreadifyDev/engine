@@ -94,7 +94,7 @@ type ContractService interface {
 	GetAllContractVersions(ctx context.Context, contractID, companyID string, limit, offset int) (int, interface{})
 	GetContractVersion(ctx context.Context, contractID string, version int, companyID string) (int, interface{})
 	DeleteContractVersion(ctx context.Context, contractID string, version int, companyID string) (int, interface{})
-	PreviewContract(yamlString string) (*validator.Contract, *ContractGraph, *validator.ValidationResult, error)
+	PreviewContract(ctx context.Context, companyID, yamlString string) (*validator.Contract, *ContractGraph, *validator.ValidationResult, error)
 }
 
 // ThreadService defines the interface for thread-related operations
