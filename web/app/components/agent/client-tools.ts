@@ -4,7 +4,7 @@ export type ContractDraft = {
   source: string;
   revision: number;
   open: boolean;
-  preview?: { valid: boolean; errors?: string[] };
+  preview?: { valid: boolean; errors?: string[]; warnings?: string[] };
 };
 
 export type ClientToolHost = {

@@ -31,7 +31,7 @@ export default function ProfileViewControls({ definition, selected, dirty, onCha
     <div className="px-5 pt-5">
       <div className="flex items-center gap-2.5"><SlidersHorizontal className="h-4 w-4 text-gray-400" /><h2 className="text-sm font-semibold text-gray-900">Presentation</h2></div>
       <p className="mt-2 text-xs leading-5 text-gray-500">Every metric is included automatically. Adjust its display and order.</p>
-      <TabBar label="View customization" value={tab} onChange={setTab} panelId="view-controls-panel" className="mt-4" items={[{ value: 'content', label: <>Content <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] tabular-nums text-gray-500">{definition.blocks.length}</span></> }, { value: 'appearance', label: 'Appearance' }]} />
+      <TabBar label="View customization" value={tab} onChange={setTab} panelId="view-controls-panel" className="mt-4" items={[{ value: 'content', label: <>Content <span className="rounded bg-stone-100 px-1.5 py-0.5 text-[10px] tabular-nums text-stone-500">{definition.blocks.length}</span></> }, { value: 'appearance', label: 'Appearance' }]} />
     </div>
 
     <div id="view-controls-panel" role="tabpanel" aria-label={tab === 'content' ? 'Content' : 'Appearance'} className="p-5">

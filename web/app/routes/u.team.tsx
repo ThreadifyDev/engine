@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, type EngineUser } from '~/lib/api';
-import AppLayout from '~/components/AppLayout';
+import WorkspacePage from '~/components/WorkspacePage';
+import { Copy, Mail, Users } from 'lucide-react';
 
 const roles = ['admin', 'member', 'viewer'];
 const errorMessages: Record<string, string> = {
@@ -57,33 +58,59 @@ export default function Team() {
     catch { setError('Copy the sign-in link from the field below.'); }
   }
   const shown = users.filter(user => filter === 'all' || user.status === filter);
-  return <AppLayout><main className="p-8 space-y-6">
-    <div><h1 className="text-2xl font-bold">Team</h1><p className="text-gray-600 mt-2">Manage invited, active, suspended and archived users.</p></div>
-    {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-4 text-red-800">{error}</p>}
-    {notice && <p role="status" className="rounded border border-green-200 bg-green-50 p-4 text-green-800">{notice}</p>}
-    {canManage && <section className="rounded border p-5 space-y-4">
-      <h2 className="font-semibold">Invite a user</h2>
-      <p className="text-sm text-gray-600">An invited user becomes active after signing in with the matching email through Registry. Share the sign-in link with them.</p>
-      <form onSubmit={invite} className="flex flex-wrap items-end gap-3">
-        <label className="text-sm">Email<input aria-label="Email" type="email" required maxLength={255} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="block rounded border p-2 mt-1" /></label>
-        <label className="text-sm">Name<input aria-label="Name" maxLength={255} value={form.full_name} onChange={e => setForm({ ...form, full_name: e.target.value })} className="block rounded border p-2 mt-1" /></label>
-        <label className="text-sm">Role<select aria-label="Invitation role" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="block rounded border p-2 mt-1">{roles.map(role => <option key={role}>{role}</option>)}</select></label>
-        <button disabled={busy} className="rounded bg-black px-4 py-2 text-white disabled:opacity-50">Create invitation</button>
-      </form>
-      <div className="flex gap-2"><input aria-label="Sign-in link" readOnly value={loginUrl} className="min-w-0 flex-1 rounded border p-2 text-sm" /><button type="button" onClick={copyLink} className="rounded border px-3 py-2 text-sm">Copy sign-in link</button></div>
-    </section>}
-    <label className="block text-sm">Show users<select aria-label="User status filter" value={filter} onChange={e => setFilter(e.target.value)} className="ml-3 rounded border p-2">{['all', 'invited', 'active', 'suspended', 'archived'].map(status => <option key={status}>{status}</option>)}</select></label>
-    {loading ? <p>Loading users…</p> : <div className="overflow-x-auto rounded border"><table className="w-full text-left text-sm">
-      <thead className="bg-gray-50"><tr>{['Name', 'Email', 'Role', 'Status', 'Actions'].map(title => <th key={title} className="p-4">{title}</th>)}</tr></thead>
-      <tbody>{shown.map(user => <tr key={user.id} className="border-t">
-        <td className="p-4">{user.full_name || '—'}</td><td className="p-4">{user.email}</td>
-        <td className="p-4">{canManage && user.status !== 'archived' ? <select aria-label={`Role for ${user.email}`} disabled={busy} value={user.roles[0] || ''} onChange={e => change(user, { role: e.target.value })} className="rounded border p-2">{roles.map(role => <option key={role}>{role}</option>)}</select> : user.roles.join(', ')}</td>
-        <td className="p-4">{user.status}</td><td className="p-4">{canManage && user.status !== 'archived' && <div className="flex gap-3">
-          {user.status === 'active' && <button disabled={busy} onClick={() => change(user, { status: 'suspended' })} className="underline">Suspend</button>}
-          {user.status === 'suspended' && <button disabled={busy} onClick={() => change(user, { status: 'active' })} className="underline">Reactivate</button>}
-          <button disabled={busy} onClick={() => { if (window.confirm(`Archive ${user.email}? This ends their access and cannot be undone.`)) void change(user, { status: 'archived' }); }} className="text-red-700 underline">{user.status === 'invited' ? 'Cancel invitation' : 'Archive'}</button>
-        </div>}</td>
-      </tr>)}</tbody>
-    </table>{shown.length === 0 && <p className="p-6 text-gray-500">No users with this status.</p>}</div>}
-  </main></AppLayout>;
+  const fieldClass = 'mt-2 block w-full rounded-lg border border-stone-200 bg-white px-3 py-2.5 text-sm text-stone-900 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100';
+  const statusClass: Record<string, string> = {
+    active: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    invited: 'bg-amber-50 text-amber-700 ring-amber-100',
+    suspended: 'bg-red-50 text-red-700 ring-red-100',
+    archived: 'bg-stone-100 text-stone-600 ring-stone-200',
+  };
+
+  return (
+    <WorkspacePage eyebrow="Workspace / Access" title="Team" description="Invite people and manage access to this Engine.">
+      <div className="space-y-5">
+        {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>}
+        {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</p>}
+
+        {canManage && (
+          <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+            <div className="border-b border-stone-100 px-6 py-5">
+              <div className="flex items-center gap-2"><Mail className="h-4 w-4 text-emerald-700" /><h2 className="text-lg font-semibold tracking-tight text-stone-900">Invite a teammate</h2></div>
+              <p className="mt-1 text-sm text-stone-500">They can activate their invitation by signing in with the email you enter.</p>
+            </div>
+            <div className="space-y-5 p-6">
+              <form onSubmit={invite} className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(8rem,.5fr)_auto] lg:items-end">
+                <label className="text-xs font-semibold uppercase tracking-wide text-stone-500">Email address<input aria-label="Email" type="email" required maxLength={255} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className={fieldClass} placeholder="teammate@example.com" /></label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-stone-500">Full name<input aria-label="Name" maxLength={255} value={form.full_name} onChange={e => setForm({ ...form, full_name: e.target.value })} className={fieldClass} placeholder="Optional" /></label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-stone-500">Role<select aria-label="Invitation role" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className={fieldClass}>{roles.map(role => <option key={role}>{role}</option>)}</select></label>
+                <button disabled={busy} className="inline-flex h-[42px] items-center justify-center rounded-lg bg-stone-900 px-4 text-sm font-medium text-white transition hover:bg-stone-700 disabled:opacity-50">Create invitation</button>
+              </form>
+              <div className="rounded-xl border border-stone-200 bg-stone-50 p-4">
+                <label htmlFor="team-sign-in-link" className="text-xs font-semibold uppercase tracking-wide text-stone-500">Team sign-in link</label>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                  <input id="team-sign-in-link" aria-label="Sign-in link" readOnly value={loginUrl} className="min-w-0 flex-1 rounded-lg border border-stone-200 bg-white px-3 py-2.5 font-mono text-xs text-stone-600" />
+                  <button type="button" onClick={copyLink} disabled={!loginUrl} className="inline-flex items-center justify-center gap-2 rounded-lg border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-100 disabled:opacity-50"><Copy className="h-4 w-4" />Copy link</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-100 px-6 py-5">
+            <div><h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-stone-900"><Users className="h-4 w-4 text-emerald-700" /> Members <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-medium text-stone-600">{users.length}</span></h2><p className="mt-1 text-sm text-stone-500">Review roles and account status.</p></div>
+            <label className="flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-stone-500">Status<select aria-label="User status filter" value={filter} onChange={e => setFilter(e.target.value)} className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-normal capitalize text-stone-700 outline-none focus:border-emerald-400">{['all', 'invited', 'active', 'suspended', 'archived'].map(status => <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>)}</select></label>
+          </div>
+          {loading ? <p role="status" className="px-6 py-12 text-center text-sm text-stone-500">Loading members…</p> : error ? <p className="px-6 py-10 text-center text-sm text-stone-500">Members could not be loaded.</p> : shown.length === 0 ? <div className="px-6 py-14 text-center"><div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50"><Users className="h-6 w-6 text-emerald-700" /></div><p className="font-medium text-stone-900">No members in this view</p><p className="mt-1 text-sm text-stone-500">Try another status or invite a teammate.</p></div> : (
+            <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-stone-50 text-xs font-semibold uppercase tracking-wide text-stone-500"><tr>{['Member', 'Role', 'Status', 'Actions'].map(title => <th key={title} className="px-6 py-3">{title}</th>)}</tr></thead><tbody className="divide-y divide-stone-100">{shown.map(user => <tr key={user.id} className="hover:bg-stone-50/70">
+              <td className="px-6 py-4"><div className="font-medium text-stone-900">{user.full_name || user.email}</div><div className="mt-0.5 text-xs text-stone-500">{user.email}</div></td>
+              <td className="px-6 py-4">{canManage && user.status !== 'archived' ? <select aria-label={`Role for ${user.email}`} disabled={busy} value={user.roles[0] || ''} onChange={e => change(user, { role: e.target.value })} className="rounded-lg border border-stone-200 bg-white px-2.5 py-2 text-sm capitalize text-stone-700 outline-none focus:border-emerald-400 disabled:opacity-50">{roles.map(role => <option key={role}>{role}</option>)}</select> : <span className="capitalize text-stone-600">{user.roles.join(', ')}</span>}</td>
+              <td className="px-6 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ring-1 ring-inset ${statusClass[user.status] || statusClass.archived}`}>{user.status}</span></td>
+              <td className="px-6 py-4">{canManage && user.status !== 'archived' && <div className="flex flex-wrap gap-3 text-xs font-medium">{user.status === 'active' && <button disabled={busy} onClick={() => change(user, { status: 'suspended' })} className="text-stone-700 hover:text-stone-900 disabled:opacity-50">Suspend</button>}{user.status === 'suspended' && <button disabled={busy} onClick={() => change(user, { status: 'active' })} className="text-emerald-700 hover:text-emerald-900 disabled:opacity-50">Reactivate</button>}<button disabled={busy} onClick={() => { if (window.confirm(`Archive ${user.email}? This ends their access and cannot be undone.`)) void change(user, { status: 'archived' }); }} className="text-red-700 hover:text-red-900 disabled:opacity-50">{user.status === 'invited' ? 'Cancel invitation' : 'Archive'}</button></div>}</td>
+            </tr>)}</tbody></table></div>
+          )}
+        </section>
+      </div>
+    </WorkspacePage>
+  );
 }

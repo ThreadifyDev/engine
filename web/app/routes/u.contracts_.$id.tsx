@@ -1,11 +1,35 @@
-import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, ArrowRight, CalendarDays, FileText, GitBranch, Layers3, Plus, X } from 'lucide-react';
 import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
+import AgentToggleButton from '~/components/agent/AgentToggleButton';
 import YamlEditor from '~/components/YamlEditor';
-import Alert from '~/components/Alert';
 
+type ContractVersion = { version: number; createdAt?: string };
+
+function displayDate(value?: string) {
+  if (!value) return 'Date unavailable';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? 'Date unavailable'
+    : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function prepareNextVersion(source: string, nextVersion: number) {
+  if (/^\s*Feature:/m.test(source)) {
+    return /^\s*Version:/m.test(source)
+      ? source.replace(/^(\s*Version:\s*)\d+/m, (_match, prefix: string) => prefix + nextVersion)
+      : source.replace(/^(\s*Feature:[^\n]*\n)/m, '$1Version: ' + nextVersion + '\n');
+  }
+  if (/^\s*version:/m.test(source)) return source.replace(/^(\s*version:\s*)\d+/m, (_match, prefix: string) => prefix + nextVersion);
+  try {
+    const data = JSON.parse(source);
+    if (data && typeof data === 'object') return JSON.stringify({ ...data, version: nextVersion }, null, 2);
+  } catch { /* Keep unrecognized source intact. */ }
+  return source;
+}
 
 export default function ContractDetail() {
   const navigate = useNavigate();
@@ -13,231 +37,183 @@ export default function ContractDetail() {
   const queryClient = useQueryClient();
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateYaml, setUpdateYaml] = useState('');
+  const [loadingSource, setLoadingSource] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState('');
   const [updateErrorDetails, setUpdateErrorDetails] = useState<Array<{ field: string; message: string }>>([]);
 
-  // Check authentication
-  const token = api.isAuthenticated();
-  if (!token) {
-    navigate('/login');
-    return null;
-  }
+  useEffect(() => {
+    if (!api.isAuthenticated()) navigate('/login');
+  }, [navigate]);
 
-  const { data: versionsResponse, isLoading, error } = useQuery({
+  const { data: contract, isLoading, error } = useQuery({
     queryKey: ['contract', id, 'versions'],
     queryFn: () => api.getContractVersions(id!),
-    enabled: !!id,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    enabled: !!id && api.isAuthenticated(),
+    staleTime: 5 * 60 * 1000,
   });
+  const versions: ContractVersion[] = contract?.versions || [];
+  const latestVersion = contract?.latestVersion || 0;
 
-  const contract = versionsResponse ? {
-    id: versionsResponse.contractId,
-    name: versionsResponse.name,
-    description: versionsResponse.description,
-    latestVersion: versionsResponse.latestVersion,
-    createdAt: versionsResponse.createdAt,
-    updatedAt: versionsResponse.updatedAt,
-    versions: versionsResponse.versions || []
-  } : null;
+  const openUpdate = async () => {
+    if (!id || !latestVersion) return;
+    setShowUpdateModal(true);
+    setLoadingSource(true);
+    setUpdateError('');
+    setUpdateErrorDetails([]);
+    try {
+      const current = await api.getContractVersion(id, String(latestVersion));
+      const source = current?.source ?? current?.yamlContent ?? '';
+      setUpdateYaml(prepareNextVersion(source, latestVersion + 1));
+    } catch (cause) {
+      setUpdateError(cause instanceof Error ? cause.message : 'Could not load the current source. You can paste a new version below.');
+    } finally {
+      setLoadingSource(false);
+    }
+  };
 
-  const handleUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const closeUpdate = () => {
+    setShowUpdateModal(false);
+    setUpdateYaml('');
+    setUpdateError('');
+    setUpdateErrorDetails([]);
+  };
+
+  const handleUpdate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!id || !updateYaml.trim() || updating) return;
     setUpdating(true);
     setUpdateError('');
     setUpdateErrorDetails([]);
-
     try {
-      await api.updateContract(id!, { yaml: updateYaml });
-      // Refresh the contract data
-      queryClient.invalidateQueries({ queryKey: ['contract', id, 'versions'] });
-      setShowUpdateModal(false);
-      setUpdateYaml('');
-    } catch (err) {
-      if (err instanceof ValidationError) {
-        setUpdateError(err.message);
-        setUpdateErrorDetails(err.details || []);
+      await api.updateContract(id, { yaml: updateYaml });
+      await queryClient.invalidateQueries({ queryKey: ['contract', id, 'versions'] });
+      closeUpdate();
+    } catch (cause) {
+      if (cause instanceof ValidationError) {
+        setUpdateError(cause.message);
+        setUpdateErrorDetails(cause.details || []);
       } else {
-        setUpdateError(err instanceof Error ? err.message : 'Failed to update contract');
+        setUpdateError(cause instanceof Error ? cause.message : 'Failed to create a new version');
       }
     } finally {
       setUpdating(false);
     }
   };
 
-  if (isLoading) {
-    return (
-      <AppLayout>
-        <div className="min-h-[60vh] flex items-center justify-center">
-          <div className="text-center">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-black"></div>
-            <p className="mt-4 text-black">Loading contract...</p>
-          </div>
-        </div>
-      </AppLayout>
-    );
-  }
-
-  if (error) {
-    return (
-      <AppLayout>
-        <div className="min-h-[60vh] flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-red-600 mb-4">
-              {error instanceof Error ? error.message : 'Failed to load contract'}
-            </p>
-            <button
-              onClick={() => navigate('/u/contracts')}
-              className="text-gray-500 hover:text-gray-700 font-medium transition-colors text-sm"
-            >
-              Back to Contracts
-            </button>
-          </div>
-        </div>
-      </AppLayout>
-    );
-  }
-
   return (
-    <AppLayout>
-      <div className="overflow-auto">
-        <div className="min-w-0 p-4 sm:p-6 lg:p-8">
-          {/* Header */}
-          <div className="mb-12">
-            <button
-              onClick={() => navigate('/u/contracts')}
-              className="text-gray-600 hover:text-gray-900 mb-6 flex items-center text-sm"
-            >
-              ← Back to Contracts
-            </button>
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                  {contract?.name || id || 'Contract Details'}
-                </h1>
-                <p className="text-gray-600">
-                  View contract versions and validation rules
-                </p>
-              </div>
-              <button
-                onClick={() => setShowUpdateModal(true)}
-                className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors text-sm font-medium"
-              >
-                Update Contract
-              </button>
-            </div>
-            
-            {/* Contract Metadata */}
-            <div className="grid grid-cols-4 gap-8 py-6 border-b border-gray-200">
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Latest Version</p>
-                <p className="text-sm text-gray-900 font-medium">v{contract?.latestVersion || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Total Versions</p>
-                <p className="text-sm text-gray-900 font-medium">{contract?.versions?.length || 0}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Created</p>
-                <p className="text-sm text-gray-900 font-medium">
-                  {contract?.createdAt ? new Date(contract.createdAt).toLocaleDateString('en-US', { 
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric'
-                  }) : 'N/A'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Description</p>
-                <p className="text-sm text-gray-900 font-medium">
-                  {contract?.description || 'No description'}
-                </p>
-              </div>
-            </div>
-          </div>
+    <AppLayout hideDesktopHeader>
+      <div className="min-h-screen bg-[#f8f8f6] px-4 py-7 sm:px-7 sm:py-10 lg:px-10">
+        <div className="mx-auto max-w-6xl">
+          <Link to="/u/contracts" className="mb-8 inline-flex items-center gap-2 text-sm font-medium text-stone-500 hover:text-stone-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700">
+            <ArrowLeft className="h-4 w-4" /> All contracts
+          </Link>
 
-          {/* Versions Section */}
-          {contract?.versions && contract.versions.length > 0 && (
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Versions
-              </h2>
-              <div className="space-y-0">
-                {contract.versions.map((version: any) => (
-                  <div
-                    key={version.version}
-                    onClick={() => navigate(`/u/contracts/${id}/versions/${version.version}`)}
-                    className="flex items-center justify-between py-4 border-b border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors px-2 -mx-2"
-                  >
-                    <div className="flex items-center gap-6">
-                      <span className="font-medium text-gray-900">v{version.version}</span>
-                      <span className="text-sm text-gray-500">
-                        {version.createdAt ? new Date(version.createdAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric'
-                        }) : 'N/A'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {isLoading ? (
+            <div role="status" className="space-y-4">
+              <div className="h-28 animate-pulse rounded-2xl bg-stone-200" />
+              <div className="h-72 animate-pulse rounded-2xl bg-stone-200" />
+              <span className="sr-only">Loading contract</span>
             </div>
+          ) : error ? (
+            <div role="alert" className="rounded-xl border border-red-200 bg-white p-6 text-sm text-red-700">
+              {error instanceof Error ? error.message : 'Failed to load contract'}
+            </div>
+          ) : (
+            <>
+              <header className="mb-8 flex flex-wrap items-start justify-between gap-5">
+                <div className="min-w-0">
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Contract overview</p>
+                  <h1 className="break-words text-3xl font-semibold tracking-tight text-stone-950 sm:text-4xl">{contract?.name || id}</h1>
+                  <p className="mt-3 max-w-2xl text-sm leading-6 text-stone-500">{contract?.description && contract.description !== contract.name ? contract.description : 'Versioned rules for this workflow.'}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <AgentToggleButton />
+                  <button type="button" onClick={openUpdate} disabled={!latestVersion}
+                    className="inline-flex items-center gap-2 rounded-lg bg-stone-950 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-stone-800 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
+                    <Plus className="h-4 w-4" /> New version
+                  </button>
+                </div>
+              </header>
+
+              <section aria-label="Contract information" className="mb-8 grid gap-px overflow-hidden rounded-2xl border border-stone-200 bg-stone-200 shadow-sm shadow-stone-200/40 sm:grid-cols-3">
+                <div className="bg-white p-5 sm:p-6">
+                  <div className="mb-5 flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><GitBranch className="h-4 w-4" /></div>
+                  <p className="text-xs text-stone-500">Latest version</p>
+                  <p className="mt-1 text-xl font-semibold tracking-tight text-stone-900">v{latestVersion || '—'}</p>
+                </div>
+                <div className="bg-white p-5 sm:p-6">
+                  <div className="mb-5 flex h-9 w-9 items-center justify-center rounded-lg bg-stone-100 text-stone-600"><Layers3 className="h-4 w-4" /></div>
+                  <p className="text-xs text-stone-500">Published versions</p>
+                  <p className="mt-1 text-xl font-semibold tracking-tight text-stone-900">{versions.length}</p>
+                </div>
+                <div className="bg-white p-5 sm:p-6">
+                  <div className="mb-5 flex h-9 w-9 items-center justify-center rounded-lg bg-stone-100 text-stone-600"><CalendarDays className="h-4 w-4" /></div>
+                  <p className="text-xs text-stone-500">Created</p>
+                  <p className="mt-1 text-xl font-semibold tracking-tight text-stone-900">{displayDate(contract?.createdAt)}</p>
+                </div>
+              </section>
+
+              <section aria-labelledby="versions-heading" className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm shadow-stone-200/40">
+                <div className="flex items-center justify-between border-b border-stone-200 px-5 py-4 sm:px-6">
+                  <div>
+                    <h2 id="versions-heading" className="text-sm font-semibold text-stone-900">Version history</h2>
+                    <p className="mt-1 text-xs text-stone-500">Each published version keeps its own contract source and rules.</p>
+                  </div>
+                  <span className="rounded-md bg-stone-100 px-2 py-1 text-xs font-medium text-stone-600">{versions.length} total</span>
+                </div>
+                {versions.length ? (
+                  <ul className="divide-y divide-stone-100">
+                    {versions.map(version => (
+                      <li key={version.version}>
+                        <Link to={'/u/contracts/' + id + '/versions/' + version.version}
+                          className="group flex items-center gap-4 px-5 py-4 transition-colors hover:bg-stone-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-emerald-700 sm:px-6">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-stone-200 bg-stone-50 text-stone-600"><FileText className="h-4 w-4" /></span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-stone-900">Version {version.version}
+                              {version.version === latestVersion && <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Latest</span>}
+                            </span>
+                            <span className="mt-1 block text-xs text-stone-500">Published {displayDate(version.createdAt)}</span>
+                          </span>
+                          <ArrowRight className="h-4 w-4 shrink-0 text-stone-400 transition-transform group-hover:translate-x-0.5 group-hover:text-stone-700" />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="px-6 py-10 text-sm text-stone-500">No versions are available for this contract.</p>
+                )}
+              </section>
+            </>
           )}
         </div>
       </div>
 
-      {/* Update Contract Modal */}
       {showUpdateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white border-4 border-black p-8 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-            <h2 className="text-2xl font-bold text-black mb-4" style={{ fontFamily: 'Block, sans-serif' }}>
-              Update Contract - Create New Version
-            </h2>
-            <p className="text-gray-600 mb-4">
-              Current version: v{contract?.latestVersion}. The new version will be v{(contract?.latestVersion || 0) + 1}.
-            </p>
-            <form onSubmit={handleUpdate}>
-              <div className="mb-4">
-                <label className="block text-black font-medium mb-2">
-                  Contract source
-                </label>
-                <YamlEditor contractSource
-                  value={updateYaml}
-                  onChange={setUpdateYaml}
-                  placeholder="Paste your updated Gherkin-style contract here..."
-                  height="500px"
-                />
+        <div role="dialog" aria-modal="true" aria-labelledby="update-contract-title" className="fixed inset-0 z-[100] flex items-center justify-center bg-stone-950/50 p-4">
+          <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-stone-200 px-5 py-4 sm:px-6">
+              <div>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">New version</p>
+                <h2 id="update-contract-title" className="text-lg font-semibold text-stone-900">Update {contract?.name}</h2>
+                <p className="mt-1 text-xs text-stone-500">Review the source for v{latestVersion + 1}, then publish it.</p>
               </div>
-              {updateError && (
-                <Alert 
-                  type="error" 
-                  message={updateError} 
-                  details={updateErrorDetails} 
-                  className="mb-4"
-                />
-              )}
-                <div className="flex justify-end items-center gap-6 mt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowUpdateModal(false);
-                      setUpdateYaml('');
-                      setUpdateError('');
-                      setUpdateErrorDetails([]);
-                    }}
-                    className="text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={updating}
-                    className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50"
-                  >
-                    {updating ? 'Updating...' : 'Create New Version'}
-                  </button>
-                </div>
+              <button type="button" onClick={closeUpdate} disabled={updating} aria-label="Close update dialog" className="rounded-lg p-2 text-stone-500 hover:bg-stone-100"><X className="h-4 w-4" /></button>
+            </div>
+            <form onSubmit={handleUpdate} className="min-h-0 overflow-y-auto">
+              <div className="px-5 py-5 sm:px-6">
+                <label className="mb-2 block text-xs font-semibold text-stone-700">Contract source</label>
+                {loadingSource ? <div role="status" className="flex h-72 items-center justify-center rounded-xl bg-stone-50 text-sm text-stone-500">Loading current source…</div> :
+                  <YamlEditor contractSource appearance="soft" value={updateYaml} onChange={setUpdateYaml} placeholder="Paste the next contract version here…" height="min(48vh, 480px)" />}
+                {updateError && <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  <p>{updateError}</p>
+                  {updateErrorDetails.map((detail, index) => <p key={index} className="mt-1">{detail.field}: {detail.message}</p>)}
+                </div>}
+              </div>
+              <div className="flex items-center justify-end gap-3 border-t border-stone-200 bg-stone-50 px-5 py-4 sm:px-6">
+                <button type="button" onClick={closeUpdate} disabled={updating} className="rounded-lg border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-50">Cancel</button>
+                <button type="submit" disabled={loadingSource || updating || !updateYaml.trim()} className="rounded-lg bg-stone-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50">{updating ? 'Publishing…' : 'Publish v' + (latestVersion + 1)}</button>
+              </div>
             </form>
           </div>
         </div>

@@ -44,7 +44,7 @@ export function TraceIngestionTab() {
     finally { setBusy(false); }
   }
 
-  return <section className="max-w-3xl space-y-6 text-gray-900" aria-labelledby="trace-ingestion-title">
+  return <section className="max-w-3xl space-y-6 text-stone-900" aria-labelledby="trace-ingestion-title">
     <header className="flex items-start justify-between gap-4">
       <div>
         <h3 id="trace-ingestion-title" className="text-xl font-semibold tracking-tight">Trace ingestion</h3>
@@ -62,7 +62,7 @@ export function TraceIngestionTab() {
         <span><strong className="mr-1 font-semibold tabular-nums text-gray-900">{saved.dropped_spans.toLocaleString()}</strong> excluded</span>
         <span className="inline-flex items-center gap-1.5 text-xs"><span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${saved.filters.length ? 'bg-emerald-500' : 'bg-gray-300'}`} />{saved.filters.length ? 'Filtering active' : 'All spans allowed'}</span>
       </div>
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
         <div className="p-5 sm:p-6">
           <div className="mb-4 flex items-center justify-between gap-3">
             <label htmlFor="trace-filters" className="text-sm font-semibold">Exclude spans</label>
@@ -94,7 +94,7 @@ export function TraceIngestionTab() {
           <p role="status" className="flex items-center gap-1.5 text-xs text-gray-500">{message ? <><Check size={14} className="text-emerald-600" aria-hidden="true" />{message}</> : !saved.can_manage ? 'Only administrators can edit rules.' : dirty ? 'Unsaved changes' : 'Up to date'}</p>
           {saved.can_manage && <div className="flex items-center gap-3">
             {dirty && <button type="button" disabled={busy} onClick={() => { show(saved); setError(''); setMessage(''); }} className="rounded px-2 py-2 text-sm text-gray-500 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-40">Discard</button>}
-            <button type="button" disabled={busy || !dirty} onClick={save} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 disabled:opacity-40">Save changes</button>
+            <button type="button" disabled={busy || !dirty} onClick={save} className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 disabled:opacity-40">Save changes</button>
           </div>}
         </footer>
       </div>

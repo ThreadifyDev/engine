@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { Check } from 'lucide-react';
 import { api } from '~/lib/api';
-import AppLayout from '~/components/AppLayout';
+import WorkspacePage from '~/components/WorkspacePage';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
 import { useServiceAccounts, useCreateServiceAccount, useToggleServiceAccount, useDeleteServiceAccount } from '~/hooks/useServiceAccounts';
 
@@ -155,8 +155,8 @@ export default function ServiceAccounts() {
   };
 
   return (
-    <AppLayout>
-      <div className="min-w-0 p-4 sm:p-6 lg:p-8">
+    <WorkspacePage eyebrow="Workspace / Developer" title="Service accounts" description="Manage service identities and role based permissions.">
+      <div className="min-w-0">
         {/* Page Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Service Accounts</h1>
@@ -176,7 +176,7 @@ export default function ServiceAccounts() {
         <div className="mb-6">
           <button
             onClick={() => setShowCreateModal(true)}
-            className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
+            className="rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-stone-700"
           >
             + New Service Account
           </button>
@@ -188,7 +188,7 @@ export default function ServiceAccounts() {
             <p className="text-gray-500">Loading service accounts...</p>
           </div>
         ) : serviceAccounts.length === 0 ? (
-          <div className="text-center py-16 bg-white border border-gray-200 rounded-lg">
+          <div className="rounded-2xl border border-stone-200 bg-white py-16 text-center shadow-sm">
             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="text-2xl text-gray-400">SA</span>
             </div>
@@ -198,15 +198,15 @@ export default function ServiceAccounts() {
             </p>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors rounded"
+              className="rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-stone-700"
             >
               Create Your First Service Account
             </button>
           </div>
         ) : (
-          <div className="bg-white border border-gray-200 rounded-lg overflow-x-auto">
+          <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm">
             <table className="w-full min-w-[800px]">
-              <thead className="border-b border-gray-200 bg-gray-50">
+              <thead className="border-b border-stone-100 bg-stone-50">
                 <tr>
                   <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Name</th>
                   <th className="px-4 sm:px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Role</th>
@@ -506,6 +506,6 @@ export default function ServiceAccounts() {
           </div>
         )}
       </div>
-    </AppLayout>
+    </WorkspacePage>
   );
 }

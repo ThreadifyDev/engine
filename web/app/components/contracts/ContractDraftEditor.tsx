@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
-import { ArrowLeft, ArrowUpFromLine, Check, CheckCircle2, FileCode2, Loader2, Play, Sparkles, X, AlertCircle } from 'lucide-react';
+import { ArrowLeft, ArrowUpFromLine, Check, CheckCircle2, FileCode2, Layers3, Loader2, Play, Sparkles, X, AlertCircle } from 'lucide-react';
 import { api, ValidationError } from '~/lib/api';
 import { useAgent } from '~/components/agent/agent-context';
 import YamlEditor from '~/components/YamlEditor';
@@ -23,7 +23,7 @@ export default function ContractDraftEditor({ onSave }: { onSave: () => Promise<
   const [saving, setSaving] = useState(false);
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState('');
-  const [checked, setChecked] = useState<{ revision: number; valid: boolean; errors?: string[] }>();
+  const [checked, setChecked] = useState<{ revision: number; valid: boolean; errors?: string[]; warnings?: string[] }>();
   const fileInput = useRef<HTMLInputElement>(null);
   const revision = useRef(draft.revision);
   revision.current = draft.revision;
@@ -101,9 +101,13 @@ export default function ContractDraftEditor({ onSave }: { onSave: () => Promise<
             <span>Gherkin or YAML · .feature, .yaml, .yml</span><span>{hasSource ? `${draft.source.split('\n').length} lines` : 'Start with a file, an example, or your own rules'}</span>
           </div>
         </div>
-        {(error || preview) && <div role={error || !preview?.valid ? 'alert' : 'status'} className={`mt-4 flex items-start gap-2.5 rounded-lg border px-4 py-3 text-xs leading-relaxed ${error || !preview?.valid ? 'border-red-100 bg-red-50 text-red-700' : 'border-emerald-100 bg-emerald-50/60 text-emerald-800'}`}>
-          {error || !preview?.valid ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
-          <div className="min-w-0 whitespace-pre-wrap">{error || (preview?.valid ? 'Validation passed. Your contract is ready to create.' : 'A few rules need attention.')}{!error && preview?.errors?.map((message, index) => <p key={index} className="mt-1">{message}</p>)}</div>
+        <p className="mt-3 flex items-start gap-2 text-xs leading-5 text-stone-500">
+          <Layers3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-700" />
+          Include a published module by adding <code className="rounded bg-white px-1 font-mono text-stone-700">Include: module_name:1</code> below the feature metadata.
+        </p>
+        {(error || preview) && <div role={error || !preview?.valid ? 'alert' : 'status'} className={`mt-4 flex items-start gap-2.5 rounded-lg border px-4 py-3 text-xs leading-relaxed ${error || !preview?.valid ? 'border-red-100 bg-red-50 text-red-700' : preview?.warnings?.length ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-100 bg-emerald-50/60 text-emerald-800'}`}>
+          {error || !preview?.valid || preview?.warnings?.length ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+          <div className="min-w-0 whitespace-pre-wrap">{error || (preview?.valid ? preview?.warnings?.length ? 'Deterministic validation passed. Review the warning before creating this contract.' : 'Validation passed. Your contract is ready to create.' : 'A few rules need attention.')}{!error && preview?.errors?.map((message, index) => <p key={index} className="mt-1">{message}</p>)}{!error && preview?.warnings?.map((message, index) => <p key={index} className="mt-1">{message}</p>)}</div>
         </div>}
         <div className="mt-5 flex flex-wrap items-center justify-between gap-4 pb-4">
           <div className="text-xs text-stone-400">{agentEnabled && !agentOpen ? <button type="button" onClick={openAgent} className={`inline-flex items-center gap-1.5 rounded text-stone-500 hover:text-stone-800 ${focus}`}><Sparkles className="h-3.5 w-3.5" strokeWidth={1.5} />Get help with your draft</button> : 'Changes stay in your draft until you create it.'}</div>

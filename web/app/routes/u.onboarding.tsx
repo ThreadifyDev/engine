@@ -126,35 +126,26 @@ export default function Onboarding() {
   };
 
   return (
-    <div className="relative min-h-screen bg-white flex items-center justify-center px-4 py-12">
+    <div className="relative flex min-h-screen items-center justify-center bg-[#f8f8f6] px-4 py-12">
       <div className="absolute right-4 top-4"><AgentToggleButton /></div>
-      <div className="max-w-md w-full space-y-8">
-        {/* Header */}
-        <div className="text-center">
-          <h1 className="text-4xl font-bold text-black" style={{ fontFamily: 'Block, monospace' }}>
-            Threadify
-          </h1>
-          <div className="mt-6">
-            {!skipCompanyStep && (
-              <div className="flex items-center justify-center gap-2 mb-4">
-                <div className={`w-8 h-8 flex items-center justify-center border-2 ${step === 1 ? 'bg-black text-white border-black' : 'border-gray-300 text-gray-400'} font-bold`}>
-                  1
-                </div>
-                <div className="w-12 h-0.5 bg-gray-300"></div>
-                <div className={`w-8 h-8 flex items-center justify-center border-2 ${step === 2 ? 'bg-black text-white border-black' : 'border-gray-300 text-gray-400'} font-bold`}>
-                  2
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+      <div className="w-full max-w-xl">
+        <header className="mb-7 text-center">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Welcome / Setup</p>
+          <h1 className="text-3xl font-semibold tracking-tight text-stone-950 sm:text-4xl">Set up your workspace</h1>
+          <p className="mt-3 text-sm text-stone-500">A few details help tailor your Threadify experience.</p>
+          {!skipCompanyStep && <div className="mt-6 flex items-center justify-center gap-2" aria-label={`Step ${step} of 2`}>
+            <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${step === 1 ? 'bg-emerald-700 text-white' : 'bg-emerald-50 text-emerald-700'}`}>1</span>
+            <span className="h-px w-12 bg-stone-200" />
+            <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${step === 2 ? 'bg-emerald-700 text-white' : 'bg-stone-100 text-stone-500'}`}>2</span>
+          </div>}
+        </header>
 
         {/* Step 1: Personal Information */}
         {step === 1 && (
-          <form className="space-y-6" onSubmit={handleNext}>
-            <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-black">Tell us about yourself</h2>
-              <p className="mt-2 text-sm text-gray-600">
+          <form className="space-y-6 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8" onSubmit={handleNext}>
+            <div className="mb-6 border-b border-stone-100 pb-5">
+              <h2 className="text-xl font-semibold tracking-tight text-stone-900">Tell us about yourself</h2>
+              <p className="mt-1 text-sm text-stone-500">
                 This helps us personalize your Threadify experience
               </p>
             </div>
@@ -164,7 +155,7 @@ export default function Onboarding() {
             <div className="space-y-4">
               {/* Full Name */}
               <div>
-                <label htmlFor="full_name" className="block text-sm font-medium text-black mb-1">
+                <label htmlFor="full_name" className="mb-2 block text-sm font-medium text-stone-700">
                   Full Name <span className="text-red-600">*</span>
                 </label>
                 <input
@@ -175,14 +166,14 @@ export default function Onboarding() {
                   minLength={2}
                   value={formData.full_name}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                   placeholder="John Doe"
                 />
               </div>
 
               {/* Job Role */}
               <div>
-                <label htmlFor="job_role" className="block text-sm font-medium text-black mb-1">
+                <label htmlFor="job_role" className="mb-2 block text-sm font-medium text-stone-700">
                   Job Role <span className="text-red-600">*</span>
                 </label>
                 <select
@@ -191,7 +182,7 @@ export default function Onboarding() {
                   required
                   value={formData.job_role}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                 >
                   <option value="">Select role</option>
                   <option value="Software Engineer">Software Engineer</option>
@@ -207,7 +198,7 @@ export default function Onboarding() {
               {/* Job Role Other */}
               {formData.job_role === 'Other' && (
                 <div>
-                  <label htmlFor="job_role_other" className="block text-sm font-medium text-black mb-1">
+                  <label htmlFor="job_role_other" className="mb-2 block text-sm font-medium text-stone-700">
                     Please specify your role <span className="text-red-600">*</span>
                   </label>
                   <input
@@ -218,7 +209,7 @@ export default function Onboarding() {
                     minLength={2}
                     value={formData.job_role_other}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
+                    className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                     placeholder="Enter your job role"
                   />
                 </div>
@@ -226,17 +217,17 @@ export default function Onboarding() {
             </div>
 
             {/* Buttons */}
-            <div className="flex gap-4">
+            <div className="flex gap-3 border-t border-stone-100 pt-5">
               <button
                 type="button"
                 onClick={handleSkip}
-                className="flex-1 text-red-700 hover:text-red-800 font-medium transition-colors text-sm"
+                className="flex-1 rounded-lg border border-stone-200 px-4 py-2.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
               >
                 Skip for now
               </button>
               <button
                 type="submit"
-                className="flex-1 bg-black text-white py-3 px-4 rounded-xl font-medium hover:bg-gray-800 transition-all border-2 border-black"
+                className="flex-1 rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-stone-700"
               >
                 {skipCompanyStep ? 'Complete Setup' : 'Continue'}
               </button>
@@ -246,10 +237,10 @@ export default function Onboarding() {
 
         {/* Step 2: Company Information */}
         {step === 2 && (
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-black">About your company</h2>
-              <p className="mt-2 text-sm text-gray-600">
+          <form className="space-y-6 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8" onSubmit={handleSubmit}>
+            <div className="mb-6 border-b border-stone-100 pb-5">
+              <h2 className="text-xl font-semibold tracking-tight text-stone-900">About your company</h2>
+              <p className="mt-1 text-sm text-stone-500">
                 Help us understand your use case and tailor recommendations
               </p>
             </div>
@@ -259,7 +250,7 @@ export default function Onboarding() {
             <div className="space-y-4">
               {/* Industry */}
               <div>
-                <label htmlFor="industry" className="block text-sm font-medium text-black mb-1">
+                <label htmlFor="industry" className="mb-2 block text-sm font-medium text-stone-700">
                   Industry <span className="text-red-600">*</span>
                 </label>
                 <select
@@ -268,7 +259,7 @@ export default function Onboarding() {
                   required
                   value={formData.industry}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                 >
                   <option value="">Select industry</option>
                   <option value="E-commerce">E-commerce</option>
@@ -285,7 +276,7 @@ export default function Onboarding() {
               {/* Industry Other */}
               {formData.industry === 'Other' && (
                 <div>
-                  <label htmlFor="industry_other" className="block text-sm font-medium text-black mb-1">
+                  <label htmlFor="industry_other" className="mb-2 block text-sm font-medium text-stone-700">
                     Please specify <span className="text-red-600">*</span>
                   </label>
                   <input
@@ -296,7 +287,7 @@ export default function Onboarding() {
                     minLength={2}
                     value={formData.industry_other}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
+                    className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                     placeholder="Enter your industry"
                   />
                 </div>
@@ -304,7 +295,7 @@ export default function Onboarding() {
 
               {/* Company Size */}
               <div>
-                <label htmlFor="company_size" className="block text-sm font-medium text-black mb-1">
+                <label htmlFor="company_size" className="mb-2 block text-sm font-medium text-stone-700">
                   Company Size <span className="text-red-600">*</span>
                 </label>
                 <select
@@ -313,7 +304,7 @@ export default function Onboarding() {
                   required
                   value={formData.company_size}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                 >
                   <option value="">Select size</option>
                   <option value="small">Small (1-10 employees)</option>
@@ -325,7 +316,7 @@ export default function Onboarding() {
 
               {/* Use Case */}
               <div>
-                <label htmlFor="use_case" className="block text-sm font-medium text-black mb-1">
+                <label htmlFor="use_case" className="mb-2 block text-sm font-medium text-stone-700">
                   What will you use Threadify for? <span className="text-red-600">*</span>
                 </label>
                 <select
@@ -334,7 +325,7 @@ export default function Onboarding() {
                   required
                   value={formData.use_case}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                 >
                   <option value="">Select use case</option>
                   <option value="Order Fulfillment">Order Fulfillment & Tracking</option>
@@ -352,7 +343,7 @@ export default function Onboarding() {
               {/* Use Case Other */}
               {formData.use_case === 'Other' && (
                 <div>
-                  <label htmlFor="use_case_other" className="block text-sm font-medium text-black mb-1">
+                  <label htmlFor="use_case_other" className="mb-2 block text-sm font-medium text-stone-700">
                     Please describe your use case <span className="text-red-600">*</span>
                   </label>
                   <input
@@ -363,7 +354,7 @@ export default function Onboarding() {
                     minLength={5}
                     value={formData.use_case_other}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border-2 border-black rounded-xl focus:outline-none focus:ring-2 focus:ring-black outline-none transition-all bg-white font-medium"
+                    className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                     placeholder="Describe what you'll monitor with Threadify"
                   />
                 </div>
@@ -371,18 +362,18 @@ export default function Onboarding() {
             </div>
 
             {/* Buttons */}
-            <div className="flex gap-4">
+            <div className="flex gap-3 border-t border-stone-100 pt-5">
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 text-gray-500 hover:text-gray-700 font-medium transition-colors text-sm"
+                className="flex-1 rounded-lg border border-stone-200 px-4 py-2.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
               >
                 Back
               </button>
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 bg-black text-white py-3 px-4 rounded-xl font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all border-2 border-black"
+                className="flex-1 rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? 'Completing...' : 'Complete Setup'}
               </button>
