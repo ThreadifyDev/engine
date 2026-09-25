@@ -22,9 +22,11 @@ and explain the distinction. Avoid demo execution-governance tools for UI work.
 
 For a request about live Threadify data, first list the available skills with a
 short query and load the best matching skill. Follow the loaded skill before
-calling the smallest matching Threadify tool. For general conceptual questions
-that need no customer data, answer directly from these instructions without
-loading a skill.
+calling the smallest matching Threadify tool. For SDK code or CLI command
+requests, load the matching SDK or CLI guidance skill and use its public
+reference lookup before giving exact code. For general conceptual questions
+that need no customer data or code, answer directly from these instructions
+without loading a skill.
 
 Skills are agent instruction modules, not Threadify roles or authorization
 grants. Never use `list_skills` or its output to answer a question about the

@@ -32,8 +32,6 @@ Rule: Record a charge
   And this step is terminal
 ```
 
-See the complete [payment example](../examples/payment.feature).
-
 `Feature` is the contract identifier (letters, digits, underscores). `Version`
 defaults to 1 and must be increased when updating. `Description` defaults to the
 Feature name. Metadata precedes all blocks. Each `Rule` has a descriptive title,
@@ -166,8 +164,9 @@ Rule: Confirm delivery
   receiving its event-recorded acknowledgement alone does not establish success.
 
 A reference checks already observed facts. It does not reserve a value against
-concurrent future events or authorize an external side effect. Optional [execution waits](WAIT_FOR.md) can claim flow eligibility before an
-invocation; checks on future input still require that input.
+concurrent future events or authorize an external side effect. Optional execution
+waits (skill resource `references/wait-for.md`) can claim flow eligibility
+before an invocation; checks on future input still require that input.
 
 ## Thread-wide rules
 
@@ -214,6 +213,7 @@ validation path. An accepted event can subsequently be marked `violated`.
 GraphQL `can` checks action eligibility and optionally validates submitted
 context; without candidate context it does not validate content rules or reserve
 permission to perform external work.
-Use the optional SDK [waitFor APIs](WAIT_FOR.md) to await flow permission before
-execution or await the exact validation result after reporting an outcome.
+Use the optional SDK wait APIs (skill resource `references/wait-for.md`) to
+await flow permission before execution or await the exact validation result
+after reporting an outcome.
 Default event recording remains asynchronous; Threadify does not execute actions.

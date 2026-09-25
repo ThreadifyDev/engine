@@ -7,6 +7,8 @@ description: Create, revise, review, or explain a Threadify Gherkin contract usi
 
 1. Read `references/gherkin.md` for the exact supported language. Do not emit
    arbitrary Gherkin, YAML, scenarios, expressions, or content-based branching.
+   Load `references/wait-for.md` only when the user asks about execution waits
+   or permission claims.
 2. For an existing thread/contract, recover its identity with get_page_context
    or a typed search, then read it with get_thread/get_contract. Use
    get_contract_graph to explain executable dependencies and transitions.

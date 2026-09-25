@@ -33,6 +33,7 @@ page context, or model messages. The browser does not handle bearer tokens.
 | `list_contracts`, `get_contract`, `get_contract_graph` | Read contract source, versions, and the authored graph. |
 | `search_threads`, `get_oldest_thread`, `get_thread`, `get_contract_violations` | Inspect observed execution and validation failures. |
 | `list_entity_profile_types`, `list_entity_profiles`, `get_entity_profile` | Discover profile types and inspect entities. |
+| `get_developer_reference` | Read current public SDK and CLI guides from fixed official source paths for language-specific code and commands. |
 
 Server tools use fixed GraphQL documents or REST paths; they do not expose arbitrary
 queries or mutations. Frontend tools use an allowlist of shared handlers, not DOM

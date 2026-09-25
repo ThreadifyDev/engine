@@ -13,6 +13,7 @@ def test_compiled_agent_has_threadify_tool(agent, tools):
         "get_thread",
         "get_entity_profile",
         "get_contract_violations",
+        "get_developer_reference",
     }
     compiled = {item.__name__: item for item in agent.tools}
     assert direct.issubset(tools)
