@@ -54,6 +54,8 @@ func (h *HTTPServer) Wrap(next http.Handler) http.Handler {
 			h.revoke(w, r)
 		case r.URL.Path == "/.well-known/oauth-authorization-server" && r.Method == http.MethodGet:
 			h.metadata(w, r)
+		case (r.URL.Path == "/.well-known/oauth-protected-resource/sse" || r.URL.Path == "/.well-known/oauth-protected-resource") && r.Method == http.MethodGet:
+			h.resourceMetadata(w, r)
 		case r.URL.Path == "/v1/oauth/clients" && r.Method == http.MethodPost:
 			h.createClient(w, r)
 		case r.URL.Path == "/v1/oauth/clients" && r.Method == http.MethodGet:
@@ -245,8 +247,19 @@ func (h *HTTPServer) revoke(w http.ResponseWriter, r *http.Request) {
 }
 func (h *HTTPServer) metadata(w http.ResponseWriter, r *http.Request) {
 	base := strings.TrimRight(h.PublicURL, "/")
-	jsonReply(w, 200, map[string]any{"issuer": base, "authorization_endpoint": base + "/oauth/authorize", "token_endpoint": base + "/oauth/token", "revocation_endpoint": base + "/oauth/revoke", "response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"}})
+	jsonReply(w, 200, map[string]any{"issuer": base, "authorization_endpoint": base + "/oauth/authorize", "token_endpoint": base + "/oauth/token", "revocation_endpoint": base + "/oauth/revoke", "response_types_supported": []string{"code"}, "grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"}, "token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"}, "scopes_supported": PilotScopes()})
 }
+func (h *HTTPServer) resourceMetadata(w http.ResponseWriter, r *http.Request) {
+	base := strings.TrimRight(h.PublicURL, "/")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	jsonReply(w, http.StatusOK, map[string]any{
+		"resource":                 base + "/sse",
+		"authorization_servers":    []string{base},
+		"scopes_supported":         []string{ScopeMCPRead},
+		"bearer_methods_supported": []string{"header"},
+	})
+}
+
 func (h *HTTPServer) createClient(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	actor, admin, err := h.browserActor(r)

@@ -121,7 +121,7 @@ func TestThreadifySharedOAuthFlowAndLiveRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(tokens.AccessToken, "toat_") || !strings.HasPrefix(tokens.RefreshToken, "tort_") || len(tokens.Scope) != 1 || tokens.Scope[0] != ScopeContractReadAll || store.code.SubjectID != "threadify-user-1" {
+	if !strings.HasPrefix(tokens.AccessToken, "toat_") || !strings.HasPrefix(tokens.RefreshToken, "tort_") || len(tokens.Scope) != 2 || tokens.Scope[0] != ScopeContractReadAll || tokens.Scope[1] != ScopeMCPRead || store.code.SubjectID != "threadify-user-1" {
 		t.Fatalf("unexpected Threadify token result: %+v", tokens)
 	}
 	if _, err := service.Token(t.Context(), tokenRequest); !errors.Is(err, oauthserver.ErrInvalidGrant) {

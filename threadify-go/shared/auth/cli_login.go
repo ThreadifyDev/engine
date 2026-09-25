@@ -28,7 +28,7 @@ func (s *BrowserService) authenticateCLI(ctx context.Context, key string) (*Toke
 	}
 	var id, kind string
 	var expiry time.Time
-	err := s.pool.QueryRow(ctx, `SELECT c.principal_id,c.principal_type,c.expires_at FROM threadify_cli_credentials c WHERE c.token_hash=$1 AND c.company_id=$2 AND c.installation_id=$3 AND c.expires_at>$4 AND c.revoked_at IS NULL AND c.auth_generation=$5 AND (c.source_key_id IS NULL OR EXISTS(SELECT 1 FROM api_keys k WHERE k.id=c.source_key_id AND k.company_id=c.company_id AND k.is_active AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>$4)))`, browserHash(key), s.registry.CompanyID(), s.registry.InstallationID(), s.now().UTC(), s.signed("generation", "v1")).Scan(&id, &kind, &expiry)
+	err := s.pool.QueryRow(ctx, `SELECT c.principal_id,c.principal_type,c.expires_at FROM threadify_cli_credentials c WHERE c.token_hash=$1 AND c.company_id=$2 AND c.installation_id=$3 AND c.expires_at>$4 AND c.revoked_at IS NULL AND c.auth_generation=$5 AND (c.source_key_id IS NULL OR EXISTS(SELECT 1 FROM api_keys k WHERE k.id=c.source_key_id AND k.company_id=c.company_id AND k.is_active AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>($4::timestamptz AT TIME ZONE current_setting('TimeZone')))))`, browserHash(key), s.registry.CompanyID(), s.registry.InstallationID(), s.now().UTC(), s.signed("generation", "v1")).Scan(&id, &kind, &expiry)
 	if err != nil {
 		return nil, ErrBrowserAuth
 	}

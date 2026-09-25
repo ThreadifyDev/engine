@@ -631,7 +631,11 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 
 	// MCP.
 	sseGroup := r.Group("/sse")
-	sseGroup.Use(middleware.AuthMiddleware(svcs.auth, middleware.AuthAPIKey))
+	sseGroup.Use(func(c *gin.Context) {
+		c.Set("oauth_resource_metadata", strings.TrimRight(cfg.Server.PublicURL, "/")+"/.well-known/oauth-protected-resource/sse")
+		c.Next()
+	})
+	sseGroup.Use(middleware.AuthMiddleware(svcs.auth, middleware.AuthDual))
 	sseGroup.Use(middleware.CreditUsageMiddleware(svcs.plan, logger))
 	mountMCPServer(sseGroup, cfg, svcs.plan, logger)
 

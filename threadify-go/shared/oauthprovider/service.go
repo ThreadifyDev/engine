@@ -2,11 +2,13 @@ package oauthprovider
 
 import "github.com/Usefused/fused-open-core/oauthserver"
 
-// Initial delegated access is limited to contract reads. The allowlist is a
-// product decision and remains in Threadify, outside fused-open-core.
-const ScopeContractReadAll = "contract.read.*"
+// Threadify owns the delegated scope allowlist. The OAuth protocol stays in fused-open-core.
+const (
+	ScopeContractReadAll = "contract.read.*"
+	ScopeMCPRead         = "query.execution.read"
+)
 
-func PilotScopes() []string { return []string{ScopeContractReadAll} }
+func PilotScopes() []string { return []string{ScopeContractReadAll, ScopeMCPRead} }
 
 var Prefixes = oauthserver.Prefixes{
 	ClientID: "toc_", ClientSecret: "tos_", AccessToken: "toat_", RefreshToken: "tort_",

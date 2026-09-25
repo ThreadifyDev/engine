@@ -20,6 +20,7 @@ func TestOAuthAccessCannotReachNonReadRoutes(t *testing.T) {
 		{http.MethodGet, "/v1/users"},
 		{http.MethodGet, "/v1/contracts/c1/versions"},
 		{http.MethodPost, "/graphql"},
+		{http.MethodPost, "/sse"},
 		{http.MethodGet, "/v1/agent/status"},
 	} {
 		t.Run(scenario.method+scenario.path, func(t *testing.T) {
