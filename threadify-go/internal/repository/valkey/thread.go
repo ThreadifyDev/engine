@@ -3,6 +3,7 @@ package valkey
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,7 +13,10 @@ import (
 	apperrors "github.com/threadify/engine/internal/utils/errors"
 	"github.com/threadify/engine/internal/workerpool"
 	"go.uber.org/zap"
+	serror "threadify-go/shared/errors"
 )
+
+var ErrThreadTerminal = errors.New("thread already terminal")
 
 // ThreadRepository handles thread storage in Valkey (Redis)
 type ThreadRepository struct {
@@ -101,6 +105,7 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string, opts ...dom
 
 	// Try Valkey first (hot data)
 	thread, err := r.getFromValkey(ctx, threadID)
+	cachedTerminal := errors.Is(err, ErrThreadTerminal)
 
 	if err == nil && thread != nil {
 		r.logger.Info("Thread retrieved from cache", zap.String("thread_id", threadID), zap.String("source", "valkey"))
@@ -110,6 +115,9 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string, opts ...dom
 	// Fallback to PostgreSQL (cold data)
 	if r.postgresRepo == nil {
 		r.logger.Error("PostgreSQL repository not configured, cannot fallback", zap.String("thread_id", threadID))
+		if cachedTerminal {
+			return nil, ErrThreadTerminal
+		}
 		return nil, fmt.Errorf("thread not found: %s", threadID)
 	}
 
@@ -118,7 +126,29 @@ func (r *ThreadRepository) Get(ctx context.Context, threadID string, opts ...dom
 	// REUSE: GetWithRefs already exists from GraphQL implementation
 	thread, err = r.postgresRepo.GetWithRefs(ctx, threadID)
 	if err != nil {
+		if cachedTerminal {
+			if errors.Is(err, serror.ErrThreadNotFound) {
+				return nil, ErrThreadTerminal
+			}
+			return nil, fmt.Errorf("get terminal thread from postgres: %w", err)
+		}
 		return nil, apperrors.NewNotFoundError(apperrors.MsgThreadNotFound, err)
+	}
+
+	// The Valkey status hash can outlive the JSON snapshot and be newer than
+	// archival storage. Keep its terminal state authoritative on cold reads.
+	if cachedTerminal {
+		meta, err := r.valkey.HGetAll(ctx, r.getThreadMetaKey(threadID))
+		if err != nil {
+			return nil, fmt.Errorf("get terminal thread status: %w", err)
+		}
+		if !isTerminalThreadStatus(meta["status"]) {
+			return nil, ErrThreadTerminal
+		}
+		thread.Status = domain.ThreadStatus(meta["status"])
+		if completedAt, err := time.Parse(time.RFC3339Nano, meta["completedAt"]); err == nil {
+			thread.CompletedAt = &completedAt
+		}
 	}
 
 	r.logger.Info("Thread retrieved from PostgreSQL", zap.String("thread_id", threadID))
@@ -155,6 +185,9 @@ func (r *ThreadRepository) getFromValkey(ctx context.Context, threadID string) (
 	}
 
 	if data == "" {
+		if meta, metaErr := r.valkey.HGetAll(ctx, metaKey); metaErr == nil && isTerminalThreadStatus(meta["status"]) {
+			return nil, ErrThreadTerminal
+		}
 		return nil, fmt.Errorf("thread not found: %s", threadID)
 	}
 
@@ -196,6 +229,15 @@ func (r *ThreadRepository) getFromValkey(ctx context.Context, threadID string) (
 	}
 
 	return thread, nil
+}
+
+func isTerminalThreadStatus(status string) bool {
+	switch status {
+	case "completed", "cancelled", "closed", "failed":
+		return true
+	default:
+		return false
+	}
 }
 
 // Delete removes a thread from Valkey
@@ -316,12 +358,32 @@ func (r *ThreadRepository) UpdateThreadStatus(ctx context.Context, threadID stri
 			zap.String("thread_id", threadID),
 			zap.String("current_status", currentStatus),
 			zap.String("attempted_status", status))
+		if currentStatus == status {
+			return r.mirrorThreadStatus(ctx, threadID, status, timestamp)
+		}
 		return nil
+	}
+
+	if err := r.mirrorThreadStatus(ctx, threadID, status, timestamp); err != nil {
+		return err
 	}
 
 	r.logger.Debug("thread status updated atomically",
 		zap.String("thread_id", threadID),
 		zap.String("new_status", status))
+	return nil
+}
+
+// Mirror can be retried when Valkey has already reached the requested status.
+func (r *ThreadRepository) mirrorThreadStatus(ctx context.Context, threadID, status string, timestamp time.Time) error {
+	if r.postgresRepo != nil {
+		if err := r.postgresRepo.UpdateThreadStatus(ctx, threadID, status, timestamp); err != nil {
+			if !errors.Is(err, serror.ErrThreadNotFound) {
+				return fmt.Errorf("postgres thread status update failed: %w", err)
+			}
+			r.logger.Debug("postgres thread row not yet available for status mirror", zap.String("thread_id", threadID), zap.Error(err))
+		}
+	}
 	return nil
 }
 

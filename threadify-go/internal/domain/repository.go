@@ -225,6 +225,8 @@ type ActivityRepository interface {
 type OTelTraceCorrelationRepository interface {
 	GetThreadID(ctx context.Context, companyID, traceID string) (string, error)
 	SetThreadIDIfAbsent(ctx context.Context, companyID, traceID, threadID string) (bool, error)
+	IsTraceCompleted(ctx context.Context, companyID, traceID string) (bool, error)
+	MarkTraceCompleted(ctx context.Context, companyID, traceID string) error
 	AcquireCreationLock(ctx context.Context, companyID, traceID, token string) (bool, error)
 	ReleaseCreationLock(ctx context.Context, companyID, traceID, token string) error
 	GetSpanState(ctx context.Context, companyID, traceID, spanID string) (string, error)

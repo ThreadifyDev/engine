@@ -37,7 +37,8 @@ func (s *ThreadService) CompleteTraceForIngestion(ctx context.Context, threadID,
 	if err != nil {
 		return err
 	}
-	if !isOwnedOTelThread(thread, companyID, traceID) || thread.Status == domain.ThreadStatusCancelled {
+	if !isOwnedOTelThread(thread, companyID, traceID) ||
+		(thread.Status != domain.ThreadStatusActive && thread.Status != domain.ThreadStatusCompleted) {
 		return nil
 	}
 	if s.natsArchivalPublisher == nil {
@@ -58,6 +59,11 @@ func (s *ThreadService) CompleteTraceForIngestion(ctx context.Context, threadID,
 	}
 	if err := s.repo.UpdateThreadStatus(ctx, threadID, ThreadStatusCompleted, endedAt); err != nil {
 		return err
+	}
+	if s.otelTrace != nil {
+		if err := s.otelTrace.correlations.MarkTraceCompleted(ctx, companyID, traceID); err != nil {
+			return err
+		}
 	}
 	s.cacheManager.ClearThreadCache(threadID)
 	return nil

@@ -111,6 +111,7 @@ type fakeOTelCorrelationRepository struct {
 	mu          sync.Mutex
 	threads     map[string]string
 	createLocks map[string]string
+	completed   map[string]bool
 	spans       map[string]string
 	err         error
 }
@@ -118,6 +119,7 @@ type fakeOTelCorrelationRepository struct {
 func newFakeOTelCorrelationRepository() *fakeOTelCorrelationRepository {
 	return &fakeOTelCorrelationRepository{
 		threads:     make(map[string]string),
+		completed:   make(map[string]bool),
 		createLocks: make(map[string]string),
 		spans:       make(map[string]string),
 	}
@@ -152,6 +154,25 @@ func (f *fakeOTelCorrelationRepository) SetThreadIDIfAbsent(_ context.Context, c
 	}
 	f.threads[key] = threadID
 	return true, nil
+}
+
+func (f *fakeOTelCorrelationRepository) IsTraceCompleted(_ context.Context, companyID, traceID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.completed[f.traceKey(companyID, traceID)], nil
+}
+
+func (f *fakeOTelCorrelationRepository) MarkTraceCompleted(_ context.Context, companyID, traceID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return f.err
+	}
+	f.completed[f.traceKey(companyID, traceID)] = true
+	return nil
 }
 
 func (f *fakeOTelCorrelationRepository) AcquireCreationLock(_ context.Context, companyID, traceID, token string) (bool, error) {

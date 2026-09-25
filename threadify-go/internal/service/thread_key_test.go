@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/hex"
 	"strings"
 	"sync"
 	"testing"
@@ -101,6 +102,39 @@ func TestThreadKeyClosedThreadsCannotResumeOrReceiveSpans(t *testing.T) {
 			require.Empty(t, writer.records)
 			require.Len(t, writer.starts, 1)
 		}
+	}
+}
+
+func TestTerminalThreadReplaysRecordedSpanButRejectsNewSpan(t *testing.T) {
+	for _, marked := range []bool{false, true} {
+		writer := newFakeOTelThreadWriter()
+		repo := newFakeOTelCorrelationRepository()
+		svc := NewOTelTraceService(writer, repo, zap.NewNop())
+		batch := correlatedExport(1, "threadify.thread_key", "session")
+		ctx := context.Background()
+		first, err := svc.Ingest(ctx, batch, "owner", "company")
+		require.NoError(t, err)
+		require.Nil(t, first.PartialSuccess)
+		require.Len(t, writer.records, 1)
+
+		if marked {
+			traceID := hex.EncodeToString(batch.ResourceSpans[0].ScopeSpans[0].Spans[0].TraceId)
+			require.NoError(t, repo.MarkTraceCompleted(ctx, "company", traceID))
+		} else {
+			writer.statuses[writer.starts[0].ThreadID] = domain.ThreadStatusCompleted
+		}
+
+		replay, err := svc.Ingest(ctx, batch, "owner", "company")
+		require.NoError(t, err)
+		require.Nil(t, replay.PartialSuccess)
+		require.Len(t, writer.records, 1)
+
+		newSpan := correlatedExport(1, "threadify.thread_key", "session")
+		newSpan.ResourceSpans[0].ScopeSpans[0].Spans[0].SpanId[0] = 9
+		rejected, err := svc.Ingest(ctx, newSpan, "owner", "company")
+		require.NoError(t, err)
+		require.EqualValues(t, 1, rejected.GetPartialSuccess().GetRejectedSpans())
+		require.Len(t, writer.records, 1)
 	}
 }
 
