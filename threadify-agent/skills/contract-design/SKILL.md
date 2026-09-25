@@ -25,7 +25,8 @@ description: Create, revise, review, or explain a Threadify Gherkin contract usi
    step, then choose `must have succeeded` or `must succeed before each
    invocation` accordingly. A Harnest prompt alone is not a Contract step;
    the host must record an approved outcome under the authorized reviewer.
-5. Call get_page_context to read the current contract draft and revision, then
+5. Navigate to `contracts`, then call get_page_context to read the current
+   contract draft and revision. Then
    open_contract_draft with the complete source and expected revision. Preserve
    user edits; on conflict, read again before proposing a new draft.
 6. Call preview_contract_draft with the returned revision. Repair compiler errors

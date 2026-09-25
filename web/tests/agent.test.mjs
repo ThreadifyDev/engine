@@ -3,14 +3,53 @@ import test from 'node:test';
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 
-const output = await build({ stdin: { contents: "export { harnest } from './app/lib/harnest'; export * from './app/components/agent/client-tools'; export { updateToolActivity } from './app/components/agent/tool-activity';", resolveDir: fileURLToPath(new URL('..', import.meta.url)) }, bundle: true, write: false, format: 'esm', platform: 'node' });
-const { harnest, executeFrontendTool, navigationPath, updateToolActivity } = await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString('base64')}`);
+const output = await build({ stdin: { contents: "export { harnest } from './app/lib/harnest'; export * from './app/components/agent/client-tools'; export { agentInput, connectedPageContext, pageContextForAgent } from './app/components/agent/agent-input'; export { updateToolActivity } from './app/components/agent/tool-activity';", resolveDir: fileURLToPath(new URL('..', import.meta.url)) }, bundle: true, write: false, format: 'esm', platform: 'node' });
+const { harnest, agentInput, connectedPageContext, pageContextForAgent, executeFrontendTool, navigationPath, updateToolActivity } = await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString('base64')}`);
 const call = (name, args = {}, id = 'client-1') => ({ id, callId: 'call-1', name, arguments: args });
 
 test('navigation only targets supported local pages and encodes entity identifiers', () => {
   for (const page of ['https://evil.test', '//evil.test', 'constructor', '__proto__']) assert.throws(() => navigationPath({ page }));
   assert.throws(() => navigationPath({ page: 'contract', id: '../settings' }));
   assert.equal(navigationPath({ page: 'entity_profile', profile_type: 'Customer', ref_key: 'ACME/42' }), '/u/profiles/Customer/ACME%2F42');
+});
+
+test('each page-enabled turn carries the current route, not an earlier page', () => {
+  const context = {
+    title: 'Settings', path: '/u/settings?tab=engine', detail: 'Engine', resource: { tab: 'engine' },
+  };
+  const input = agentInput('can you read this page', context);
+  assert.match(input, /"title":"Settings"/);
+  assert.match(input, /"path":"\/u\/settings\?tab=engine"/);
+  assert.match(input, /"renderedPageContentAvailable":false/);
+  assert.doesNotMatch(input, /\/u\/threads/);
+  assert.equal(agentInput('can you read this page', undefined), 'can you read this page');
+  const settingsContext = pageContextForAgent(context, true, { source: 'Feature: old draft', revision: 4, open: true });
+  assert.equal(settingsContext.pageContentAvailable, false);
+  assert.equal(settingsContext.contractDraft, undefined);
+  assert.equal(pageContextForAgent(context, false, { source: '', revision: 0, open: false }).pageContextEnabled, false);
+});
+
+test('connected Engine page context reads saved settings and rejects a route change', async () => {
+  const context = { title: 'Settings', path: '/u/settings?tab=engine', detail: 'Engine', resource: { tab: 'engine' } };
+  const draft = { source: '', revision: 0, open: false };
+  let reads = 0;
+  const read = async () => { reads++; return { public_url: 'https://engine.example.test', config_public_url: '', source: 'ui' }; };
+  const result = await connectedPageContext(context, true, draft, undefined, read, () => true);
+  assert.deepEqual(result.connectedPageData, {
+    kind: 'engine_settings', read_from: 'engine_settings_api', public_url: 'https://engine.example.test',
+    config_public_url: '', source: 'ui', unsaved_form_values_included: false,
+  });
+  assert.equal(result.contractDraft, undefined);
+  assert.equal(reads, 1);
+  const toolResult = await executeFrontendTool(call('get_page_context'), {
+    getContext: () => connectedPageContext(context, true, draft, undefined, read, () => true),
+  }, new AbortController().signal);
+  assert.equal(toolResult.context.connectedPageData.public_url, 'https://engine.example.test');
+  assert.equal((await connectedPageContext(context, false, draft, undefined, read, () => true)).pageContextEnabled, false);
+  assert.equal(reads, 2);
+  const unavailable = await connectedPageContext(context, true, draft, undefined, async () => { throw new Error('network'); }, () => true);
+  assert.deepEqual(unavailable.connectedPageData, { kind: 'engine_settings', status: 'unavailable' });
+  await assert.rejects(connectedPageContext(context, true, draft, undefined, read, () => false), /page changed/);
 });
 
 test('draft writes fail closed on stale revision and do not publish', async () => {
@@ -32,6 +71,23 @@ test('preview rejects results if the user edits while compilation is in flight',
     getDraft: () => draft, previewDraft: async () => { draft = { ...draft, revision: 2 }; return { valid: true }; },
   }, new AbortController().signal);
   assert.equal(result.error, 'DRAFT_CONFLICT');
+});
+
+test('Engine settings read returns only saved public addresses and reports failures', async () => {
+  const signal = new AbortController().signal;
+  let reads = 0;
+  const host = { getEngineSettings: async () => { reads++; return {
+    public_url: 'https://engine.example.test', config_public_url: 'https://default.example.test',
+    source: 'ui', can_manage: true, endpoints: { mcp: 'https://engine.example.test/sse' },
+  }; } };
+  assert.deepEqual(await executeFrontendTool(call('get_engine_settings'), host, signal), {
+    ok: true, read_from: 'engine_settings_api', public_url: 'https://engine.example.test',
+    config_public_url: 'https://default.example.test', source: 'ui', unsaved_form_values_included: false,
+  });
+  assert.equal(reads, 1);
+  assert.equal((await executeFrontendTool(call('get_engine_settings'), {
+    getEngineSettings: async () => { throw new Error('Engine settings unavailable'); },
+  }, signal)).ok, false);
 });
 
 test('unknown tools and cancelled requests cannot run UI actions', async () => {

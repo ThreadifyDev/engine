@@ -10,7 +10,7 @@ import harnest.lib.identity as identity
 def test_workspace_tools_are_discovered_and_client_stubs_are_not_server_actions(tools):
     for name in ("list_contracts", "get_contract", "get_contract_graph", "list_entity_profiles", "list_entity_profile_types"):
         assert name in tools
-    for name in ("get_page_context", "navigate_ui", "open_contract_draft", "preview_contract_draft"):
+    for name in ("get_page_context", "get_engine_settings", "navigate_ui", "open_contract_draft", "preview_contract_draft"):
         assert getattr(tools[name], "__harnest_client_tool__", False)
 
 

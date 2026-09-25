@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router';
 import AgentSidebar from './AgentSidebar';
 import AgentToggleButton from './AgentToggleButton';
 import { getAgentContext, supportsAgent, type AgentMessage } from './agent-preview';
+import { agentInput, connectedPageContext } from './agent-input';
 import { AgentStateContext } from './agent-context';
 import { harnest, type HarnestStreamEvent } from '~/lib/harnest';
 import { api } from '~/lib/api';
@@ -162,11 +163,23 @@ export default function AgentProvider({ children }: { children: ReactNode }) {
       const session = sessionRef.current ?? (await harnest.createSession(request.slice(0, 70), controller.signal)).id;
       controller.signal.throwIfAborted();
       sessionRef.current = session;
-      await harnest.streamResponse(designer ? `${request}\n\n${profileViewInstructions(designer)}` : request, session, onEvent, controller.signal, async call => {
+      const input = agentInput(designer ? `${request}\n\n${profileViewInstructions(designer)}` : request, includeContext ? context : undefined);
+      await harnest.streamResponse(input, session, onEvent, controller.signal, async call => {
         controller.signal.throwIfAborted();
         toolStatus(`client:${call.id}`, call.name, 'running', true);
         const output = await executeFrontendTool(call, {
-          getContext: () => current.current.includeContext ? { ...current.current.context, contractDraft: draftRef.current, profileViewDraft: profileDesigner.current ? { definition: profileDesigner.current.definition, revision: profileDesigner.current.revision, authoringInstructions: profileViewInstructions(profileDesigner.current) } : undefined } : { pageContextEnabled: false },
+          getContext: () => {
+            const snapshot = current.current;
+            return connectedPageContext(
+              snapshot.context,
+              snapshot.includeContext,
+              draftRef.current,
+              profileDesigner.current ? { definition: profileDesigner.current.definition, revision: profileDesigner.current.revision, authoringInstructions: profileViewInstructions(profileDesigner.current) } : undefined,
+              () => api.getEngineSettings(),
+              () => current.current.includeContext && current.current.context.path === snapshot.context.path,
+            );
+          },
+          getEngineSettings: () => api.getEngineSettings(),
           getDraft: () => draftRef.current,
           writeDraft: source => writeDraft(source, true),
           navigate: async path => {

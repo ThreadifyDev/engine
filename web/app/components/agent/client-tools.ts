@@ -9,6 +9,7 @@ export type ContractDraft = {
 
 export type ClientToolHost = {
   getContext: () => unknown;
+  getEngineSettings: () => Promise<{ public_url: string; config_public_url: string; source: 'config' | 'ui' | 'unset' }>;
   navigate: (path: string) => Promise<void>;
   getDraft: () => ContractDraft;
   writeDraft: (source: string) => ContractDraft;
@@ -36,7 +37,16 @@ export async function executeFrontendTool(call: HarnestClientTool, host: ClientT
   const args = call.arguments;
   try {
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Tool arguments must be an object.');
-    if (call.name === 'get_page_context') return { ok: true, context: host.getContext() };
+    if (call.name === 'get_page_context') {
+      const context = await host.getContext();
+      signal.throwIfAborted();
+      return { ok: true, context };
+    }
+    if (call.name === 'get_engine_settings') {
+      const settings = await host.getEngineSettings();
+      signal.throwIfAborted();
+      return { ok: true, read_from: 'engine_settings_api', public_url: settings.public_url, config_public_url: settings.config_public_url, source: settings.source, unsaved_form_values_included: false };
+    }
     if (call.name === 'navigate_ui') {
       const path = navigationPath(args);
       await host.navigate(path);

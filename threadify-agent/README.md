@@ -26,7 +26,8 @@ page context, or model messages. The browser does not handle bearer tokens.
 
 | Tools | Capability |
 | --- | --- |
-| `get_page_context` | Read the current route, resource identifiers, and local contract draft when page context is enabled. |
+| `get_page_context` | Read the current route, resource identifiers, supported local editor drafts, and connected page data when page context is enabled. Settings → Engine includes the saved URL; rendered text and unsaved edits are unavailable. |
+| `get_engine_settings` | Read the saved public Engine URL from the authenticated Settings API; it cannot read unsaved form edits. |
 | `navigate_ui` | Navigate to allowlisted Threadify screens and selected resources. |
 | `open_contract_draft` | Place Gherkin into the visible contract editor, requiring the latest draft revision. |
 | `preview_contract_draft` | Run the existing Engine compiler preview and show its diagnostics. |

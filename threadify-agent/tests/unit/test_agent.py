@@ -101,6 +101,13 @@ def test_agent_instructions_do_not_conflate_skills_with_permissions():
     assert "HTTP 401/403" in instructions
 
 
+def test_agent_instructions_require_grounded_page_and_engine_answers():
+    instructions = (Path(__file__).resolve().parents[2] / "instructions.md").read_text(encoding="utf-8")
+    assert "rendered page, screenshots" in instructions
+    assert "get_engine_settings" in instructions
+    assert "Do not present an unsaved input as a saved URL" in instructions
+
+
 def test_oldest_thread_uses_bounded_count_then_exact_offset(tools, monkeypatch):
     calls = []
 

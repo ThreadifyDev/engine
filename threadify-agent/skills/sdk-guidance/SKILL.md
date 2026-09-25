@@ -23,8 +23,9 @@ the source gives one. If fetching fails, load the appropriate bundled resource:
 Do not invent an API absent from both references. Ask for the installed SDK
 version when a signature depends on it.
 
-Give a runnable, language-specific example with installation when useful. Use
-the Engine base URL from **Settings → Engine**, a placeholder or environment
+Give a runnable, language-specific example with installation when useful. Call
+`get_engine_settings` for the saved Engine URL; if it is unavailable, use a
+clearly labeled placeholder. Use a placeholder or environment
 variable for the service API key, and the user's real contract, step, and ref
 names when known. Never ask the user to paste a secret. Distinguish an API key
 used by an SDK from a Threadify Registry license. Do not claim to have run the
