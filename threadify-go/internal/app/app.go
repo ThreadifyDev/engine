@@ -225,8 +225,12 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 	hdlrs.otlpTrace.WithIngestionRules(ingestionRules)
 	agent := newAgentConnection(cfg, logger)
 	router := browser.IngestionRulesHandler(ingestionRules, browser.EngineSettingsHandler(cfg.Server.PublicURL, browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger, agent))))
+	appHandler, err := browser.OAuthServer(ctx, rbacLoader, cfg.Server.PublicURL, dashboard.Wrap(browser.Wrap(licensed.WrapEngine(router))))
+	if err != nil {
+		return nil, fmt.Errorf("initialize OAuth server: %w", err)
+	}
 	return &App{
-		Handler: dashboard.Wrap(browser.Wrap(licensed.WrapEngine(router))),
+		Handler: appHandler,
 		infra:   inf,
 		svcs:    svcs,
 		hdlrs:   hdlrs,

@@ -245,6 +245,9 @@ func (s *AuthService) validateApiKeyFromDB(keyHash string) (*domain.UserInfo, er
 }
 
 func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*sharedauth.TokenClaims, error) {
+	if strings.HasPrefix(tokenString, "toat_") {
+		return sharedauth.VerifyOAuthAccess(ctx, tokenString)
+	}
 	// Production browser sessions are local, opaque, and revocable; no provider JWT fallback.
 	if sharedauth.BrowserSessionsEnabled() {
 		return sharedauth.VerifyBrowserSession(ctx, tokenString)

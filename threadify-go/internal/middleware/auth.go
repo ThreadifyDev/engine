@@ -59,6 +59,22 @@ func AuthMiddleware(authSvc domain.AuthService, mode AuthMode) gin.HandlerFunc {
 					}
 				}
 
+				if claims.OAuthAccess {
+					path := c.FullPath()
+					if c.Request.Method != http.MethodGet || (path != "/v1/contracts" && path != "/v1/contracts/:id") {
+						abort(c, "OAuth scope does not permit this route")
+						return
+					}
+					permission := "contract.read.*"
+					if path == "/v1/contracts/:id" {
+						permission = "contract.read." + c.Param("id")
+					}
+					if !sharedauth.OAuthCanUse(c.Request.Context(), claims, permission) {
+						abort(c, "OAuth scope denied")
+						return
+					}
+				}
+
 				if err := registry.Default().CheckCompany(claims.CompanyID); err != nil {
 					abort(c, err.Error())
 					return
