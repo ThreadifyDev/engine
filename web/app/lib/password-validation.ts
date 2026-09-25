@@ -1,4 +1,4 @@
-// Keep these rules aligned with api/internal/validation/auth.go.
+// Keep these rules aligned with threadify-go/shared/management/validation/auth.go.
 export const PASSWORD_REQUIREMENTS =
   'Use at least 12 characters, including uppercase, lowercase, a number, and a special character. No spaces.';
 

@@ -101,9 +101,9 @@ The Docker image is
 
 [Engine development and tests](threadify-go/README.md)
 
-The [public website](homepage/README.md) builds and deploys from `homepage/`.
-The [dashboard](web/README.md) lives in `web/`, separately from marketing and
-Registry signup. CI builds its static assets and embeds them in the Engine.
+The public website and hosted AI gateway are maintained in a separate private
+repository. The [dashboard](web/README.md) lives in `web/`. CI builds its static
+assets and embeds them in the Engine.
 
 The SDKs and CLI are maintained in their linked repositories. Local checkouts in
 `threadify-sdk`, `threadify-sdk-go`, `threadify-sdk-python`, and `threadify-cli` are

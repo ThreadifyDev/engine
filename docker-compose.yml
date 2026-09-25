@@ -144,32 +144,6 @@ services:
   #     start_period: 10s
   #     retries: 3
 
-  # # Threadify public homepage (dashboard is embedded in the Engine)
-  # th_web_ui:
-  #   build:
-  #     context: ./homepage
-  #     dockerfile: Dockerfile
-  #   image: ${WEB_UI_IMAGE:-intelijence/th_web_ui}:latest
-  #   container_name: th_web_ui
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     # Registry signup credentials are supplied only at runtime.
-  #     BACKEND_URL: "${BACKEND_URL:-https://registry.usefused.com}"
-  #     FUSED_SIGNUP_TOKEN: "${FUSED_SIGNUP_TOKEN:-}"
-  #     RECAPTCHA_SITE_KEY: "${RECAPTCHA_SITE_KEY:-}"
-  #     RECAPTCHA_SECRET_KEY: "${RECAPTCHA_SECRET_KEY:-}"
-  #     RECAPTCHA_MIN_SCORE: "${RECAPTCHA_MIN_SCORE:-0.5}"
-  #     NODE_ENV: "production"
-  #   networks:
-  #     - threadify-network
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
-  #     interval: 30s
-  #     timeout: 3s
-  #     retries: 3
-  #     start_period: 10s
 volumes:
   threadify-pg16:
     driver: local

@@ -135,7 +135,8 @@ It requires HTTPS except for loopback tests. The same TLS settings support priva
 CAs and incoming mTLS at the gateway's reverse proxy.
 
 This is opt-in: custom gateways never receive the Threadify license automatically.
-There is no provisioned public URL yet. See the [gateway deployment guide](../threadify-go/api/README.md).
+There is no provisioned public URL yet. The hosted gateway is deployed separately
+from the private Threadify web services repository.
 
 ### Production activation
 

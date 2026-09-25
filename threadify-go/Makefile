@@ -1,14 +1,13 @@
 .PHONY: help install generate-graphql \
-	build build-api build-archiver \
-	build-image build-web-api build-web-ui build-docs \
-	run run-api run-archiver run-docker \
+	build build-archiver \
+	build-image build-docs \
+	run run-archiver run-docker \
 	push publish-engine push-archiver publish-archiver \
-	push-web-api publish-web-api push-web-ui publish-web-ui push-docs \
+	push-docs \
 	test-engine-integration test-engine-coverage \
 	test-archiver test-archiver-coverage \
-	test-api test-api-integration \
 	test-shared test-all \
-	test-coverage-api test-coverage-shared \
+	test-coverage-shared \
 	mocks-engine mocks-shared mocks-all \
 	test-engine \
 	lint fmt clean \
@@ -19,8 +18,6 @@ DOCKER_NAMESPACE ?= intelijence
 DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
 ENGINE_IMAGE ?= $(DOCKER_NAMESPACE)/th-engine
 ARCHIVER_IMAGE ?= $(DOCKER_NAMESPACE)/th-archiver
-WEB_API_IMAGE ?= $(DOCKER_NAMESPACE)/th_web_api
-WEB_UI_IMAGE ?= $(DOCKER_NAMESPACE)/th_web_ui
 
 define publish-multiarch
 	docker buildx build --platform $(DOCKER_PLATFORMS) -f $(1) \
@@ -61,12 +58,6 @@ build: ## Build the combined Threadify binary (engine, broker, persistence)
 	GOMAXPROCS=$(BUILD_PROCS) CGO_ENABLED=0 $(GO) build -p $(BUILD_JOBS) -trimpath -ldflags="-s -w" -o bin/threadify ./cmd/server
 	@echo "✓ Binary created at bin/threadify"
 
-build-api: ## Build the stateless AI gateway binary
-	@echo "Building AI gateway..."
-	@mkdir -p bin
-	cd api && $(GO) build -o ../bin/api cmd/server/main.go
-	@echo "✓ Binary created at bin/api"
-
 build-archiver-binary: ## Build the archiver binary
 	@echo "Building archiver..."
 	@mkdir -p bin
@@ -76,9 +67,6 @@ build-archiver-binary: ## Build the archiver binary
 run: build ## Build and run the server
 	@lsof -ti:8081 | xargs kill -9 2>/dev/null || true
 	./bin/threadify
-
-run-api: build-api ## Run the AI gateway using THREADIFY_AI_* environment settings
-	./bin/api
 
 run-archiver: build-archiver-binary ## Build and run the archiver
 	@lsof -ti:8082 | xargs kill -9 2>/dev/null || true
@@ -103,26 +91,18 @@ test-engine: ## Run all engine tests (unit)
 	@echo "Running engine unit tests..."
 	@$(GO) test $(ENGINE_PKGS) -count=1
 
-test-api-integration: ## Run gateway HTTP, streaming and TLS integration tests
-	@cd api && $(GO) test -race -v ./gateway/... -count=1
-
 test-archiver: ## Run archiver tests
 	@echo "Running archiver tests..."
 	@$(GO) test ./internal/archiver/... -count=1
-
-test-api: ## Run all AI gateway module tests
-	@echo "Running AI gateway tests..."
-	@cd api && $(GO) test ./...
 
 test-shared: ## Run shared module tests
 	@echo "Running shared tests..."
 	@cd shared && $(GO) test ./...
 
-test-all: ## Run all tests (engine + archiver + api + shared)
+test-all: ## Run all tests (engine + archiver + shared)
 	$(MAKE) test-e2e
 	$(MAKE) test-engine-integration
 	$(MAKE) test-archiver
-	$(MAKE) test-api
 	$(MAKE) test-shared
 
 test-archiver-coverage: ## Run archiver tests with HTML coverage
@@ -134,11 +114,6 @@ test-engine-coverage: ## Run engine tests with HTML coverage
 	@echo "Running engine coverage..."
 	@rm -f coverage.out coverage.html
 	@./coverage.sh
-
-test-coverage-api: ## Run AI gateway tests with HTML coverage
-	@echo "Running AI gateway coverage..."
-	@rm -f api/coverage.out api/coverage.html
-	@./coverage_api.sh
 
 test-coverage-shared: ## Run shared module tests with HTML coverage
 	@echo "Running shared coverage..."
@@ -168,8 +143,6 @@ lint: ## Run linter
 fmt: ## Format all code
 	@echo "Formatting root module..."
 	@$(GO) fmt ./...
-	@echo "Formatting api module..."
-	@cd api && $(GO) fmt ./...
 	@echo "Formatting shared module..."
 	@cd shared && $(GO) fmt ./...
 	@echo "Formatting tests module..."
@@ -195,12 +168,6 @@ build-image: ## Build engine Docker image
 build-archiver: ## Build archiver Docker image
 	docker build -f Dockerfile.archiver -t $(ARCHIVER_IMAGE):$(VERSION) .
 
-build-web-api: ## Build Web API Docker image
-	docker build -f Dockerfile.api -t $(WEB_API_IMAGE):$(VERSION) .
-
-build-web-ui: ## Build the public homepage Docker image
-	docker build -f ../homepage/Dockerfile -t $(WEB_UI_IMAGE):$(VERSION) -t $(WEB_UI_IMAGE):latest ../homepage
-
 build-docs: ## Build Documentation Docker image
 	cd ../documentation && docker build -t intelijence/th-docs:$(VERSION) .
 
@@ -216,19 +183,6 @@ push-archiver: ## Push archiver Docker image
 publish-archiver: ## Build and push multi-architecture archiver images
 	$(call publish-multiarch,Dockerfile.archiver,$(ARCHIVER_IMAGE),.)
 
-push-web-api: ## Push Web API Docker image
-	docker push $(WEB_API_IMAGE):$(VERSION)
-
-publish-web-api: ## Build and push multi-architecture Web API images
-	$(call publish-multiarch,Dockerfile.api,$(WEB_API_IMAGE),.)
-
-push-web-ui: ## Push the public homepage Docker image
-	docker push $(WEB_UI_IMAGE):$(VERSION)
-	docker push $(WEB_UI_IMAGE):latest
-
-publish-web-ui: ## Build and push multi-architecture public homepage images
-	$(call publish-multiarch,../homepage/Dockerfile,$(WEB_UI_IMAGE),../homepage)
-
 push-docs: ## Push Documentation Docker image
 	docker push intelijence/th-docs:$(VERSION)
 
@@ -238,7 +192,6 @@ run-docker: ## Run engine in Docker
 clean: ## Remove build artifacts and coverage reports
 	rm -rf bin/
 	rm -f coverage.out coverage.html
-	rm -f api/coverage.out api/coverage.html
 	rm -f shared/coverage.out shared/coverage.html
 	@rm -f shared/coverage.out shared/coverage.html
 	@./coverage_shared.sh

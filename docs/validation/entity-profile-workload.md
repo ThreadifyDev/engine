@@ -21,7 +21,8 @@ The workload took 30.68 seconds, excluding setup and final verification. Permiss
 
 Before reading cacheable metrics, the runner waited for PostgreSQL counts to match the expected runs, completion statuses, steps, violations and failed attempts. It then checked every target thread through GraphQL, resolved the automatically materialized profile, named it without changing its ID, and verified both fresh and cached metric responses. The homepage contains a clearly labelled snapshot, not a live connection to this test Engine.
 
-Evidence: [exported profile and representative runs](../../homepage/public/examples/entity-profile-workload.json).
+Evidence: the exported profile and representative runs are published with the
+homepage at `https://threadify.dev/examples/entity-profile-workload.json`.
 
 ## Bugs found and fixed
 

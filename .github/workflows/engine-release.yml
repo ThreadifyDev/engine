@@ -6,8 +6,6 @@ on:
     tags: ['v*']
     paths:
       - 'threadify-go/**'
-      - '!threadify-go/api/**'
-      - '!threadify-go/tests/api/**'
       - '!threadify-go/**/README.md'
       - '.github/workflows/engine-*.yml'
       - '.github/actions/setup-engine-go/**'
@@ -124,7 +122,7 @@ jobs:
           revision="$RELEASE_TAG"
           if [[ -n "$PREVIOUS_TAG" ]]; then revision="$PREVIOUS_TAG..$RELEASE_TAG"; fi
           git log --format='* %s (%h)' "$revision" -- \
-            threadify-go ':!threadify-go/api' ':!threadify-go/tests/api' \
+            threadify-go \
             ':(glob,exclude)threadify-go/**/README.md' \
             web threadify-agent .nvmrc .github/actions/setup-engine-go \
             .github/workflows/engine-ci.yml .github/workflows/engine-release.yml \

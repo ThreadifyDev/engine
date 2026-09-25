@@ -72,7 +72,6 @@ internal/graphql/    GraphQL schema, generated server, and resolvers
 internal/service/    Engine business logic
 internal/repository/ PostgreSQL and Valkey repositories
 shared/              Shared module: authentication, billing, RBAC, configuration
-api/                 Separate Web API module
 tests/               Integration test module
 ```
 

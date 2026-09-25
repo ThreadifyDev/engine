@@ -4,8 +4,6 @@ on:
   pull_request:
     paths:
       - 'threadify-go/**'
-      - '!threadify-go/api/**'
-      - '!threadify-go/tests/api/**'
       - '!threadify-go/**/README.md'
       - '.github/workflows/engine-*.yml'
       - '.github/actions/setup-engine-go/**'

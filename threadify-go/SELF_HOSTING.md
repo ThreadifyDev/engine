@@ -267,9 +267,8 @@ and dedicated to one broker instance. An explicit `nats.mode: external` connects
 to `nats.url`. Embedded mode is the default; deployments using an existing broker
 must select external mode explicitly, even when a NATS URL is already present.
 
-Use external NATS when running multiple engine replicas, splitting engine and
-writer processes, or when the separate Web API must exchange NATS messages with
-the engine. Configure every participant to use the same broker and compatible
+Use external NATS when running multiple engine replicas or splitting engine and
+writer processes. Configure every participant to use the same broker and compatible
 stream/consumer names:
 
 ```yaml

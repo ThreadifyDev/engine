@@ -115,7 +115,6 @@ Backend:
 ```sh
 (cd threadify-go/shared && go test ./domain ./repository ./management/handlers)
 (cd threadify-go && go test ./internal/app)
-(cd threadify-go/api && go test ./app)
 # Creates and drops a private test schema in the supplied local test database:
 (cd threadify-go/shared && THREADIFY_TEST_DATABASE_URL='<test-dsn>' go test ./repository -run '^TestProfileViewPostgres$' -count=1)
 # Uses disposable PostgreSQL/Valkey and a local Registry fixture:

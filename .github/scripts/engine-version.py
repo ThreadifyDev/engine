@@ -4,10 +4,10 @@ import os
 import re
 import subprocess
 
-# Keep these aligned with the engine workflow path filters. SDK/API/marketing commits
+# Keep these aligned with the engine workflow path filters. SDK and marketing commits
 # must neither create engine releases nor determine their semantic version bump.
 PATHS = [
-    "threadify-go", ":(exclude)threadify-go/api", ":(exclude)threadify-go/tests/api",
+    "threadify-go",
     ":(glob,exclude)threadify-go/**/README.md",
     "web", "threadify-agent", ".nvmrc", ".github/actions/setup-engine-go",
     ".github/workflows/engine-ci.yml", ".github/workflows/engine-release.yml",

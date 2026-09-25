@@ -63,8 +63,7 @@ class EngineVersionTests(unittest.TestCase):
         self.commit("feat: initial")
         self.git("tag", "v1.0.0")
         for path in (
-            "homepage/main.ts", "threadify-go/api/main.go", "threadify-go/tests/api/test.go",
-            "threadify-sdk-go/sdk.go", "README.md", "threadify-go/README.md",
+            "homepage/main.ts", "threadify-sdk-go/sdk.go", "README.md", "threadify-go/README.md",
             "threadify-go/tests/e2e/README.md",
         ):
             self.commit("feat!: unrelated", path)

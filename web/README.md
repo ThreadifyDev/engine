@@ -2,7 +2,7 @@
 
 A Vite/React single-page app embedded in the Threadify Engine. Open the Engine's
 URL (default `http://localhost:8081`) to sign in. Production needs no Node server.
-The public website and Registry signup live separately in [homepage](../homepage/README.md).
+The [public website](https://threadify.dev) and Registry signup are maintained separately.
 
 ## Develop
 
