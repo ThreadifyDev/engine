@@ -78,7 +78,7 @@ test('Engine settings read returns only saved public addresses and reports failu
   let reads = 0;
   const host = { getEngineSettings: async () => { reads++; return {
     public_url: 'https://engine.example.test', config_public_url: 'https://default.example.test',
-    source: 'ui', can_manage: true, endpoints: { mcp: 'https://engine.example.test/sse' },
+    source: 'ui', can_manage: true, endpoints: { mcp: 'https://engine.example.test/mcp' },
   }; } };
   assert.deepEqual(await executeFrontendTool(call('get_engine_settings'), host, signal), {
     ok: true, read_from: 'engine_settings_api', public_url: 'https://engine.example.test',

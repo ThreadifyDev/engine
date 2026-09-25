@@ -54,7 +54,7 @@ func (h *HTTPServer) Wrap(next http.Handler) http.Handler {
 			h.revoke(w, r)
 		case r.URL.Path == "/.well-known/oauth-authorization-server" && r.Method == http.MethodGet:
 			h.metadata(w, r)
-		case (r.URL.Path == "/.well-known/oauth-protected-resource/sse" || r.URL.Path == "/.well-known/oauth-protected-resource") && r.Method == http.MethodGet:
+		case (r.URL.Path == "/.well-known/oauth-protected-resource/mcp" || r.URL.Path == "/.well-known/oauth-protected-resource/sse" || r.URL.Path == "/.well-known/oauth-protected-resource") && r.Method == http.MethodGet:
 			h.resourceMetadata(w, r)
 		case r.URL.Path == "/v1/oauth/clients" && r.Method == http.MethodPost:
 			h.createClient(w, r)
@@ -251,9 +251,13 @@ func (h *HTTPServer) metadata(w http.ResponseWriter, r *http.Request) {
 }
 func (h *HTTPServer) resourceMetadata(w http.ResponseWriter, r *http.Request) {
 	base := strings.TrimRight(h.PublicURL, "/")
+	resourcePath := "/mcp"
+	if r.URL.Path == "/.well-known/oauth-protected-resource/sse" {
+		resourcePath = "/sse"
+	}
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	jsonReply(w, http.StatusOK, map[string]any{
-		"resource":                 base + "/sse",
+		"resource":                 base + resourcePath,
 		"authorization_servers":    []string{base},
 		"scopes_supported":         []string{ScopeMCPRead},
 		"bearer_methods_supported": []string{"header"},

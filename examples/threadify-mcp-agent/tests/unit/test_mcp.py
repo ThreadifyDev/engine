@@ -11,7 +11,7 @@ def test_mcp_configuration_does_not_capture_credentials(monkeypatch):
     monkeypatch.setenv("THREADIFY_API_KEY", "unit-test-secret-do-not-embed")
     config = connection()
     assert config.transport == "streamable-http"
-    assert config.url == "http://127.0.0.1:8086/sse"
+    assert config.url == "http://127.0.0.1:8086/mcp"
     assert config.headers == {"X-API-Key": "${THREADIFY_API_KEY}"}
     assert "unit-test-secret-do-not-embed" not in repr(config)
     assert config.tool_name_prefix == "threadify"
@@ -19,8 +19,8 @@ def test_mcp_configuration_does_not_capture_credentials(monkeypatch):
 
 
 def test_mcp_endpoint_override(monkeypatch):
-    monkeypatch.setenv("THREADIFY_MCP_URL", "http://127.0.0.1:8083/sse")
-    assert connection().url == "http://127.0.0.1:8083/sse"
+    monkeypatch.setenv("THREADIFY_MCP_URL", "http://127.0.0.1:8083/mcp")
+    assert connection().url == "http://127.0.0.1:8083/mcp"
 
 
 def test_agent_uses_mcp_without_authored_database_tools(agent, tools):

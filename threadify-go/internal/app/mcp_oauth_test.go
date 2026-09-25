@@ -108,13 +108,16 @@ CREATE TABLE api_keys(id varchar(255) PRIMARY KEY, company_id varchar(255), user
 	router.POST("/graphql", middleware.AuthMiddleware(authService, middleware.AuthJWT), func(c *gin.Context) {
 		c.JSON(200, gin.H{"data": gin.H{"threads": gin.H{"threads": []any{}, "totalCount": 0}}})
 	})
-	sse := router.Group("/sse")
-	sse.Use(func(c *gin.Context) {
-		c.Set("oauth_resource_metadata", serverURL+"/.well-known/oauth-protected-resource/sse")
-		c.Next()
-	})
-	sse.Use(middleware.AuthMiddleware(authService, middleware.AuthDual))
-	mountMCPServer(sse, settings, nil, zap.NewNop())
+	for _, path := range []string{"/mcp", "/sse"} {
+		group := router.Group(path)
+		metadataURL := serverURL + "/.well-known/oauth-protected-resource" + path
+		group.Use(func(c *gin.Context) {
+			c.Set("oauth_resource_metadata", metadataURL)
+			c.Next()
+		})
+		group.Use(middleware.AuthMiddleware(authService, middleware.AuthDual))
+		mountMCPServer(group, settings, nil, zap.NewNop())
+	}
 	wrapped, err := browser.OAuthServer(ctx, loader, serverURL, browser.Wrap(router))
 	require.NoError(t, err)
 	server.Config.Handler = wrapped
@@ -198,20 +201,26 @@ CREATE TABLE api_keys(id varchar(255) PRIMARY KEY, company_id varchar(255), user
 	resp.Body.Close()
 	require.NotEmpty(t, tokens.Access)
 
-	resp = request("GET", "/.well-known/oauth-protected-resource/sse", "", "", nil, "")
+	resp = request("GET", "/.well-known/oauth-protected-resource/mcp", "", "", nil, "")
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	resp.Body.Close()
 	require.Equal(t, 200, resp.StatusCode)
-	require.Contains(t, string(body), serverURL+"/sse")
+	require.Contains(t, string(body), serverURL+"/mcp")
 	require.Contains(t, string(body), "query.execution.read")
-	resp = request("POST", "/sse", `{ "jsonrpc":"2.0", "id":1, "method":"initialize", "params":{} }`, "application/json", nil, "")
+	resp = request("GET", "/.well-known/oauth-protected-resource/sse", "", "", nil, "")
+	body, err = io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, 200, resp.StatusCode)
+	require.Contains(t, string(body), serverURL+"/sse")
+	resp = request("POST", "/mcp", `{ "jsonrpc":"2.0", "id":1, "method":"initialize", "params":{} }`, "application/json", nil, "")
 	require.Equal(t, 401, resp.StatusCode)
-	require.Contains(t, resp.Header.Get("WWW-Authenticate"), "/.well-known/oauth-protected-resource/sse")
+	require.Contains(t, resp.Header.Get("WWW-Authenticate"), "/.well-known/oauth-protected-resource/mcp")
 	resp.Body.Close()
 
 	mcpClient := mcp.NewClient(&mcp.Implementation{Name: "oauth-test", Version: "1.0.0"}, nil)
-	transport := &mcp.StreamableClientTransport{Endpoint: serverURL + "/sse", HTTPClient: &http.Client{Transport: mcpBearerTransport{base: http.DefaultTransport, token: tokens.Access}}, DisableStandaloneSSE: true}
+	transport := &mcp.StreamableClientTransport{Endpoint: serverURL + "/mcp", HTTPClient: &http.Client{Transport: mcpBearerTransport{base: http.DefaultTransport, token: tokens.Access}}, DisableStandaloneSSE: true}
 	session, err := mcpClient.Connect(ctx, transport, nil)
 	require.NoError(t, err)
 	defer session.Close()
@@ -228,6 +237,13 @@ CREATE TABLE api_keys(id varchar(255) PRIMARY KEY, company_id varchar(255), user
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 	require.Contains(t, result.Content[0].(*mcp.TextContent).Text, "totalCount")
+
+	legacyTransport := &mcp.StreamableClientTransport{Endpoint: serverURL + "/sse", HTTPClient: transport.HTTPClient, DisableStandaloneSSE: true}
+	legacySession, err := mcp.NewClient(&mcp.Implementation{Name: "legacy-test", Version: "1.0.0"}, nil).Connect(ctx, legacyTransport, nil)
+	require.NoError(t, err)
+	defer legacySession.Close()
+	_, err = legacySession.ListTools(ctx, nil)
+	require.NoError(t, err)
 
 	mutationReq, err := http.NewRequest("POST", serverURL+"/graphql", strings.NewReader(`{"query":"mutation { deleteAllContracts }"}`))
 	require.NoError(t, err)

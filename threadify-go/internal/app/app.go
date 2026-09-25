@@ -629,15 +629,18 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	)
 	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
 
-	// MCP.
-	sseGroup := r.Group("/sse")
-	sseGroup.Use(func(c *gin.Context) {
-		c.Set("oauth_resource_metadata", strings.TrimRight(cfg.Server.PublicURL, "/")+"/.well-known/oauth-protected-resource/sse")
-		c.Next()
-	})
-	sseGroup.Use(middleware.AuthMiddleware(svcs.auth, middleware.AuthDual))
-	sseGroup.Use(middleware.CreditUsageMiddleware(svcs.plan, logger))
-	mountMCPServer(sseGroup, cfg, svcs.plan, logger)
+	// Streamable HTTP MCP. Keep /sse as an alias for existing clients.
+	for _, path := range []string{"/mcp", "/sse"} {
+		group := r.Group(path)
+		metadataURL := strings.TrimRight(cfg.Server.PublicURL, "/") + "/.well-known/oauth-protected-resource" + path
+		group.Use(func(c *gin.Context) {
+			c.Set("oauth_resource_metadata", metadataURL)
+			c.Next()
+		})
+		group.Use(middleware.AuthMiddleware(svcs.auth, middleware.AuthDual))
+		group.Use(middleware.CreditUsageMiddleware(svcs.plan, logger))
+		mountMCPServer(group, cfg, svcs.plan, logger)
+	}
 
 	// Public v1.
 	v1Public := r.Group("/v1")

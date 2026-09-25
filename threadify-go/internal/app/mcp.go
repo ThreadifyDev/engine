@@ -398,5 +398,5 @@ func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, planSvc domain.PlanS
 	r.Any("", acceptPatchMiddleware, pullContextAuthMiddleware(), mcpInitializePatchMiddleware(), gin.WrapH(streamHandler))
 	r.Any("/", acceptPatchMiddleware, pullContextAuthMiddleware(), mcpInitializePatchMiddleware(), gin.WrapH(streamHandler))
 
-	logger.Info("MCP server mounted", zap.String("path", "/sse"))
+	logger.Info("MCP server mounted", zap.String("path", r.BasePath()))
 }

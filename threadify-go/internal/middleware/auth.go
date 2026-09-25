@@ -74,7 +74,7 @@ func AuthMiddleware(authSvc domain.AuthService, mode AuthMode) gin.HandlerFunc {
 						permission = "contract.read.*"
 					case c.Request.Method == http.MethodGet && path == "/v1/contracts/:id":
 						permission = "contract.read." + c.Param("id")
-					case path == "/sse" || path == "/sse/":
+					case path == "/mcp" || path == "/mcp/" || path == "/sse" || path == "/sse/":
 						if hasOAuthScope(claims, "query.execution.read") {
 							permission = "query.execution.read"
 						}
