@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/repository/valkey"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	shderrors "threadify-go/shared/errors"
@@ -99,13 +100,12 @@ func (s *OTelTraceService) bindTrace(ctx context.Context, companyID, traceID, th
 }
 
 // validateCorrelation checks authorization and the persisted contract, including after restarts.
+// Writability is enforced by the write paths (recordEvent, HandleAddRefs) so that
+// idempotent span replays can still be recognized on terminal threads.
 func (s *OTelTraceService) validateCorrelation(ctx context.Context, id, owner, company, contract string) error {
 	thread, err := s.threads.LookupThreadForIngestion(ctx, id, owner, company)
 	if err != nil {
 		return err
-	}
-	if err := writableThread(thread); err != nil {
-		return &permanentOTelError{err: err}
 	}
 	if contract != "" {
 		name, version := parseContractIdentifier(contract)
@@ -137,6 +137,9 @@ func validateThreadKeyRefs(thread *domain.Thread, refs map[string]string) error 
 func (s *ThreadService) LookupThreadForIngestion(ctx context.Context, id, owner, company string) (*domain.Thread, error) {
 	thread, err := s.repo.Get(ctx, id)
 	if err != nil {
+		if errors.Is(err, valkey.ErrThreadTerminal) {
+			return nil, &permanentOTelError{err: errors.New("Cannot add steps to completed thread")}
+		}
 		return nil, err
 	}
 	if thread == nil {
@@ -209,11 +212,23 @@ func (s *OTelTraceService) startSDKThread(ctx context.Context, req *domain.Start
 	if err != nil {
 		return fail(err)
 	}
+	if traceID != "" {
+		completed, err := s.correlations.IsTraceCompleted(ctx, company, traceID)
+		if err != nil {
+			return fail(err)
+		}
+		if completed {
+			return fail(errors.New("Cannot add steps to completed thread"))
+		}
+	}
 	if err := s.validateCorrelation(ctx, id, owner, company, req.ContractName); err != nil {
 		return fail(err)
 	}
 	thread, err := s.threads.LookupThreadForIngestion(ctx, id, owner, company)
 	if err != nil {
+		return fail(err)
+	}
+	if err := writableThread(thread); err != nil {
 		return fail(err)
 	}
 	if ref == "" {

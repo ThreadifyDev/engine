@@ -238,6 +238,10 @@ func (s *OTelTraceService) resolveThread(
 	descriptor otelSpanEnvelope,
 	traceStartedAt uint64,
 ) (string, error) {
+	completed, err := s.correlations.IsTraceCompleted(ctx, companyID, traceID)
+	if err != nil {
+		return "", err
+	}
 	attrs := mergedAttributes(descriptor.resourceAttrs, descriptor.span.GetAttributes())
 	threadKey := attributeString(descriptor.resourceAttrs, "threadify.thread_key")
 	explicitThreadID := attributeString(attrs, "threadify.thread_id")
@@ -252,6 +256,11 @@ func (s *OTelTraceService) resolveThread(
 	existing, err := s.correlations.GetThreadID(ctx, companyID, traceID)
 	if err != nil {
 		return "", err
+	}
+	// A completed trace may resolve its existing binding for idempotent span
+	// replays, but it must never create a new thread after correlation expiry.
+	if completed && existing == "" {
+		return "", &permanentOTelError{err: errors.New("Cannot add steps to completed thread")}
 	}
 	if existing != "" {
 		if (explicitThreadID != "" && explicitThreadID != existing) || (threadKey != "" && existing != correlatedThreadID(companyID, correlationID)) {
@@ -463,6 +472,29 @@ func (s *OTelTraceService) recordSpan(
 			s.logger.Warn("failed to release OTLP span claim", zap.String("trace_id", traceID), zap.String("span_id", spanID), zap.Error(err))
 		}
 	}()
+
+	completed, err := s.correlations.IsTraceCompleted(ctx, companyID, traceID)
+	if err != nil {
+		return false, "", err
+	}
+	if completed {
+		return false, fmt.Sprintf("span %s: Cannot add steps to completed thread", spanID), nil
+	}
+
+	// A completed claim is safe to replay, but a new span must never write to
+	// a terminal thread. The writer also checks this at admission to close the
+	// race between this lookup and the actual write.
+	thread, err := s.threads.LookupThreadForIngestion(ctx, threadID, ownerID, companyID)
+	if err != nil {
+		var permanent *permanentOTelError
+		if errors.As(err, &permanent) {
+			return false, fmt.Sprintf("span %s: %v", spanID, err), nil
+		}
+		return false, "", err
+	}
+	if err := writableThread(thread); err != nil {
+		return false, fmt.Sprintf("span %s: %v", spanID, err), nil
+	}
 
 	attrs := mergedAttributes(envelope.resourceAttrs, span.GetAttributes())
 	stepName := attributeString(keyValueMap(span.GetAttributes()), "threadify.step_name")

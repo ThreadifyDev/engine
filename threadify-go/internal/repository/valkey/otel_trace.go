@@ -56,6 +56,24 @@ func (r *OTelTraceRepository) SetThreadIDIfAbsent(ctx context.Context, companyID
 	return set, nil
 }
 
+func (r *OTelTraceRepository) IsTraceCompleted(ctx context.Context, companyID, traceID string) (bool, error) {
+	state, err := r.valkey.Get(ctx, otelTraceCompletedKey(companyID, traceID))
+	if err == redis.Nil {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("get OTLP trace completion: %w", err)
+	}
+	return state != "", nil
+}
+
+func (r *OTelTraceRepository) MarkTraceCompleted(ctx context.Context, companyID, traceID string) error {
+	if err := r.valkey.Set(ctx, otelTraceCompletedKey(companyID, traceID), "done", r.mapTTL); err != nil {
+		return fmt.Errorf("mark OTLP trace completed: %w", err)
+	}
+	return nil
+}
+
 func (r *OTelTraceRepository) AcquireCreationLock(ctx context.Context, companyID, traceID, token string) (bool, error) {
 	acquired, err := r.valkey.SetNX(ctx, otelTraceLockKey(companyID, traceID), token, r.lockTTL)
 	if err != nil {
@@ -128,6 +146,10 @@ func otelTraceKey(companyID, traceID string) string {
 
 func otelTraceLockKey(companyID, traceID string) string {
 	return otelTraceKey(companyID, traceID) + ":create"
+}
+
+func otelTraceCompletedKey(companyID, traceID string) string {
+	return otelTraceKey(companyID, traceID) + ":completed"
 }
 
 func otelSpanKey(companyID, traceID, spanID string) string {
