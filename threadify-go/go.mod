@@ -3,6 +3,7 @@ module github.com/threadify/engine
 go 1.26
 
 require (
+	github.com/Usefused/fused-open-core v0.0.0
 	github.com/99designs/gqlgen v0.17.87
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/gin-gonic/gin v1.11.0
@@ -113,3 +114,5 @@ require (
 )
 
 replace threadify-go/shared => ./shared
+
+replace github.com/Usefused/fused-open-core => ../../fused-open-core
