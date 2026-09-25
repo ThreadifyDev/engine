@@ -11,6 +11,7 @@ is enabled; external agents do not install dependencies in the Engine.
 
 Selecting local and external modes together is an error. `ai.enabled: false`
 disables the agent and cannot be combined with `--with-agent`.
+When configured, the browser shows one agent launcher on every signed-in page.
 
 ## Local agent
 

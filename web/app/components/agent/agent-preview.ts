@@ -4,9 +4,8 @@ import { pages } from '~/routes';
 
 export type AgentContext = { title: string; path: string; detail?: string; resource?: Record<string, string | undefined> };
 
-export function supportsAgent(pathname: string, search: string): boolean {
-  if (pathname === '/u/settings') return new URLSearchParams(search).get('tab') === 'traces';
-  return pages.some(page => page.agentSupported && matchPath(page.path, pathname));
+export function supportsAgent(pathname: string): boolean {
+  return pages.some(page => page.path.startsWith('/u/') && matchPath(page.path, pathname));
 }
 export type PreviewTask = 'contract' | 'extraction' | 'investigation';
 export type AgentMessage = {

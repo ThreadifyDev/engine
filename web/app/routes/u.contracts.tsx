@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router';
 import { ArrowRight, FileText, Layers3, Plus, Search, Trash2 } from 'lucide-react';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
-import AgentToggleButton from '~/components/agent/AgentToggleButton';
 import ContractDraftEditor from '~/components/contracts/ContractDraftEditor';
 import { useAgent } from '~/components/agent/agent-context';
 
@@ -85,7 +84,7 @@ export default function Contracts() {
   };
 
   return (
-    <AppLayout hideDesktopHeader>
+    <AppLayout>
       <div className="min-h-screen bg-[#f8f8f6] px-4 py-7 sm:px-7 sm:py-10 lg:px-10">
         <div className="mx-auto max-w-6xl">
           {contractDraft.open ? <ContractDraftEditor onSave={handleCreate} /> : (
@@ -97,7 +96,6 @@ export default function Contracts() {
                   <p className="mt-3 max-w-xl text-sm leading-6 text-stone-500">Define workflow rules, compose reusable contracts, and publish versions your threads can rely on.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <AgentToggleButton />
                   <button type="button" onClick={() => setContractEditorOpen(true)}
                     className="inline-flex items-center gap-2 rounded-lg bg-stone-950 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-stone-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
                     <Plus className="h-4 w-4" /> New contract

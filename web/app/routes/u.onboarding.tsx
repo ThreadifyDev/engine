@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { api, ValidationError } from '~/lib/api';
 import Alert from '~/components/Alert';
-import AgentToggleButton from '~/components/agent/AgentToggleButton';
 
 
 export default function Onboarding() {
@@ -127,7 +126,6 @@ export default function Onboarding() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-[#f8f8f6] px-4 py-12">
-      <div className="absolute right-4 top-4"><AgentToggleButton /></div>
       <div className="w-full max-w-xl">
         <header className="mb-7 text-center">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Welcome / Setup</p>

@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { Check } from 'lucide-react';
 import { api } from '~/lib/api';
-import AgentToggleButton from '~/components/agent/AgentToggleButton';
 
 
 export default function GettingStarted() {
@@ -128,7 +127,6 @@ export default function GettingStarted() {
       <div className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <span className="text-sm font-semibold tracking-tight text-stone-900">Threadify</span>
-          <AgentToggleButton />
         </div>
       </div>
 

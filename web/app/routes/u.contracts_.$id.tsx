@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, CalendarDays, FileText, GitBranch, Layers3, Plus, X } from 'lucide-react';
 import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
-import AgentToggleButton from '~/components/agent/AgentToggleButton';
 import YamlEditor from '~/components/YamlEditor';
 
 type ContractVersion = { version: number; createdAt?: string };
@@ -102,7 +101,7 @@ export default function ContractDetail() {
   };
 
   return (
-    <AppLayout hideDesktopHeader>
+    <AppLayout>
       <div className="min-h-screen bg-[#f8f8f6] px-4 py-7 sm:px-7 sm:py-10 lg:px-10">
         <div className="mx-auto max-w-6xl">
           <Link to="/u/contracts" className="mb-8 inline-flex items-center gap-2 text-sm font-medium text-stone-500 hover:text-stone-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700">
@@ -128,7 +127,6 @@ export default function ContractDetail() {
                   <p className="mt-3 max-w-2xl text-sm leading-6 text-stone-500">{contract?.description && contract.description !== contract.name ? contract.description : 'Versioned rules for this workflow.'}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <AgentToggleButton />
                   <button type="button" onClick={openUpdate} disabled={!latestVersion}
                     className="inline-flex items-center gap-2 rounded-lg bg-stone-950 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-stone-800 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">
                     <Plus className="h-4 w-4" /> New version

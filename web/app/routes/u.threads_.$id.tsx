@@ -151,7 +151,7 @@ export default function ThreadDetailPage() {
   }
 
   return (
-    <AppLayout hideDesktopHeader={false}>
+    <AppLayout>
       <div className="min-h-screen min-w-0 w-full overflow-x-hidden bg-gray-50 p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto">
           <ThreadHeader thread={thread} />

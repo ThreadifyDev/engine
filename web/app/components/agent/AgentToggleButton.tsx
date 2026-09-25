@@ -1,7 +1,7 @@
 import { Sparkles } from 'lucide-react';
 import { useAgent } from './agent-context';
 
-export default function AgentToggleButton({ dark = false }: { dark?: boolean }) {
+export default function AgentToggleButton() {
   const { isEnabled, agentStatus, isOpen, isSupported, openAgent } = useAgent();
   if (!isEnabled || !isSupported || isOpen) return null;
   return (
@@ -9,8 +9,8 @@ export default function AgentToggleButton({ dark = false }: { dark?: boolean }) 
       aria-label="Ask agent"
       aria-controls="threadify-agent" aria-expanded={isOpen}
       title={agentStatus.status === 'ready' ? 'Ask agent (⌘/Ctrl+J)' : agentStatus.status === 'starting' ? 'Agent is starting' : 'Agent is unavailable — check connection'}
-      className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${dark ? 'text-stone-300 hover:bg-stone-800 hover:text-white' : 'text-stone-400 hover:bg-stone-50 hover:text-stone-600'}`}>
-      <Sparkles className="h-[18px] w-[18px]" strokeWidth={1.4} />
+      className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-30 flex h-12 w-12 items-center justify-center rounded-full bg-[#172e28] text-white shadow-lg transition-colors hover:bg-[#25463d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 sm:right-6">
+      <Sparkles className="h-5 w-5" strokeWidth={1.6} />
     </button>
   );
 }

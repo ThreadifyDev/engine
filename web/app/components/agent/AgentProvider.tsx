@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import AgentSidebar from './AgentSidebar';
+import AgentToggleButton from './AgentToggleButton';
 import { getAgentContext, supportsAgent, type AgentMessage } from './agent-preview';
 import { AgentStateContext } from './agent-context';
 import { harnest, type HarnestStreamEvent } from '~/lib/harnest';
@@ -17,7 +18,7 @@ export default function AgentProvider({ children }: { children: ReactNode }) {
   const { status: agentStatus, checking: checkingAgentStatus, refresh: refreshAgentStatus } = useAgentStatus(signedInRoute);
   const enabled = signedInRoute && agentStatus.enabled;
   const isReady = enabled && agentStatus.status === 'ready';
-  const isSupported = supportsAgent(location.pathname, location.search);
+  const isSupported = supportsAgent(location.pathname);
   const [isOpen, setIsOpen] = useState(false);
   const [isCompact, setIsCompact] = useState(() => window.matchMedia('(max-width: 1023px)').matches);
   const [includeContext, setIncludeContext] = useState(true);
@@ -208,6 +209,7 @@ export default function AgentProvider({ children }: { children: ReactNode }) {
   return (
     <AgentStateContext.Provider value={{ isEnabled: enabled, agentStatus, checkingAgentStatus, refreshAgentStatus, registerProfileDesigner, applyProfileProposal, isOpen: visible, isSupported, isCompact, openAgent, closeAgent, context, includeContext, setIncludeContext, messages, composer, setComposer, sendMessage, newConversation, isSending, error, stop, contractDraft, editContractDraft, setContractEditorOpen }}>
       {children}
+      <AgentToggleButton />
       {visible && <AgentSidebar isCompact={isCompact} />}
     </AgentStateContext.Provider>
   );

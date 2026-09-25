@@ -2,7 +2,6 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 
 export type Page = {
   path: string;
-  agentSupported?: boolean;
   title: string | ((params: Readonly<Record<string, string | undefined>>) => string);
   component: LazyExoticComponent<ComponentType>;
 };
@@ -12,15 +11,15 @@ export const pages: Page[] = [
   { path: '/login', title: 'Sign in', component: lazy(() => import('./routes/login')) },
   { path: '/cli-login', title: 'CLI sign in', component: lazy(() => import('./routes/cli-login')) },
   { path: '/u/dashboard', title: 'Dashboard', component: lazy(() => import('./routes/u.dashboard')) },
-  { path: '/u/threads', agentSupported: true, title: 'Threads', component: lazy(() => import('./routes/u.threads')) },
-  { path: '/u/threads/:id', agentSupported: true, title: 'Thread Details', component: lazy(() => import('./routes/u.threads_.$id')) },
-  { path: '/u/contracts', agentSupported: true, title: 'Contracts', component: lazy(() => import('./routes/u.contracts')) },
-  { path: '/u/contracts/:id', agentSupported: true, title: 'Contract', component: lazy(() => import('./routes/u.contracts_.$id')) },
-  { path: '/u/contracts/:id/versions/:version', agentSupported: true, title: 'Contract Version', component: lazy(() => import('./routes/u.contracts_.$id_.versions.$version')) },
-  { path: '/u/profile-views/:type', agentSupported: true, title: params => `${params.type} · Profile configuration`, component: lazy(() => import('./routes/u.profile-views_.$type')) },
-  { path: '/u/profiles', agentSupported: true, title: 'Entity Profiles', component: lazy(() => import('./routes/u.profiles')) },
-  { path: '/u/profiles/:type', agentSupported: true, title: params => `${params.type} · Entity Profiles`, component: lazy(() => import('./routes/u.profiles_.$type')) },
-  { path: '/u/profiles/:type/:refKey', agentSupported: true, title: params => `Profile ${params.refKey}`, component: lazy(() => import('./routes/u.profiles_.$type_.$refKey')) },
+  { path: '/u/threads', title: 'Threads', component: lazy(() => import('./routes/u.threads')) },
+  { path: '/u/threads/:id', title: 'Thread Details', component: lazy(() => import('./routes/u.threads_.$id')) },
+  { path: '/u/contracts', title: 'Contracts', component: lazy(() => import('./routes/u.contracts')) },
+  { path: '/u/contracts/:id', title: 'Contract', component: lazy(() => import('./routes/u.contracts_.$id')) },
+  { path: '/u/contracts/:id/versions/:version', title: 'Contract Version', component: lazy(() => import('./routes/u.contracts_.$id_.versions.$version')) },
+  { path: '/u/profile-views/:type', title: params => `${params.type} · Profile configuration`, component: lazy(() => import('./routes/u.profile-views_.$type')) },
+  { path: '/u/profiles', title: 'Entity Profiles', component: lazy(() => import('./routes/u.profiles')) },
+  { path: '/u/profiles/:type', title: params => `${params.type} · Entity Profiles`, component: lazy(() => import('./routes/u.profiles_.$type')) },
+  { path: '/u/profiles/:type/:refKey', title: params => `Profile ${params.refKey}`, component: lazy(() => import('./routes/u.profiles_.$type_.$refKey')) },
   { path: '/u/team', title: 'Team', component: lazy(() => import('./routes/u.team')) },
   { path: '/u/settings', title: 'Settings', component: lazy(() => import('./routes/u.settings')) },
   { path: '/u/developer', title: 'Developer', component: lazy(() => import('./routes/u.developer')) },

@@ -4,7 +4,6 @@ import { ArrowLeft, CalendarDays, GitBranch, Layers3 } from 'lucide-react';
 import { load } from 'js-yaml';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
-import AgentToggleButton from '~/components/agent/AgentToggleButton';
 import ContractSourceView from '~/components/contracts/ContractSourceView';
 
 type IncludedContract = { name: string; version: number };
@@ -60,7 +59,7 @@ export default function ContractVersionDetail() {
   const validation = versionData?.graph?.graph?.validation;
 
   return (
-    <AppLayout hideDesktopHeader>
+    <AppLayout>
       <div className="min-h-screen bg-[#f8f8f6] px-4 py-7 sm:px-7 sm:py-10 lg:px-10">
         <div className="mx-auto max-w-6xl">
           <Link to={'/u/contracts/' + id} className="mb-8 inline-flex items-center gap-2 text-sm font-medium text-stone-500 hover:text-stone-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700">
@@ -86,7 +85,6 @@ export default function ContractVersionDetail() {
                     <span className="inline-flex items-center gap-1.5 rounded-md border border-stone-200 bg-white px-2.5 py-1.5"><CalendarDays className="h-3.5 w-3.5" /> Published {displayDate(versionData?.createdAt)}</span>
                   </div>
                 </div>
-                <AgentToggleButton />
               </header>
 
               <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_260px]">
