@@ -466,11 +466,11 @@ func (r *ThreadRepository) UpdateThreadStatus(ctx context.Context, threadID, sta
 	_, err = r.pool.Exec(ctx, `
 		UPDATE threads SET
 			status       = $1,
-			closed_at    = CASE WHEN $1 = 'closed'    THEN $2 ELSE closed_at    END,
-			completed_at = CASE WHEN $1 = 'completed' THEN $2 ELSE completed_at END,
+			closed_at    = CASE WHEN $3 THEN $2 ELSE closed_at END,
+			completed_at = CASE WHEN $4 THEN $2 ELSE completed_at END,
 			updated_at   = $2
-		WHERE id = $3`,
-		status, timestamp, threadID,
+		WHERE id = $5`,
+		status, timestamp, status == "closed", status == "completed", threadID,
 	)
 	if err != nil {
 		return fmt.Errorf("update thread status: %w", err)
