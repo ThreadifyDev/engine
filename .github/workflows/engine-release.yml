@@ -9,6 +9,7 @@ on:
       - '!threadify-go/**/README.md'
       - '.github/workflows/engine-*.yml'
       - '.github/actions/setup-engine-go/**'
+      - '.github/actions/setup-private-core/**'
       - '.github/scripts/*engine*'
       - 'install.sh'
       - 'web/**'
@@ -26,6 +27,8 @@ permissions:
 jobs:
   validate:
     uses: ./.github/workflows/engine-ci.yml
+    secrets:
+      FUSED_OPEN_CORE_DEPLOY_KEY: ${{ secrets.FUSED_OPEN_CORE_DEPLOY_KEY }}
 
   tag:
     needs: validate
@@ -87,6 +90,9 @@ jobs:
           fetch-depth: 0
           ref: ${{ needs.tag.outputs.tag }}
       - uses: ./.github/actions/setup-engine-go
+      - uses: ./.github/actions/setup-private-core
+        with:
+          deploy-key: ${{ secrets.FUSED_OPEN_CORE_DEPLOY_KEY }}
       - uses: actions/download-artifact@v8
         with:
           pattern: valkey-*
@@ -124,7 +130,7 @@ jobs:
           git log --format='* %s (%h)' "$revision" -- \
             threadify-go \
             ':(glob,exclude)threadify-go/**/README.md' \
-            web threadify-agent .nvmrc .github/actions/setup-engine-go \
+            web threadify-agent .nvmrc .github/actions/setup-engine-go .github/actions/setup-private-core \
             .github/workflows/engine-ci.yml .github/workflows/engine-release.yml \
             install.sh .github/scripts/test_engine_installer.py \
             .github/scripts/stage-engine-agent.py .github/scripts/test_stage_engine_agent.py \
