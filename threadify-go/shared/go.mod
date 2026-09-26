@@ -3,7 +3,7 @@ module threadify-go/shared
 go 1.25.0
 
 require (
-	github.com/Usefused/fused-open-core v0.0.0
+	github.com/Usefused/fused-open-core v0.0.0-20260925151058-b91e769354ae
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/gin-gonic/gin v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
@@ -72,5 +72,3 @@ require (
 	golang.org/x/tools v0.39.0 // indirect
 	google.golang.org/protobuf v1.36.9 // indirect
 )
-
-replace github.com/Usefused/fused-open-core => ../../../fused-open-core

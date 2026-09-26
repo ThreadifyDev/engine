@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/99designs/gqlgen v0.17.87
-	github.com/Usefused/fused-open-core v0.0.0
+	github.com/Usefused/fused-open-core v0.0.0-20260925151058-b91e769354ae
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/gin-gonic/gin v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -120,5 +120,3 @@ require (
 )
 
 replace threadify-go/shared => ./shared
-
-replace github.com/Usefused/fused-open-core => ../../fused-open-core
