@@ -67,7 +67,7 @@ func TestContractHandler_GetAllContracts(t *testing.T) {
 }
 
 func TestContractHandler_CreateContract(t *testing.T) {
-	validYAML := "contractName: Test\nversion: 1"
+	validSource := "Feature: test_contract\nVersion: 1"
 
 	tests := []struct {
 		name       string
@@ -79,7 +79,7 @@ func TestContractHandler_CreateContract(t *testing.T) {
 		{
 			name:    "success",
 			authIDs: AuthIDs{UserID: testUserID, CompanyID: testCompanyID},
-			body:    validYAML,
+			body:    validSource,
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
 					CreateContract(gomock.Any(), testUserID, testCompanyID, testUserID, gomock.Any()).
@@ -90,14 +90,14 @@ func TestContractHandler_CreateContract(t *testing.T) {
 		{
 			name:       "missing_company_id",
 			authIDs:    AuthIDs{UserID: testUserID},
-			body:       validYAML,
+			body:       validSource,
 			setupMock:  func(d *MockedEngineHandlers) {},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:    "service_error",
 			authIDs: AuthIDs{UserID: testUserID, CompanyID: testCompanyID},
-			body:    validYAML,
+			body:    validSource,
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
 					CreateContract(gomock.Any(), testUserID, testCompanyID, testUserID, gomock.Any()).
@@ -181,7 +181,7 @@ func TestContractHandler_GetContract(t *testing.T) {
 }
 
 func TestContractHandler_PreviewContract(t *testing.T) {
-	validYAML := "contractName: Test"
+	validSource := "Feature: test_contract"
 
 	tests := []struct {
 		name        string
@@ -193,7 +193,7 @@ func TestContractHandler_PreviewContract(t *testing.T) {
 	}{
 		{
 			name: "success_valid",
-			body: validYAML,
+			body: validSource,
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
 					PreviewContract(gomock.Any(), "company", gomock.Any()).
@@ -204,7 +204,7 @@ func TestContractHandler_PreviewContract(t *testing.T) {
 		},
 		{
 			name: "semantic_warning",
-			body: validYAML,
+			body: validSource,
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
 					PreviewContract(gomock.Any(), "company", gomock.Any()).
@@ -216,7 +216,7 @@ func TestContractHandler_PreviewContract(t *testing.T) {
 		},
 		{
 			name: "success_invalid_contract",
-			body: "bad-yaml",
+			body: "bad-source",
 			setupMock: func(d *MockedEngineHandlers) {
 				d.ContractSvc.EXPECT().
 					PreviewContract(gomock.Any(), "company", gomock.Any()).

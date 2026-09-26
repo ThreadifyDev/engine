@@ -210,29 +210,8 @@ const token = await thread.inviteParty({
 });
 ```
 
-### 3. Contract role_defaults
-Defined in contract YAML:
-```yaml
-notification_config:
-  role_defaults:
-    merchant: "owner"
-    logistics: "participant"
-    auditor: "observer"
-```
-
-### 4. Contract default_scope
-Fallback defined in contract:
-```yaml
-notification_config:
-  default_scope: "participant"
-```
-
-### 5. System default_scope (Lowest Priority)
-Global fallback from `config.yaml`:
-```yaml
-notification_system:
-  default_scope: "participant"
-```
+### 3. System default_scope (Lowest Priority)
+Global fallback comes from the Engine's `config.yaml` under `notification_system.default_scope`.
 
 ## Invitation System
 
@@ -316,11 +295,10 @@ Request → API Layer → Thread Layer → Notification Layer
   - `permissions.json` - Permission definitions
 
 ### Contract Configuration
-- **Location**: Contract YAML files
+- **Location**: Gherkin `.feature` contracts
 - **Defines**:
   - Thread-specific role mappings
-  - Notification scopes per role
-  - Custom role permissions
+  - Step owners and business context
 
 ### System Configuration
 - **Location**: `/threadify-go/config/config.yaml`

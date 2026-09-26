@@ -14,17 +14,17 @@ import (
 
 // Rule is persisted with the contract and graph so preview and runtime use the same checks.
 type Reference struct {
-	Step  string `yaml:"step" json:"step"`
-	Field string `yaml:"field" json:"field"`
+	Step  string `json:"step"`
+	Field string `json:"field"`
 }
 
 // Rule holds a literal operand or an explicit reference, never both.
 type Rule struct {
-	Reference *Reference `yaml:"reference,omitempty" json:"reference,omitempty"`
-	Field     string     `yaml:"field" json:"field"`
-	Operator  string     `yaml:"operator" json:"operator"`
-	Value     string     `yaml:"value,omitempty" json:"value,omitempty"`
-	Values    []string   `yaml:"values,omitempty" json:"values,omitempty"`
+	Reference *Reference `json:"reference,omitempty"`
+	Field     string     `json:"field"`
+	Operator  string     `json:"operator"`
+	Value     string     `json:"value,omitempty"`
+	Values    []string   `json:"values,omitempty"`
 }
 
 var referenceName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

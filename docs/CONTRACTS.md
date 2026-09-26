@@ -1,319 +1,64 @@
-# Workflow Contracts
+# Workflow contracts
 
+Contracts define the permitted steps, owners, context fields, transitions, and terminal outcomes of a thread. Author them in Threadify's bounded Gherkin language and submit the `.feature` source as `text/plain`.
 
-**New authoring format:** [Gherkin-style contracts](../threadify-go/docs/GHERKIN_CONTRACTS.md) support readable rules and content validation, including regex patterns. YAML below is retained temporarily during migration.
-## Overview
-Contracts define the structure and rules for workflows in Threadify. They specify entry points, allowed transitions, terminal states, timeouts, and business context requirements.
+See the [complete Gherkin reference](../threadify-go/docs/GHERKIN_CONTRACTS.md) and the [product delivery example](../threadify-go/examples/product_delivery.feature).
 
-## Contract Structure
+## Example
 
-```yaml
-contract_name: payment_flow
-version: 3
-description: Complete payment processing workflow
+```gherkin
+Feature: payment_flow
+Version: 1
+Description: Review and settle a payment.
 
-# Entry points - where threads can start
-entry_points:
-  - order_placed
+Background:
+  Given the thread must finish within "1h"
 
-# Parties involved in the workflow
-parties:
-  - merchant
-  - payment_processor
-  - warehouse_manager
+Step: "requested"
+  Description: "The merchant submitted a payment request."
+  Required context: "payment_id" means "Merchant payment identifier."
+  Required context: "amount" means "Amount requested."
+  Optional context: "note" means "Additional payment details."
+  Optional context: "merchant_reference" means "Merchant's external reference."
 
-# Steps in the workflow
-steps:
-  - id: order_placed
-    owner: merchant
-    type: managed
-    timeout: 5m
-    business_context:
-      required:
-        - order_id
-        - customer_id
-        - total_amount
-      optional:
-        - notes
-        - promo_code
+Step: "settled"
+  Description: "The payment processor confirmed settlement."
+  Required context: "settlement_id" means "Processor settlement identifier."
 
-  - id: payment_validation
-    owner: payment_processor
-    type: external
-    timeout: 30s
-    business_context:
-      required:
-        - payment_method
-        - amount
+Rule: Receive the payment request
+  When step "requested" is submitted
+  Then owner must be "merchant"
+  And content "payment_id" must be present
+  And this step is an entry point
+  And next step must be one of "settled"
 
-  - id: payment_validated
-    owner: payment_processor
-    type: managed
-
-  - id: order_cancelled
-    owner: merchant
-    type: managed
-    business_context:
-      required:
-        - cancellation_reason
-
-# Transitions define allowed step sequences
-transitions:
-  - from: order_placed
-    to: [payment_validation]
-    max_retries: 3
-  
-  - from: payment_validation
-    to: [payment_validated, order_cancelled]
-    max_retries: 2
-
-# Terminal steps - where threads end
-terminal_steps:
-  - payment_validated
-  - order_cancelled
-
-# Thread-level settings
-max_duration: 24h
-allow_multiple_terminals: false
+Rule: Settle the payment
+  When step "settled" is submitted
+  Then owner must be "payment_processor"
+  And content "settlement_id" must be present
+  And this step is terminal
 ```
 
-## Step Types
+A `Step` block gives a step its business description and the context fields the Engine may use. Add one `Required context:` or `Optional context:` line per field, repeating either line type for multiple fields. `means "..."` is optional and helps classification. Required fields must be present; optional fields may be absent. Extra submitted context is accepted but is not used as contract facts. Duplicate or conflicting context declarations fail validation. A matching `Rule` defines ownership and executable checks.
 
-### `managed`
-- Fully controlled by the service
-- Can be retried automatically
-- Subject to timeout validation
+Each step has one owner. `next step must be one of` declares immediate transitions. `step "name" must have succeeded` declares an earlier prerequisite without requiring an immediate transition. Background clauses set thread-wide duration, terminal severity, and version locking. Semantic question clauses define bounded classifier checks.
 
-### `external`
-- Depends on external systems
-- May have longer timeouts
-- Retry logic handled externally
+For two or more steps that may run in parallel, give each a `Rule` and use `Step` blocks to describe their business meaning and context. Then add a group using their step names:
 
-### `human_in_loop`
-- Requires human intervention
-- Typically longer timeouts
-- Manual retry/resolution
-
-## Business Context
-
-### Required Fields
-Fields that MUST be present for the step to be valid. Missing required fields will block step execution.
-
-```yaml
-business_context:
-  required:
-    - order_id
-    - customer_id
+```gherkin
+Group: "parallel_reviews"
+  Given parallel steps are "fraud_review", "stock_review"
+  And all parallel steps must succeed
+  And combined duration must be within "5m"
 ```
 
-### Optional Fields
-Fields that are recommended but not mandatory. Missing optional fields generate info-level violations but don't block execution.
+The first clause is required. The success and duration clauses are optional. Each name must refer to a step in the contract. A later step that needs both reviews should list both as prerequisites in its Rule.
 
-```yaml
-business_context:
-  optional:
-    - notes
-    - promo_code
-    - estimated_delivery
-```
+## Publish and update
 
-## Transitions
+- `POST /v1/contracts/preview` validates source and returns a graph without saving.
+- `POST /v1/contracts` creates version 1.
+- `PUT /v1/contracts/{id}` publishes a new version after increasing `Version:`.
+- `GET /v1/contracts/{id}/versions/{version}` returns the source and compiled graph.
 
-### Basic Transition
-```yaml
-transitions:
-  - from: order_placed
-    to: [payment_validation]
-```
-
-### With Retry Limits
-```yaml
-transitions:
-  - from: payment_validation
-    to: [payment_validated, order_cancelled]
-    max_retries: 3
-```
-
-### Multiple Allowed Next Steps
-```yaml
-transitions:
-  - from: payment_validation
-    to: 
-      - payment_validated  # Success path
-      - order_cancelled    # Failure path
-```
-
-## Validation Rules
-
-### Entry Point Validation
-- First step in a thread MUST be an entry point
-- Blocks execution if violated
-- Severity: Critical
-
-### Transition Validation
-- Steps must follow allowed transition paths
-- Invalid transitions generate critical violations
-- Checked atomically in Lua script
-
-### Terminal Step Validation
-- Thread completes when a terminal step succeeds
-- Multiple terminal steps can be reached if `allow_multiple_terminals: true`
-- Default: only one terminal step allowed
-
-### Timeout Validation
-- Steps must complete within specified timeout
-- Generates critical violation if exceeded
-- Timeout starts when step is first recorded
-
-### Retry Limit Validation
-- Steps cannot be retried more than `max_retries` times
-- Tracked per transition
-- Generates critical violation when exceeded
-
-### Business Context Validation
-- Required fields: Blocking validation
-- Optional fields: Non-blocking (info severity)
-
-## Contract Versioning
-
-### Version Field
-```yaml
-version: 3
-```
-
-Contracts use semantic versioning. Breaking changes require a new version number.
-
-### Backward Compatibility
-- Version 3 supports both old (flat array) and new (required/optional) business context formats
-- Older contracts are automatically migrated on load
-
-## Thread Lifecycle with Contracts
-
-```
-1. Thread Created
-   ↓
-2. First Step Validated (must be entry point)
-   ↓
-3. Subsequent Steps Validated (transitions, timeouts, retries)
-   ↓
-4. Terminal Step Reached
-   ↓
-5. Thread Marked Complete
-```
-
-## Non-Contract Workflows
-
-Threads can be created without contracts:
-- No validation rules enforced
-- Steps can be in any order
-- No timeout or retry limits
-- Useful for ad-hoc workflows or logging
-
-## Best Practices
-
-1. **Define clear entry points** - Make it obvious where workflows start
-2. **Use meaningful step names** - Reflect business actions, not technical operations
-3. **Set realistic timeouts** - Account for external system latency
-4. **Limit retry attempts** - Prevent infinite loops
-5. **Document business context** - Explain what each field represents
-6. **Version contracts carefully** - Breaking changes affect all active threads
-7. **Test transitions** - Ensure all paths are valid and reachable
-
-## Examples
-
-### Simple Linear Workflow
-```yaml
-contract_name: simple_order
-entry_points: [order_created]
-steps:
-  - id: order_created
-  - id: order_processed
-  - id: order_shipped
-transitions:
-  - from: order_created
-    to: [order_processed]
-  - from: order_processed
-    to: [order_shipped]
-terminal_steps: [order_shipped]
-```
-
-### Branching Workflow
-```yaml
-contract_name: payment_with_retry
-entry_points: [payment_initiated]
-steps:
-  - id: payment_initiated
-  - id: payment_processing
-  - id: payment_success
-  - id: payment_failed
-transitions:
-  - from: payment_initiated
-    to: [payment_processing]
-  - from: payment_processing
-    to: [payment_success, payment_failed]
-    max_retries: 3
-terminal_steps: [payment_success, payment_failed]
-```
-
-### Multi-Party Workflow
-```yaml
-contract_name: marketplace_order
-parties:
-  - buyer
-  - seller
-  - payment_processor
-  - logistics
-steps:
-  - id: order_placed
-    owner: buyer
-  - id: order_confirmed
-    owner: seller
-  - id: payment_collected
-    owner: payment_processor
-  - id: item_shipped
-    owner: logistics
-```
-
-## Contract Storage
-
-Contracts are stored in:
-- **Development**: YAML files in `/examples/` directory
-- **Production**: Database with versioning support
-- **Runtime**: Cached in memory for performance
-
-## Contract Updates
-
-### Safe Updates
-- Adding new optional fields
-- Adding new terminal steps (if `allow_multiple_terminals: true`)
-- Increasing timeouts
-- Increasing retry limits
-
-### Breaking Updates (require new version)
-- Removing steps
-- Changing required fields
-- Removing transitions
-- Decreasing timeouts or retry limits
-- Changing entry points
-
-## Troubleshooting
-
-### "Invalid entry point" error
-- First step is not in `entry_points` list
-- Solution: Start thread with a valid entry point
-
-### "Invalid transition" violation
-- Step executed out of order
-- Solution: Follow allowed transition paths in contract
-
-### "Retry limit exceeded" violation
-- Step retried too many times
-- Solution: Fix underlying issue or increase `max_retries`
-
-### "Step timeout exceeded" violation
-- Step took longer than allowed
-- Solution: Optimize step execution or increase timeout
-
-### "Multiple terminal states" violation
-- Thread reached multiple terminal steps
-- Solution: Set `allow_multiple_terminals: true` or fix workflow logic
+Submitted contract source must start with `Feature:`. The Engine stores compiled rules as JSON and retains the authored Gherkin source for review.

@@ -10,7 +10,7 @@ The Engine binary runs the server. The client-only binary is `threadify-cli`:
 ```sh
 threadify-cli config set api-url https://threadify.example.com
 threadify-cli login
-threadify-cli contracts create --file contract.yaml
+threadify-cli contracts create --file contract.feature
 ```
 
 The Engine retains `/auth/cli/*`, profile management, contracts, GraphQL and

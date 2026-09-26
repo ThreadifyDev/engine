@@ -241,37 +241,38 @@ paths:
       tags:
         - Contracts
       summary: Create a new contract
-      description: Creates a new contract with version 1 from YAML definition
+      description: Creates a new contract with version 1 from Gherkin source
       operationId: createContract
       security:
         - bearerAuth: []
       requestBody:
         required: true
         content:
-          application/x-yaml:
-            schema:
-              type: string
-              example: |
-                contract_name: payment_processing_v1
-                version: 1
-                description: Payment processing contract
-                parties:
-                  - merchant
-                  - payment_processor
-                steps:
-                  - id: payment_initiated
-                    owner: merchant
-                  - id: payment_complete
-                    owner: payment_processor
-                    depends_on: payment_initiated
-                validation:
-                  max_duration: 10s
-          text/yaml:
-            schema:
-              type: string
           text/plain:
             schema:
               type: string
+              example: |
+                Feature: payment_processing
+                Version: 1
+
+                Step: "payment_initiated"
+                  Description: "The merchant started a payment."
+                  Required context: "payment_id" means "Merchant payment identifier."
+
+                Step: "payment_complete"
+                  Description: "The processor confirmed payment."
+                  Optional context: "provider_reference" means "Processor receipt identifier."
+
+                Rule: Start payment
+                  When step "payment_initiated" is submitted
+                  Then owner must be "merchant"
+                  And this step is an entry point
+                  And next step must be one of "payment_complete"
+
+                Rule: Complete payment
+                  When step "payment_complete" is submitted
+                  Then owner must be "payment_processor"
+                  And this step is terminal
       responses:
         '201':
           description: Contract created successfully
@@ -349,12 +350,6 @@ paths:
       requestBody:
         required: true
         content:
-          application/x-yaml:
-            schema:
-              type: string
-          text/yaml:
-            schema:
-              type: string
           text/plain:
             schema:
               type: string

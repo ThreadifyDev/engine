@@ -7,23 +7,19 @@ import (
 )
 
 func dependencyContract(steps string) string {
-	return `
-contract_name: partial_order
-version: 1
-description: partial order test
-parties: [agent]
-steps:
-` + steps
+	return "Feature: partial_order\nVersion: 1\nDescription: partial order test\n" + steps
 }
 
 func TestContractValidator_AcceptsAndSerializesDependencies(t *testing.T) {
 	validator := NewContractValidator()
-	contract, result := validator.Validate(dependencyContract(`
-  - id: authenticated
-    owner: agent
-  - id: charge
-    owner: agent
-    depends_on: [authenticated]
+	contract, result := validator.Validate(dependencyContract(`Rule: Authenticate
+  When step "authenticated" is submitted
+  Then owner must be "agent"
+  And this step is an entry point
+Rule: Charge
+  When step "charge" is submitted
+  Then owner must be "agent"
+  And step "authenticated" must have succeeded
 `))
 
 	if !result.IsValid {
@@ -52,31 +48,32 @@ func TestContractValidator_RejectsInvalidDependencies(t *testing.T) {
 	}{
 		{
 			name: "unknown dependency",
-			steps: `
-  - id: charge
-    owner: agent
-    depends_on: [missing]
+			steps: `Rule: Charge
+  When step "charge" is submitted
+  Then owner must be "agent"
+  And step "missing" must have succeeded
 `,
 			message: "is not defined",
 		},
 		{
 			name: "self dependency",
-			steps: `
-  - id: charge
-    owner: agent
-    depends_on: [charge]
+			steps: `Rule: Charge
+  When step "charge" is submitted
+  Then owner must be "agent"
+  And step "charge" must have succeeded
 `,
 			message: "cannot depend on itself",
 		},
 		{
 			name: "dependency cycle",
-			steps: `
-  - id: first
-    owner: agent
-    depends_on: [second]
-  - id: second
-    owner: agent
-    depends_on: [first]
+			steps: `Rule: First
+  When step "first" is submitted
+  Then owner must be "agent"
+  And step "second" must have succeeded
+Rule: Second
+  When step "second" is submitted
+  Then owner must be "agent"
+  And step "first" must have succeeded
 `,
 			message: "must not contain a cycle",
 		},

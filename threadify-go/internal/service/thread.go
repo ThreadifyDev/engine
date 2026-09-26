@@ -526,6 +526,36 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 		return errResp(err.Error())
 	}
 
+	var graph *domain.ContractGraph
+	var stepNode domain.GraphNode
+	if thread.ContractName != "" {
+		version := 0
+		if thread.ContractVersion != nil {
+			version = *thread.ContractVersion
+		}
+		t = time.Now()
+		graph, err = s.contractValidator.GetContractGraph(ctx, thread.ContractName, version, thread.CompanyID)
+		metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "contract_validate").Observe(time.Since(t).Seconds())
+		if err != nil {
+			return errResp("failed to load contract")
+		}
+		var exists bool
+		stepNode, exists = graph.Graph.Nodes[req.StepName]
+		if !exists {
+			return errResp(fmt.Sprintf("Step '%s' not found in contract '%s'", req.StepName, thread.ContractName))
+		}
+		registered, extra := registeredStepContext(stepNode, req.Context)
+		req.Context = registered
+		if len(extra) > 0 {
+			metadata := make(map[string]interface{}, len(req.ThreadifyMetadata)+1)
+			for key, value := range req.ThreadifyMetadata {
+				metadata[key] = value
+			}
+			metadata["unregistered_context"] = extra
+			req.ThreadifyMetadata = metadata
+		}
+	}
+
 	t = time.Now()
 	contentHash := ""
 	if len(req.Context) > 0 {
@@ -567,28 +597,7 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 		req.IdempotencyKey = idempotencyKey
 	}
 
-	var graph *domain.ContractGraph
-	var stepNode domain.GraphNode
-
 	if thread.ContractName != "" {
-		version := 0
-		if thread.ContractVersion != nil {
-			version = *thread.ContractVersion
-		}
-
-		t = time.Now()
-		graph, err = s.contractValidator.GetContractGraph(ctx, thread.ContractName, version, thread.CompanyID)
-		metrics.OperationDuration.WithLabelValues(ActionRecordThreadEvent, "contract_validate").Observe(time.Since(t).Seconds())
-		if err != nil {
-			return errResp("failed to load contract")
-		}
-
-		var exists bool
-		stepNode, exists = graph.Graph.Nodes[req.StepName]
-		if !exists {
-			return errResp(fmt.Sprintf("Step '%s' not found in contract '%s'", req.StepName, thread.ContractName))
-		}
-
 		if !s.hasSuccessfulSteps(ctx, thread) {
 			if !slices.Contains(graph.Graph.EntryPoints, req.StepName) {
 				return errResp(fmt.Sprintf("Thread must start with one of the entry points: %v. Attempted step: '%s'", graph.Graph.EntryPoints, req.StepName))

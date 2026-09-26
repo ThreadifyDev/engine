@@ -6,22 +6,24 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/threadify/engine/internal/domain"
+	"github.com/threadify/engine/internal/dto"
+	"github.com/threadify/engine/internal/mapper"
 	"github.com/threadify/engine/internal/service"
+	"github.com/threadify/engine/pkg/validator"
 )
 
-func TestGraphBuilder_BuildGraph_YAML_DerivesTransitionsEntryAndTerminal(t *testing.T) {
-	b := service.NewGraphBuilder()
+func graphInput(t *testing.T, contract domain.ContractDefinition) []byte {
+	t.Helper()
+	content, err := json.Marshal(contract)
+	require.NoError(t, err)
+	return content
+}
 
-	content := []byte(`
-contract_name: test
-parties: [merchant, processor]
-steps:
-  - id: s1
-    owner: merchant
-  - id: s2
-    role: processor
-    depends_on: [s1]
-`)
+func TestGraphBuilder_BuildGraph_DerivesTransitionsEntryAndTerminal(t *testing.T) {
+	b := service.NewGraphBuilder()
+	content := graphInput(t, domain.ContractDefinition{ContractName: "test", Parties: []string{"merchant", "processor"}, Steps: []domain.Step{
+		{ID: "s1", Owner: "merchant"}, {ID: "s2", Role: "processor", DependsOn: []string{"s1"}},
+	}})
 
 	graph, err := b.BuildGraph(content)
 	require.NoError(t, err)
@@ -44,21 +46,10 @@ steps:
 func TestGraphBuilder_BuildGraph_KeepsStrictTransitionsSeparateFromDependencies(t *testing.T) {
 	b := service.NewGraphBuilder()
 
-	content := []byte(`
-contract_name: test
-parties: [agent]
-steps:
-  - id: authenticated
-    owner: agent
-  - id: unrelated
-    owner: agent
-  - id: charge
-    owner: agent
-    depends_on: [authenticated]
-transitions:
-  - from: unrelated
-    to: [charge]
-`)
+	content := graphInput(t, domain.ContractDefinition{ContractName: "test", Parties: []string{"agent"}, Steps: []domain.Step{
+		{ID: "authenticated", Owner: "agent"}, {ID: "unrelated", Owner: "agent"},
+		{ID: "charge", Owner: "agent", DependsOn: []string{"authenticated"}},
+	}, Transitions: []domain.Transition{{From: "unrelated", To: []string{"charge"}}}})
 
 	graph, err := b.BuildGraph(content)
 	require.NoError(t, err)
@@ -70,7 +61,7 @@ transitions:
 func TestGraphBuilder_BuildGraph_JSON_Succeeds(t *testing.T) {
 	b := service.NewGraphBuilder()
 
-	contract := domain.ContractYAML{
+	contract := domain.ContractDefinition{
 		ContractName: "c",
 		Parties:      []string{},
 		Steps: []domain.Step{
@@ -88,6 +79,31 @@ func TestGraphBuilder_BuildGraph_JSON_Succeeds(t *testing.T) {
 	require.Empty(t, graph.Transitions)
 }
 
+func TestGraphBuilder_PreservesStepDescriptionInStoredGraph(t *testing.T) {
+	content := []byte(`Feature: checkout
+Version: 1
+Description: Checkout workflow
+Rule: Authorize payment
+  When step "payment_authorized" is submitted
+  Then owner must be "merchant"
+  And step description is "The customer's payment has been approved by the payment provider."
+  And this step is an entry point
+`)
+	contract, result := validator.NewContractValidator().Validate(string(content))
+	require.True(t, result.IsValid, "%+v", result.Errors)
+	_, serializedContent, err := validator.NewContractValidator().SerializeContract(contract)
+	require.NoError(t, err)
+	graph, err := service.NewGraphBuilder().BuildGraph([]byte(serializedContent))
+	require.NoError(t, err)
+	require.Equal(t, "The customer's payment has been approved by the payment provider.", graph.Graph.Nodes["payment_authorized"].Description)
+
+	stored, err := json.Marshal(mapper.ToContractGraphDTO(graph))
+	require.NoError(t, err)
+	var restored dto.ContractGraphDTO
+	require.NoError(t, json.Unmarshal(stored, &restored))
+	require.Equal(t, graph.Graph.Nodes["payment_authorized"].Description, mapper.FromContractGraphDTO(&restored).Graph.Nodes["payment_authorized"].Description)
+}
+
 func TestGraphBuilder_BuildGraph_InvalidInputErrors(t *testing.T) {
 	b := service.NewGraphBuilder()
 
@@ -96,21 +112,17 @@ func TestGraphBuilder_BuildGraph_InvalidInputErrors(t *testing.T) {
 	require.Contains(t, err.Error(), "failed to parse contract")
 }
 
+func TestGraphBuilderRejectsYamlContract(t *testing.T) {
+	_, err := service.NewGraphBuilder().BuildGraph([]byte("contract_name: old_contract\nversion: 1\nsteps: []\n"))
+	require.Error(t, err)
+}
+
 func TestGraphBuilder_BuildGraph_ValidatesParties(t *testing.T) {
 	b := service.NewGraphBuilder()
 
-	content := []byte(`
-contract_name: test
-parties: [merchant]
-steps:
-  - id: s1
-    owner: merchant
-  - id: s2
-    owner: processor
-transitions:
-  - from: s1
-    to: [s2]
-`)
+	content := graphInput(t, domain.ContractDefinition{ContractName: "test", Parties: []string{"merchant"}, Steps: []domain.Step{
+		{ID: "s1", Owner: "merchant"}, {ID: "s2", Owner: "processor"},
+	}, Transitions: []domain.Transition{{From: "s1", To: []string{"s2"}}}})
 
 	_, err := b.BuildGraph(content)
 	require.Error(t, err)
@@ -120,30 +132,10 @@ transitions:
 func TestGraphBuilder_BuildGraph_GroupsAndParentGroup(t *testing.T) {
 	b := service.NewGraphBuilder()
 
-	content := []byte(`
-contract_name: test
-parties: [merchant]
-steps:
-  - id: s1
-    owner: merchant
-  - id: s2
-    owner: merchant
-  - id: s3
-    owner: merchant
-groups:
-  - id: g1
-    steps: [s2, s3]
-    rules:
-      all_must_succeed: true
-      max_combined_duration: 1h
-transitions:
-  - from: s1
-    to: [s2]
-  - from: s2
-    to: [s3]
-  - from: s3
-    to: [s1]
-`)
+	content := graphInput(t, domain.ContractDefinition{ContractName: "test", Parties: []string{"merchant"}, Steps: []domain.Step{
+		{ID: "s1", Owner: "merchant"}, {ID: "s2", Owner: "merchant"}, {ID: "s3", Owner: "merchant"},
+	}, Groups: []domain.Group{{ID: "g1", Steps: []string{"s2", "s3"}, Rules: &domain.GroupRules{AllMustSucceed: true, MaxCombinedDuration: "1h"}}},
+		Transitions: []domain.Transition{{From: "s1", To: []string{"s2"}}, {From: "s2", To: []string{"s3"}}, {From: "s3", To: []string{"s1"}}}})
 
 	graph, err := b.BuildGraph(content)
 	require.NoError(t, err)

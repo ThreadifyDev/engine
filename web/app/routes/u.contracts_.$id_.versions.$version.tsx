@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { ArrowLeft, CalendarDays, GitBranch, Layers3 } from 'lucide-react';
-import { load } from 'js-yaml';
 import { api } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
 import ContractSourceView from '~/components/contracts/ContractSourceView';
@@ -9,18 +8,9 @@ import ContractSourceView from '~/components/contracts/ContractSourceView';
 type IncludedContract = { name: string; version: number };
 
 function includedContracts(source: string): IncludedContract[] {
-  if (/^\s*Feature:/m.test(source)) {
-    return Array.from(source.matchAll(/^\s*Include:\s*([A-Za-z0-9_]+):([1-9]\d*)\s*$/gm), match => ({
-      name: match[1], version: Number(match[2]),
-    }));
-  }
-  try {
-    const parsed = load(source) as { includes?: unknown } | null;
-    if (Array.isArray(parsed?.includes)) {
-      return parsed.includes.filter((entry: any) => typeof entry?.name === 'string' && Number.isInteger(entry?.version));
-    }
-  } catch { /* Unrecognized source has no readable Include declarations. */ }
-  return [];
+  return Array.from(source.matchAll(/^\s*Include:\s*([A-Za-z0-9_]+):([1-9]\d*)\s*$/gm), match => ({
+    name: match[1], version: Number(match[2]),
+  }));
 }
 
 function displayDate(value?: string) {
@@ -54,7 +44,7 @@ export default function ContractVersionDetail() {
     return () => { active = false; };
   }, [id, navigate, version]);
 
-  const source = versionData?.source ?? versionData?.yamlContent ?? '';
+  const source = versionData?.source ?? '';
   const includes = includedContracts(source);
   const validation = versionData?.graph?.graph?.validation;
 

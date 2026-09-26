@@ -1,11 +1,10 @@
 package validator
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
 
 const simpleFeature = `Feature: example
@@ -24,7 +23,7 @@ Rule: Record charge
  And this step is terminal
 `
 
-func TestGherkinCompilesToEquivalentYAML(t *testing.T) {
+func TestGherkinCompilesToStoredJSON(t *testing.T) {
 	v := NewContractValidator()
 	c, result := v.Validate("\ufeff# comment\r\n" + simpleFeature)
 	if !result.IsValid {
@@ -33,24 +32,38 @@ func TestGherkinCompilesToEquivalentYAML(t *testing.T) {
 	if c.Version != 2 || len(c.Transitions) != 0 || c.Steps[1].DependsOn[0] != "approval" {
 		t.Fatalf("wrong semantics: %+v", c)
 	}
-	yamlSource, err := yaml.Marshal(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	other, result := v.Validate(string(yamlSource))
-	if !result.IsValid {
-		t.Fatal(result.Errors)
+	if c.Steps[1].Description != "Record charge" {
+		t.Fatalf("Rule title was not retained as step description: %+v", c.Steps[1])
 	}
 	full, content, err := v.SerializeContract(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherFull, otherContent, err := v.SerializeContract(other)
+	var other Contract
+	if err := json.Unmarshal([]byte(full), &other); err != nil {
+		t.Fatal(err)
+	}
+	_, result = v.ValidateCompiled(&other)
+	if !result.IsValid {
+		t.Fatal(result.Errors)
+	}
+	otherFull, otherContent, err := v.SerializeContract(&other)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if full != otherFull || content != otherContent {
-		t.Fatal("source formats produce different persisted semantics")
+		t.Fatal("compiled JSON round trip changed persisted semantics")
+	}
+}
+
+func TestGherkinStepDescriptionOverridesRuleTitle(t *testing.T) {
+	source := strings.Replace(simpleFeature, " And this step is terminal", " And step description is \"The payment provider approved the charge\"\n And this step is terminal", 1)
+	contract, result := NewContractValidator().Validate(source)
+	if !result.IsValid {
+		t.Fatal(result.Errors)
+	}
+	if contract.Steps[1].Description != "The payment provider approved the charge" {
+		t.Fatalf("wrong step description: %q", contract.Steps[1].Description)
 	}
 }
 
@@ -65,6 +78,12 @@ func TestGherkinExample(t *testing.T) {
 	}
 	if len(c.Steps[1].ContentRules) != 2 {
 		t.Fatalf("content checks lost: %+v", c.Steps[1])
+	}
+	if c.Steps[0].Description != "A reviewer approved this payment request for the referenced order." || c.Steps[1].Description != "The payment provider accepted the charge for this order; sending a request alone does not complete this step." {
+		t.Fatalf("step descriptions lost: %+v", c.Steps)
+	}
+	if len(c.Steps[0].BusinessContext.Optional) != 1 || c.Steps[0].BusinessContext.Optional[0] != "review_note" || len(c.Steps[1].BusinessContext.Optional) != 1 || c.Steps[1].BusinessContext.Optional[0] != "provider_transaction_id" {
+		t.Fatalf("optional context lost: %+v", c.Steps)
 	}
 }
 

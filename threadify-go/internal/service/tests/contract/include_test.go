@@ -72,7 +72,7 @@ func TestContractIncludePreviewAndPublish(t *testing.T) {
 	expectIncludeLookup(deps, compiledInclude(t))
 	deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), "company", service.MeterContractExecution, int64(1)).Return(nil)
 	deps.ContractRepo.EXPECT().CreateContractWithVersion(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ *domain.Contract, version *domain.ContractVersion) error {
-		require.Equal(t, composingFeature, version.YAMLContent)
+		require.Equal(t, composingFeature, version.Source)
 		var saved validator.Contract
 		require.NoError(t, json.Unmarshal([]byte(version.Content), &saved))
 		require.Len(t, saved.Steps, 2)
@@ -119,28 +119,17 @@ func TestContractIncludeInvalidReferences(t *testing.T) {
 	}
 }
 
-func TestContractIncludeYAML(t *testing.T) {
-	deps := common.NewMockDeps(t)
-	expectIncludeLookup(deps, compiledInclude(t))
-	svc := service.NewContractService(deps.ContractRepo, nil, zap.NewNop())
-	source := "contract_name: composed\nversion: 1\ndescription: Composed contract\nincludes:\n  - name: identity_required\n    version: 2\n"
-	contract, graph, result, err := svc.PreviewContract(context.Background(), "company", source)
-	require.NoError(t, err)
-	require.True(t, result.IsValid, "%v", result.Errors)
-	require.Equal(t, "composed", contract.ContractName)
-	require.Contains(t, graph.Graph.Nodes, "identity_verified")
-}
-
-func TestContractIncludeJSON(t *testing.T) {
-	deps := common.NewMockDeps(t)
-	expectIncludeLookup(deps, compiledInclude(t))
-	svc := service.NewContractService(deps.ContractRepo, nil, zap.NewNop())
-	source := `{"contract_name":"composed","version":1,"description":"Composed contract","includes":[{"name":"identity_required","version":2}]}`
-	contract, graph, result, err := svc.PreviewContract(context.Background(), "company", source)
-	require.NoError(t, err)
-	require.True(t, result.IsValid, "%v", result.Errors)
-	require.Equal(t, "composed", contract.ContractName)
-	require.Contains(t, graph.Graph.Nodes, "identity_verified")
+func TestContractIncludeRejectsNonGherkinSources(t *testing.T) {
+	for _, source := range []string{
+		"contract_name: composed\nversion: 1\nincludes:\n  - name: identity_required\n    version: 2\n",
+		`{"contract_name":"composed","version":1,"includes":[{"name":"identity_required","version":2}]}`,
+	} {
+		svc := service.NewContractService(nil, nil, zap.NewNop())
+		_, _, result, err := svc.PreviewContract(context.Background(), "company", source)
+		require.NoError(t, err)
+		require.False(t, result.IsValid)
+		require.Equal(t, "source", result.Errors[0].Field)
+	}
 }
 
 func TestContractIncludeRejectsContradictions(t *testing.T) {
@@ -162,56 +151,37 @@ Rule: Record
 	require.True(t, result.IsValid, "%v", result.Errors)
 	strictContent, _, err := validator.NewContractValidator().SerializeContract(strictContract)
 	require.NoError(t, err)
-	contentConflict := `contract_name: refund_processing
-version: 1
-description: Refunds
-includes:
-  - name: identity_required
-    version: 2
-entry_points: [identity_verified]
-terminal_steps: [issue_refund]
-parties: [processor]
-steps:
-  - id: issue_refund
-    owner: processor
-    depends_on: [identity_verified]
-    content_rules:
-      - field: status
-        operator: equals
-        value: approved
-      - field: status
-        operator: equals
-        value: rejected
+	contentConflict := `Feature: refund_processing
+Version: 1
+Include: identity_required:2
+Rule: Issue refund
+  When step "issue_refund" is submitted
+  Then owner must be "processor"
+  And step "identity_verified" must have succeeded
+  And content "status" must equal "approved"
+  And content "status" must equal "rejected"
+  And this step is terminal
 `
-	strictConflict := `contract_name: refund_processing
-version: 1
-description: Refunds
-includes:
-  - name: identity_required
-    version: 2
-entry_points: [identity_verified]
-terminal_steps: [issue_refund]
-parties: [processor]
-steps:
-  - id: issue_refund
-    owner: processor
-    depends_on: [approval]
-  - id: approval
-    owner: processor
-transitions:
-  - from: identity_recorded
-    to: [issue_refund]
-  - from: issue_refund
-    to: [approval]
-  - from: approval
-    to: [issue_refund]
+	strictConflict := `Feature: refund_processing
+Version: 1
+Include: identity_required:2
+Rule: Issue refund
+  When step "issue_refund" is submitted
+  Then owner must be "processor"
+  And step "approval" must have succeeded
+  And next step must be one of "approval"
+  And this step is terminal
+Rule: Approve
+  When step "approval" is submitted
+  Then owner must be "processor"
+  And next step must be one of "issue_refund"
 `
 	for _, tc := range []struct {
 		name, source, content, wantField, wantMessage string
 	}{
 		{"unusable entry", strings.Replace(composingFeature, "  And this step is terminal", "  And this step is an entry point\n  And this step is terminal", 1), compiledInclude(t), "entry_points", "Every entry point requires"},
 		{"terminal prerequisite", strings.Replace(composingFeature, "  And this step is terminal\n", "", 1), compiledInclude(t), "steps.issue_refund.depends_on", "depends on terminal step"},
-		{"strict transition blocks prerequisite", strictConflict, strictContent, "steps.issue_refund", "cannot be reached"},
+		{"strict transition blocks prerequisite", strictConflict, strictContent, "steps.identity_recorded", "no outgoing transitions"},
 		{"impossible content", contentConflict, compiledInclude(t), "steps.issue_refund.content_rules", "no value satisfying"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

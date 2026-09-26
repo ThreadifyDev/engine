@@ -54,7 +54,17 @@ func testManagementCLI(t *testing.T, base, key, company string, pool *pgxpool.Po
 	name := "cli_" + unique
 	refKey := "cli_customer_" + unique
 	typName := "CLI Customers " + unique
-	contract := fmt.Sprintf("contract_name: %s\nversion: 1\ndescription: CLI integration test\nparties: [worker]\nsteps:\n  - id: received\n    owner: worker\n    type: managed\nentry_points: [received]\nterminal_steps: [received]\n", name)
+	contract := fmt.Sprintf(`Feature: %s
+Version: 1
+Description: CLI integration test
+
+Rule: Receive work
+  When step "received" is submitted
+  Then owner must be "worker"
+  And step type is "managed"
+  And this step is an entry point
+  And this step is terminal
+`, name)
 	preview, err := run(contract, "contracts", "preview", "--file", "-")
 	require.NoError(t, err)
 	require.Equal(t, true, preview["valid"])
@@ -65,7 +75,7 @@ func testManagementCLI(t *testing.T, base, key, company string, pool *pgxpool.Po
 	require.NoError(t, err)
 	_, err = run(contract, "contracts", "create", "--file", "-")
 	require.Error(t, err, "duplicate create must fail")
-	_, err = run(strings.ReplaceAll(strings.Replace(contract, "version: 1", "version: 2", 1), "received", "received_v2"), "contracts", "update", "--id", contractID, "--file", "-")
+	_, err = run(strings.ReplaceAll(strings.Replace(contract, "Version: 1", "Version: 2", 1), "received", "received_v2"), "contracts", "update", "--id", contractID, "--file", "-")
 	require.NoError(t, err)
 	versions, err := run("", "contracts", "versions", "--id", contractID)
 	require.NoError(t, err)

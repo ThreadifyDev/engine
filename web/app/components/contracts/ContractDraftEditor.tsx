@@ -2,11 +2,17 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { ArrowLeft, ArrowUpFromLine, Check, CheckCircle2, FileCode2, Layers3, Loader2, Play, Sparkles, X, AlertCircle } from 'lucide-react';
 import { api, ValidationError } from '~/lib/api';
 import { useAgent } from '~/components/agent/agent-context';
-import YamlEditor from '~/components/YamlEditor';
+import ContractEditor from '~/components/ContractEditor';
 
 const example = `Feature: payment_processing
 Version: 1
 Description: Record valid payments.
+
+Step: "charge"
+  Description: "The payment provider accepted the charge."
+  Required context: "amount" means "Amount charged."
+  Required context: "currency" means "Currency of the charge."
+  Optional context: "provider_reference" means "Provider receipt identifier."
 
 Rule: Validate a payment
   When step "charge" is submitted
@@ -38,7 +44,7 @@ export default function ContractDraftEditor({ onSave }: { onSave: () => Promise<
     setValidating(true);
     setError('');
     try {
-      const result = await api.previewContract({ yaml: draft.source });
+      const result = await api.previewContract({ source: draft.source });
       if (revision.current === currentRevision) setChecked({ ...result, revision: currentRevision });
     } catch (cause) {
       if (revision.current === currentRevision) setError(cause instanceof Error ? cause.message : 'Could not validate this contract.');
@@ -88,17 +94,17 @@ export default function ContractDraftEditor({ onSave }: { onSave: () => Promise<
       <form onSubmit={save}>
         <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-stone-50/70 px-4 py-3">
-            <div className="flex min-w-0 items-center gap-2.5"><FileCode2 className="h-4 w-4 shrink-0 text-stone-400" /><span className="text-xs font-medium text-stone-700">Contract source</span><span className="text-[10px] text-stone-400">{name || !hasSource ? 'Gherkin' : 'YAML'}</span></div>
+            <div className="flex min-w-0 items-center gap-2.5"><FileCode2 className="h-4 w-4 shrink-0 text-stone-400" /><span className="text-xs font-medium text-stone-700">Contract source</span><span className="text-[10px] text-stone-400">{'Gherkin'}</span></div>
             <div className="flex items-center gap-3">
               {!hasSource && <button type="button" disabled={busy} onClick={() => editContractDraft(example)} className={`rounded text-xs text-stone-500 hover:text-stone-900 ${focus}`}>Use an example</button>}
               <button type="button" disabled={busy} onClick={() => fileInput.current?.click()} className={`inline-flex items-center gap-1.5 rounded-md text-xs font-medium text-stone-600 hover:text-stone-900 disabled:opacity-50 ${focus}`}><ArrowUpFromLine className="h-3.5 w-3.5" />Import file</button>
-              <input ref={fileInput} type="file" accept=".feature,.gherkin,.yaml,.yml,.txt" onChange={importFile} aria-label="Import contract file" className="hidden" />
+              <input ref={fileInput} type="file" accept=".feature,.gherkin,.txt" onChange={importFile} aria-label="Import contract file" className="hidden" />
             </div>
           </div>
-          <YamlEditor contractSource appearance="soft" value={draft.source} onChange={editContractDraft} readOnly={saving}
+          <ContractEditor appearance="soft" value={draft.source} onChange={editContractDraft} readOnly={saving}
             placeholder={'Feature: your_workflow\n\nDescribe your steps and rules here…'} height="clamp(280px, 48dvh, 540px)" />
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 bg-stone-50/50 px-4 py-2.5 text-[11px] text-stone-400">
-            <span>Gherkin or YAML · .feature, .yaml, .yml</span><span>{hasSource ? `${draft.source.split('\n').length} lines` : 'Start with a file, an example, or your own rules'}</span>
+            <span>Gherkin · .feature, .gherkin</span><span>{hasSource ? `${draft.source.split('\n').length} lines` : 'Start with a file, an example, or your own rules'}</span>
           </div>
         </div>
         <p className="mt-3 flex items-start gap-2 text-xs leading-5 text-stone-500">

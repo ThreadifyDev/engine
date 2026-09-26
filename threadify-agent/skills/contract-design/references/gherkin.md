@@ -1,9 +1,7 @@
 # Gherkin-style contracts
 
-Threadify accepts a small, deterministic Gherkin-style language for authoring
-contracts. Gherkin is the primary format. YAML is retained temporarily during
-validation and migration; it is intended to be removed as an authoring format
-in a subsequent change. Existing stored contracts are not converted by this change.
+Threadify accepts a bounded Gherkin-style language for authoring contracts.
+Existing stored contract versions retain their original source.
 
 This is a Threadify rule language, not a Cucumber test runner. Only the exact
 sentences below are supported. Unknown sentences, scenarios, tags, tables,
@@ -16,6 +14,18 @@ deterministic; an optional classifier can advise during preview.
 Feature: payment_processing
 Version: 1
 Description: Record approved payments with valid details.
+
+Step: "approval"
+  Description: "A reviewer approved this payment request."
+  Required context: "reference" means "Payment request identifier."
+  Optional context: "review_note" means "Reviewer explanation."
+
+Step: "charge"
+  Description: "The provider accepted the payment charge."
+  Required context: "amount" means "Amount charged."
+  Required context: "currency" means "Currency of the charge."
+  Required context: "reference" means "Approved payment request identifier."
+  Optional context: "provider_reference" means "Provider receipt identifier."
 
 Rule: Record approval
   When step "approval" is submitted
@@ -38,11 +48,37 @@ Feature name. Metadata precedes all blocks. Each `Rule` has a descriptive title,
 one `When` naming its step, then a `Then` clause and zero or more `And` clauses.
 Each step must have exactly one owner; parties are derived from those owners.
 One Rule per step: all of its constraints are required together. A Rule title is
-a label, not an executable condition.
+a fallback business description when no `Step` block describes that step; it is
+not an executable condition.
 
 Blank lines and whole-line `#` comments are allowed. Quoted values use double
 quotes with escapes (`\"`, `\\`); identifiers cannot be empty or multiline.
 Inline comments and arbitrary prose are rejected rather than ignored.
+
+## Step definitions
+
+A `Step` block describes a step for classification. It must name a step with a
+matching `Rule` block. The description is required; context meanings are optional.
+
+```gherkin
+Step: "charge"
+  Description: "The provider accepted this payment."
+  Required context: "amount" means "Amount accepted in pounds."
+  Required context: "currency" means "Currency of the payment."
+  Optional context: "provider_reference" means "Provider receipt identifier."
+  Optional context: "note"
+```
+
+Use one line per field; repeat `Required context:` and `Optional context:` for
+multiple fields. `Step` uses declarative fields, not Given/When/And. The
+`means "..."` explanation is optional and helps the classifier understand
+ambiguous names. Required context must be present when the step is submitted;
+optional context may be absent. Both are registered for Engine use. Extra
+submitted context is accepted as metadata but is unavailable as a contract fact.
+Do not declare the same field twice in one Step block, or as both required and
+optional. A matching declaration in the Rule merges; a conflicting one fails
+validation. Every Step definition needs exactly one matching Rule, and an
+explicit Rule description cannot duplicate the Step description.
 
 ## Supported step clauses
 
@@ -90,7 +126,7 @@ Each content comparison requires the submitted field to exist in the step's
 `context` map, whose values remain strings. Dotted field names are literal keys,
 not nested paths. Unlisted fields remain allowed. The right side of an equality
 can reference another step as described below. Expression execution,
-semantic text checks, and content-based branch selection are not implemented.
+content-based branch selection is not implemented.
 
 Numbers reject whitespace, NaN and Infinity. Decimal comparisons are exact;
 values must fit the finite float64 range, with at most 4096 characters and an
@@ -179,7 +215,7 @@ Background:
 ```
 
 Both clauses are optional. Existing duration units are `s`, `ms`, `us`, `m`, `h`,
-and `d`. Parallel-group execution semantics are not exposed in this first format.
+and `d`. Parallel groups use a `Group:` block as shown below.
 
 ## Preview, publish, and update
 
@@ -199,10 +235,10 @@ credential for recording steps; it is not a Registry license key.
 Preview returns `valid`, diagnostics, and the compiled graph. To update, increase
 `Version`, change the rules, and `PUT` the source to `/v1/contracts/{id}`.
 Original source is preserved in version responses as `source`, with
-`sourceFormat: "gherkin"`; the legacy `yamlContent` field remains an alias.
+`sourceFormat: "gherkin"`.
 The stored executable content and graph are structured JSON. Content hashes use
-compiled rules, so equivalent YAML/Gherkin input does not create a changed
-contract merely by changing source format.
+compiled rules, so formatting changes in Gherkin do not create a changed
+contract.
 
 ## Verification timing
 
@@ -217,3 +253,75 @@ Use the optional SDK wait APIs (skill resource `references/wait-for.md`) to
 await flow permission before execution or await the exact validation result
 after reporting an outcome.
 Default event recording remains asynchronous; Threadify does not execute actions.
+
+## Parallel groups and semantic checks
+
+When two or more steps can proceed concurrently, declare each as a normal
+Step/Rule pair and group their step names. A downstream step that needs every
+review declares each prerequisite explicitly:
+
+```gherkin
+Feature: order_review
+Version: 1
+
+Step: "received"
+  Description: "Sales received the order."
+  Required context: "order_id" means "Sales order identifier."
+
+Step: "fraud_review"
+  Description: "Risk reviewed the order for fraud."
+  Optional context: "risk_note" means "Reviewer explanation."
+
+Step: "stock_review"
+  Description: "Inventory confirmed stock for the order."
+  Required context: "sku" means "Requested stock item."
+
+Step: "fulfilled"
+  Description: "The warehouse completed the order."
+
+Rule: Receive the order
+  When step "received" is submitted
+  Then owner must be "sales"
+  And this step is an entry point
+
+Rule: Review fraud
+  When step "fraud_review" is submitted
+  Then owner must be "risk"
+  And step "received" must have succeeded
+
+Rule: Check stock
+  When step "stock_review" is submitted
+  Then owner must be "inventory"
+  And step "received" must have succeeded
+
+Rule: Fulfil the order
+  When step "fulfilled" is submitted
+  Then owner must be "warehouse"
+  And step "fraud_review" must have succeeded
+  And step "stock_review" must have succeeded
+  And this step is terminal
+
+Group: "parallel_reviews"
+  Given parallel steps are "fraud_review", "stock_review"
+  And all parallel steps must succeed
+  And combined duration must be within "5m"
+```
+
+The group needs at least two distinct step names, and each must have a matching
+Rule. The group name must differ from all step and group names. `Given parallel
+steps are ...` is required; the success and duration clauses are optional. If
+included, use `And` after `Given`. A combined duration must use a supported
+duration unit. Do not infer parallelism from a mere sequence of timestamps;
+use observed concurrency or the user's intended workflow. A Group does not
+replace the members' Rules or their downstream prerequisites. Do not recreate
+the old YAML group shape in a contract.
+
+Inside a step Rule, a bounded classifier question can use:
+
+```gherkin
+  And content "risk_reason" must satisfy question "Do the signals permit this order?"
+  And semantic context for content "risk_reason" is "order_received"
+  And semantic confidence for content "risk_reason" is 0.85
+```
+
+Context and confidence are optional. The question's content field is required.

@@ -91,7 +91,7 @@ Responsibilities:
 ```
 
 **Key Operations:**
-- `CreateContract()` - Validate YAML, hash content, store v1
+- `CreateContract()` - Validate Gherkin, hash content, store v1
 - `GetContract()` - Retrieve by ID and optional version
 - `UpdateContract()` - Create new version, maintain history
 - `DeleteContract()` - Soft delete (set is_deleted flag)
@@ -203,7 +203,7 @@ Example:
 ```
 Client
   │
-  ├─► POST /v1/contracts (YAML content)
+  ├─► POST /v1/contracts (Gherkin source)
   │
   ▼
 AuthMiddleware

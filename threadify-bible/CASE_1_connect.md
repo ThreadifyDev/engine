@@ -315,28 +315,8 @@ Location: /internal/handlers/thread.go:140-160
        │          │     SELECT * FROM contracts 
        │          │     WHERE name=$1 AND company_id=$2 AND version=$3
        │          │
-       │          ├─ Parse YAML contract definition from database:
-       │          │  contract_yaml = row["definition"]
-       │          │  └─> YAML structure:
-       │          │      ```yaml
-       │          │      name: order_flow
-       │          │      version: 2
-       │          │      parties: [merchant, customer, logistics]
-       │          │      entry_points: [order_placed]
-       │          │      terminal_steps: [order_delivered, order_cancelled]
-       │          │      max_duration: 86400
-       │          │      steps:
-       │          │        order_placed:
-       │          │          owner: merchant
-       │          │          next_steps: [payment_processed, order_cancelled]
-       │          │          required_fields: [orderId, amount]
-       │          │          optional_fields: [notes]
-       │          │          timeout: 300
-       │          │        payment_processed:
-       │          │          owner: merchant
-       │          │          next_steps: [order_shipped, order_cancelled]
-       │          │          required_fields: [paymentId]
-       │          │      ```
+       │          ├─ Load the compiled JSON graph for the selected contract version.
+       │          │  Authored source uses Gherkin; see threadify-go/docs/GHERKIN_CONTRACTS.md.
        │          │
        │          ├─ Build ContractGraph data structure:
        │          │  graph = ContractGraph{

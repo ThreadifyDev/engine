@@ -277,17 +277,8 @@ func TestContractValidationService_GetContractGraph_RebuildsLegacyDependencyGrap
 		fakeContractRepo{
 			contract: &domain.Contract{ID: "cid", LatestVersion: 1},
 			version: &domain.ContractVersion{
-				Graph: legacyGraphJSON,
-				YAMLContent: `
-contract_name: c1
-parties: [agent]
-steps:
-  - id: authenticated
-    owner: agent
-  - id: charge
-    owner: agent
-    depends_on: [authenticated]
-`,
+				Graph:   legacyGraphJSON,
+				Content: `{"ContractName":"c1","Parties":["agent"],"Steps":[{"ID":"authenticated","Owner":"agent"},{"ID":"charge","Owner":"agent","DependsOn":["authenticated"]}]}`,
 			},
 		},
 		cache,
@@ -299,6 +290,29 @@ steps:
 	require.Equal(t, domain.CurrentContractGraphSemantics, got.SemanticsVersion)
 	require.Empty(t, got.Transitions)
 	require.Equal(t, []string{"authenticated"}, got.Graph.Nodes["charge"].DependsOn)
+}
+
+func TestContractValidationService_UsesPersistedHistoricalGraph(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	graphRepo := enginemocks.NewMockContractGraphRepository(ctrl)
+	cache := enginemocks.NewMockCacheManager(ctrl)
+	cache.EXPECT().GetContractGraph("c1", 1, "o1").Return(nil, false)
+	graphRepo.EXPECT().Get(gomock.Any(), "c1", 1, "o1").Return(nil, errors.New("not found"))
+	graphRepo.EXPECT().Save(gomock.Any(), "c1", 1, "o1", gomock.Any()).Return(nil)
+	cache.EXPECT().SetContractGraph("c1", 1, "o1", gomock.Any())
+	svc := service.NewContractValidationServiceFromParts(
+		graphRepo,
+		fakeContractRepo{contract: &domain.Contract{ID: "cid", LatestVersion: 1}, version: &domain.ContractVersion{
+			Content: "contract_name: c1\nsteps: []\n",
+			Graph:   []byte(`{"graph":{"nodes":{"charge":{"id":"charge","type":"step","required":true,"depends_on":["authenticated"]}}}}`),
+		}},
+		cache, zap.NewNop(),
+	)
+	graph, err := svc.GetContractGraph(context.Background(), "c1", 1, "o1")
+	require.NoError(t, err)
+	require.Equal(t, []string{"authenticated"}, graph.Graph.Nodes["charge"].DependsOn)
+	require.Less(t, graph.SemanticsVersion, domain.CurrentContractGraphSemantics)
 }
 
 func TestContractValidationService_GetContractGraph_PostgresEdgeCases(t *testing.T) {

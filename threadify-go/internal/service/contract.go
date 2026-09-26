@@ -100,13 +100,13 @@ func (s *ContractService) enforceCredits(ctx context.Context, companyID string) 
 	return 0, nil
 }
 
-// PreviewContract validates Gherkin-style or YAML source and builds its graph without persisting.
-func (s *ContractService) PreviewContract(ctx context.Context, companyID, yamlString string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
-	expanded, invalid, err := s.expandContractSource(ctx, companyID, yamlString)
+// PreviewContract validates Gherkin source and builds its graph without persisting.
+func (s *ContractService) PreviewContract(ctx context.Context, companyID, source string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
+	expanded, invalid, err := s.expandContractSource(ctx, companyID, source)
 	if err != nil || invalid != nil {
 		return nil, nil, invalid, err
 	}
-	contract, validationResult := s.validator.Validate(expanded)
+	contract, validationResult := s.validateSource(source, expanded)
 	if !validationResult.IsValid {
 		return nil, nil, validationResult, nil
 	}
@@ -116,8 +116,8 @@ func (s *ContractService) PreviewContract(ctx context.Context, companyID, yamlSt
 		return nil, nil, nil, err
 	}
 
-	if sourceDeclaresIncludes(yamlString) && s.compositionReviewer != nil {
-		flagged, err := s.compositionReviewer.ReviewComposition(ctx, yamlString, contract)
+	if sourceDeclaresIncludes(source) && s.compositionReviewer != nil {
+		flagged, err := s.compositionReviewer.ReviewComposition(ctx, source, contract)
 		if err != nil {
 			s.logger.Warn("composition classifier review unavailable", zap.Error(err))
 			validationResult.Warnings = append(validationResult.Warnings, "Semantic conflict review was unavailable; deterministic validation passed")
@@ -128,8 +128,19 @@ func (s *ContractService) PreviewContract(ctx context.Context, companyID, yamlSt
 	return contract, graph, validationResult, nil
 }
 
-func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID, createdBy, contractYAML string) (int, interface{}) {
-	expanded, invalid, err := s.expandContractSource(ctx, companyID, contractYAML)
+func (s *ContractService) validateSource(source, expanded string) (*validator.Contract, *validator.ValidationResult) {
+	if !sourceDeclaresIncludes(source) {
+		return s.validator.Validate(expanded)
+	}
+	var compiled validator.Contract
+	if err := json.Unmarshal([]byte(expanded), &compiled); err != nil {
+		return nil, &validator.ValidationResult{Errors: []validator.ValidationError{{Field: "source", Message: "Invalid compiled contract"}}}
+	}
+	return validator.NewContractValidator().ValidateCompiled(&compiled)
+}
+
+func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID, createdBy, source string) (int, interface{}) {
+	expanded, invalid, err := s.expandContractSource(ctx, companyID, source)
 	if err != nil {
 		s.logger.Error("failed to resolve contract includes", zap.Error(err))
 		return 500, map[string]string{"message": "Failed to resolve contract includes"}
@@ -137,7 +148,7 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 	if invalid != nil {
 		return 400, map[string]interface{}{"message": "Contract is not valid", "errors": invalid.Errors}
 	}
-	contract, validationResult := s.validator.Validate(expanded)
+	contract, validationResult := s.validateSource(source, expanded)
 	if !validationResult.IsValid {
 		return 400, map[string]interface{}{
 			"message": "Contract is not valid",
@@ -182,7 +193,7 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 		ID:                 uuid.New().String(),
 		Version:            1,
 		Content:            fullJSON,
-		YAMLContent:        contractYAML,
+		Source:             source,
 		ContentHash:        contentHash,
 		ContractID:         contractModel.ID,
 		CreatedBy:          createdBy,
@@ -218,13 +229,13 @@ func (s *ContractService) CreateContract(ctx context.Context, ownerID, companyID
 	}
 }
 
-func (s *ContractService) UpdateContract(ctx context.Context, contractID, companyID, createdBy, contractYAML string) (int, interface{}) {
+func (s *ContractService) UpdateContract(ctx context.Context, contractID, companyID, createdBy, source string) (int, interface{}) {
 	existingContract, err := s.repo.GetByIDAndCompany(ctx, contractID, companyID)
 	if err != nil {
 		return 404, map[string]string{"message": "Contract not found or you don't have permission to update it"}
 	}
 
-	expanded, invalid, err := s.expandContractSource(ctx, companyID, contractYAML)
+	expanded, invalid, err := s.expandContractSource(ctx, companyID, source)
 	if err != nil {
 		s.logger.Error("failed to resolve contract includes", zap.Error(err))
 		return 500, map[string]string{"message": "Failed to resolve contract includes"}
@@ -232,7 +243,7 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, compan
 	if invalid != nil {
 		return 400, map[string]interface{}{"message": "Contract is not valid", "errors": invalid.Errors}
 	}
-	contract, validationResult := s.validator.Validate(expanded)
+	contract, validationResult := s.validateSource(source, expanded)
 	if !validationResult.IsValid {
 		return 400, map[string]interface{}{
 			"message": "Contract is not valid",
@@ -289,7 +300,7 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, compan
 		ID:                 uuid.New().String(),
 		Version:            nextVersion,
 		Content:            fullJSON,
-		YAMLContent:        contractYAML,
+		Source:             source,
 		ContentHash:        contentHash,
 		ContractID:         contractID,
 		CreatedBy:          createdBy,

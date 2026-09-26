@@ -72,9 +72,9 @@ type BackgroundService interface {
 	Stop() error
 }
 
-// ContractValidator defines the interface for contract YAML validation
+// ContractValidator defines the interface for contract source validation
 type ContractValidator interface {
-	Validate(yamlString string) (*validator.Contract, *validator.ValidationResult)
+	Validate(source string) (*validator.Contract, *validator.ValidationResult)
 	SerializeContract(contract *validator.Contract) (string, string, error)
 }
 
@@ -87,14 +87,14 @@ type TimeoutMonitor interface {
 // ContractService defines the interface for contract management
 type ContractService interface {
 	GetAllContracts(ctx context.Context, companyID string, search string, limit, offset int) (int, interface{})
-	CreateContract(ctx context.Context, ownerID, companyID, createdBy, contractYAML string) (int, interface{})
+	CreateContract(ctx context.Context, ownerID, companyID, createdBy, source string) (int, interface{})
 	GetContract(ctx context.Context, contractID, companyID string, version *int) (int, interface{})
-	UpdateContract(ctx context.Context, contractID, companyID, createdBy, contractYAML string) (int, interface{})
+	UpdateContract(ctx context.Context, contractID, companyID, createdBy, source string) (int, interface{})
 	DeleteContract(ctx context.Context, contractID, companyID string) (int, interface{})
 	GetAllContractVersions(ctx context.Context, contractID, companyID string, limit, offset int) (int, interface{})
 	GetContractVersion(ctx context.Context, contractID string, version int, companyID string) (int, interface{})
 	DeleteContractVersion(ctx context.Context, contractID string, version int, companyID string) (int, interface{})
-	PreviewContract(ctx context.Context, companyID, yamlString string) (*validator.Contract, *ContractGraph, *validator.ValidationResult, error)
+	PreviewContract(ctx context.Context, companyID, source string) (*validator.Contract, *ContractGraph, *validator.ValidationResult, error)
 }
 
 // ThreadService defines the interface for thread-related operations

@@ -1,9 +1,7 @@
 # Gherkin-style contracts
 
-Threadify accepts a small, deterministic Gherkin-style language for authoring
-contracts. Gherkin is the primary format. YAML is retained temporarily during
-validation and migration; it is intended to be removed as an authoring format
-in a subsequent change. Existing stored contracts are not converted by this change.
+Threadify accepts a bounded Gherkin-style language for authoring contracts.
+Existing stored contract versions retain their original source.
 
 This is a Threadify rule language, not a Cucumber test runner. Only the exact
 sentences below are supported. Unknown sentences, scenarios, tags, tables,
@@ -15,20 +13,37 @@ deterministic; an optional classifier can advise during preview.
 ```gherkin
 Feature: payment_processing
 Version: 1
-Description: Record approved payments with valid details.
+Description: Require approval and valid payment details before recording a charge.
 
-Rule: Record approval
+Background:
+  Given the thread must finish within "1h"
+
+Step: "approval"
+  Description: "A reviewer approved this payment request for the referenced order."
+  Required context: "reference" means "Reference of the payment request approved."
+  Optional context: "review_note" means "Reviewer explanation when available."
+
+Step: "charge"
+  Description: "The payment provider accepted the charge for this order; sending a request alone does not complete this step."
+  Required context: "amount" means "Amount charged."
+  Required context: "currency" means "Currency of the charge."
+  Required context: "reference" means "Approved payment request reference."
+  Optional context: "provider_transaction_id" means "Provider receipt identifier."
+
+Rule: Approval must be recorded by the reviewer
   When step "approval" is submitted
   Then owner must be "reviewer"
   And this step is an entry point
+  And content "reference" must not be empty
 
-Rule: Record a charge
+Rule: A charge requires approval and valid payment details
   When step "charge" is submitted
   Then owner must be "payment_processor"
   And step "approval" must have succeeded
   And content "amount" must be a number greater than 0
   And content "currency" must be one of "GBP", "USD", "EUR"
-  And content "reference" must not be empty
+  And content "reference" must be present
+  And this step must finish within "30s"
   And this step is terminal
 ```
 
@@ -79,20 +94,46 @@ and expanded contract through the configured classifier endpoint. Publication
 is governed by deterministic validation.
 Missing contracts, missing versions, and invalid combined graphs fail preview
 and publication. A contract may include at most 16 contracts, with at most 512
-steps after expansion. YAML authors can use `includes: [{name:
-identity_required, version: 2}]` with the same behavior.
+steps after expansion.
 
 `Feature` is the contract identifier (letters, digits, underscores). `Version`
 defaults to 1 and must be increased when updating. `Description` defaults to the
-Feature name. Metadata precedes all blocks. Each `Rule` has a descriptive title,
+Feature name. Metadata precedes all blocks. A `Step` block can give a named step its business meaning and registered context; a matching `Rule` supplies execution checks. Each `Rule` has a descriptive title,
 one `When` naming its step, then a `Then` clause and zero or more `And` clauses.
 Each step must have exactly one owner; parties are derived from those owners.
-One Rule per step: all of its constraints are required together. A Rule title is
-a label, not an executable condition.
+One Rule per step: all of its constraints are required together. Without a `Step` block, the Rule title becomes the business description. A `Step` block description takes precedence over the title. The older `And step description is "..."` clause remains available when no `Step` block is used.
 
 Blank lines and whole-line `#` comments are allowed. Quoted values use double
 quotes with escapes (`\"`, `\\`); identifiers cannot be empty or multiline.
 Inline comments and arbitrary prose are rejected rather than ignored.
+
+## Step definitions
+
+Use a `Step` block to tell the classifier what a reported step means and which
+context fields matter. Every `Step` block names a step that also has a `Rule`:
+
+```gherkin
+Step: "charge"
+  Description: "The provider accepted this payment."
+  Required context: "amount" means "Amount accepted in pounds."
+  Required context: "currency" means "Currency of the payment."
+  Optional context: "provider_reference" means "Provider receipt identifier."
+  Optional context: "note"
+```
+
+`Step` uses declarative fields, so its description and context do not need
+`Given`, `When`, or `And`. The matching `Rule` carries the executable clauses.
+Write one context line per field, repeating either kind as needed. The
+description is required. Context field meanings are optional; omit
+`means "..."` when the field name is already clear. Required fields must be
+present when the step is submitted. Optional fields may be absent. Both are
+registered context that the Engine may use; extra submitted fields are retained
+as metadata but are not contract facts. Duplicate fields and fields declared
+both required and optional fail validation.
+A Rule can still declare context using `content "field" must be present` or
+`content "field" is optional`. Matching declarations merge; conflicting ones
+fail validation. A `Step` description and an explicit Rule description cannot
+both be supplied for the same step.
 
 ## Supported step clauses
 
@@ -101,6 +142,8 @@ Use `Then` for the first clause and `And` for subsequent clauses.
 | Clause | Meaning |
 | --- | --- |
 | `owner must be "processor"` | Required Threadify party/role |
+| `step description is "Payment provider approved this order"` | Optional business meaning of the step; replaces the Rule title |
+| `step type is "managed"` | Execution type: `managed`, `external`, or `human_in_loop` |
 | `step "approval" must have succeeded` | Earlier successful prerequisite; intervening work is allowed |
 | `step "approval" must succeed before each invocation` | Fresh approval after the previous invocation, including failed/abandoned invocations |
 | `this step is an entry point` | May be the first successful step |
@@ -137,9 +180,13 @@ for the agent and `waitFor` sequence.
 
 Each content comparison requires the submitted field to exist in the step's
 `context` map, whose values remain strings. Dotted field names are literal keys,
-not nested paths. Unlisted fields remain allowed. The right side of an equality
-can reference another step as described below. Expression execution,
-semantic text checks, and content-based branch selection are not implemented.
+not nested paths. Content comparisons register their fields as required context.
+Optional fields may be omitted. For steps with a context declaration, extra
+submitted fields are accepted and kept in `unregistered_context` metadata, but
+are not used as contract facts. Steps without a context declaration retain the
+existing behavior. The right side of an equality
+can reference another step as described below. Expression execution and
+content-based branch selection are not implemented.
 
 Numbers reject whitespace, NaN and Infinity. Decimal comparisons are exact;
 values must fit the finite float64 range, with at most 4096 characters and an
@@ -224,10 +271,44 @@ An optional `Background` before all Rules accepts:
 Background:
   Given the thread must finish within "1h"
   And multiple terminal steps are allowed
+  And multiple terminal severity is "major"
+  And threads lock to this version
 ```
 
-Both clauses are optional. Existing duration units are `s`, `ms`, `us`, `m`, `h`,
-and `d`. Parallel-group execution semantics are not exposed in this first format.
+All clauses are optional. Existing duration units are `s`, `ms`, `us`, `m`, `h`,
+and `d`. Terminal severity accepts `minor`, `warning`, `major`, or `error`.
+
+## Parallel groups and semantic checks
+
+After the step Rules, declare a parallel group using existing step names:
+
+```gherkin
+Group: "parallel_reviews"
+  Given parallel steps are "fraud_review", "stock_review"
+  And all parallel steps must succeed
+  And combined duration must be within "5m"
+```
+
+Each listed name must identify a step with its own Rule. The group needs at least
+two distinct steps, and its name cannot reuse a step or group name. `Given
+parallel steps are ...` is required; the success and duration clauses are
+optional. A combined duration must use a supported duration unit. If a later
+step must wait for both reviews, add a `step "fraud_review" must have succeeded`
+and `step "stock_review" must have succeeded` clause to that step's Rule. A
+Group does not replace the member Rules or those prerequisites.
+
+To ask the classifier a bounded yes/no question about a step's content,
+add these clauses to that step's Rule:
+
+```gherkin
+  And content "risk_reason" must satisfy question "Do the signals permit this order?"
+  And semantic context for content "risk_reason" is "order_received"
+  And semantic confidence for content "risk_reason" is 0.85
+```
+
+Context and confidence are optional. The question registers its content field
+as required. The context step must be a different step in the contract and must
+have succeeded before this step.
 
 ## Preview, publish, and update
 
@@ -247,10 +328,9 @@ credential for recording steps; it is not a Registry license key.
 Preview returns `valid`, diagnostics, and the compiled graph. To update, increase
 `Version`, change the rules, and `PUT` the source to `/v1/contracts/{id}`.
 Original source is preserved in version responses as `source`, with
-`sourceFormat: "gherkin"`; the legacy `yamlContent` field remains an alias.
+`sourceFormat: "gherkin"`.
 The stored executable content and graph are structured JSON. Content hashes use
-compiled rules, so equivalent YAML/Gherkin input does not create a changed
-contract merely by changing source format.
+compiled rules, so formatting changes do not create a changed contract.
 
 ## Verification timing
 

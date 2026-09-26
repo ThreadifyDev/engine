@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, CalendarDays, FileText, GitBranch, Layers3, Plus, X } from 'lucide-react';
 import { api, ValidationError } from '~/lib/api';
 import AppLayout from '~/components/AppLayout';
-import YamlEditor from '~/components/YamlEditor';
+import ContractEditor from '~/components/ContractEditor';
 
 type ContractVersion = { version: number; createdAt?: string };
 
@@ -16,18 +16,13 @@ function displayDate(value?: string) {
     : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function prepareNextVersion(source: string, nextVersion: number) {
+function prepareNextVersion(source: string, nextVersion: number, name: string) {
   if (/^\s*Feature:/m.test(source)) {
     return /^\s*Version:/m.test(source)
       ? source.replace(/^(\s*Version:\s*)\d+/m, (_match, prefix: string) => prefix + nextVersion)
       : source.replace(/^(\s*Feature:[^\n]*\n)/m, '$1Version: ' + nextVersion + '\n');
   }
-  if (/^\s*version:/m.test(source)) return source.replace(/^(\s*version:\s*)\d+/m, (_match, prefix: string) => prefix + nextVersion);
-  try {
-    const data = JSON.parse(source);
-    if (data && typeof data === 'object') return JSON.stringify({ ...data, version: nextVersion }, null, 2);
-  } catch { /* Keep unrecognized source intact. */ }
-  return source;
+  return `Feature: ${name}\nVersion: ${nextVersion}\n\n# Add your Rule blocks here.\n`;
 }
 
 export default function ContractDetail() {
@@ -35,7 +30,7 @@ export default function ContractDetail() {
   const { id } = useParams();
   const queryClient = useQueryClient();
   const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [updateYaml, setUpdateYaml] = useState('');
+  const [updateSource, setUpdateSource] = useState('');
   const [loadingSource, setLoadingSource] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState('');
@@ -62,8 +57,8 @@ export default function ContractDetail() {
     setUpdateErrorDetails([]);
     try {
       const current = await api.getContractVersion(id, String(latestVersion));
-      const source = current?.source ?? current?.yamlContent ?? '';
-      setUpdateYaml(prepareNextVersion(source, latestVersion + 1));
+      const source = current?.source ?? '';
+      setUpdateSource(prepareNextVersion(source, latestVersion + 1, contract?.name || 'workflow'));
     } catch (cause) {
       setUpdateError(cause instanceof Error ? cause.message : 'Could not load the current source. You can paste a new version below.');
     } finally {
@@ -73,19 +68,19 @@ export default function ContractDetail() {
 
   const closeUpdate = () => {
     setShowUpdateModal(false);
-    setUpdateYaml('');
+    setUpdateSource('');
     setUpdateError('');
     setUpdateErrorDetails([]);
   };
 
   const handleUpdate = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!id || !updateYaml.trim() || updating) return;
+    if (!id || !updateSource.trim() || updating) return;
     setUpdating(true);
     setUpdateError('');
     setUpdateErrorDetails([]);
     try {
-      await api.updateContract(id, { yaml: updateYaml });
+      await api.updateContract(id, { source: updateSource });
       await queryClient.invalidateQueries({ queryKey: ['contract', id, 'versions'] });
       closeUpdate();
     } catch (cause) {
@@ -202,7 +197,7 @@ export default function ContractDetail() {
               <div className="px-5 py-5 sm:px-6">
                 <label className="mb-2 block text-xs font-semibold text-stone-700">Contract source</label>
                 {loadingSource ? <div role="status" className="flex h-72 items-center justify-center rounded-xl bg-stone-50 text-sm text-stone-500">Loading current source…</div> :
-                  <YamlEditor contractSource appearance="soft" value={updateYaml} onChange={setUpdateYaml} placeholder="Paste the next contract version here…" height="min(48vh, 480px)" />}
+                  <ContractEditor appearance="soft" value={updateSource} onChange={setUpdateSource} placeholder="Paste the next contract version here…" height="min(48vh, 480px)" />}
                 {updateError && <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   <p>{updateError}</p>
                   {updateErrorDetails.map((detail, index) => <p key={index} className="mt-1">{detail.field}: {detail.message}</p>)}
@@ -210,7 +205,7 @@ export default function ContractDetail() {
               </div>
               <div className="flex items-center justify-end gap-3 border-t border-stone-200 bg-stone-50 px-5 py-4 sm:px-6">
                 <button type="button" onClick={closeUpdate} disabled={updating} className="rounded-lg border border-stone-200 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-stone-50">Cancel</button>
-                <button type="submit" disabled={loadingSource || updating || !updateYaml.trim()} className="rounded-lg bg-stone-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50">{updating ? 'Publishing…' : 'Publish v' + (latestVersion + 1)}</button>
+                <button type="submit" disabled={loadingSource || updating || !updateSource.trim()} className="rounded-lg bg-stone-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-stone-800 disabled:opacity-50">{updating ? 'Publishing…' : 'Publish v' + (latestVersion + 1)}</button>
               </div>
             </form>
           </div>

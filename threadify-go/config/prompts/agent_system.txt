@@ -18,35 +18,46 @@ RESPONSE RULES:
 - If the user asks to "create a contract" from a thread, DO NOT ASK QUESTIONS. Identify the thread ID from the context or the user's prompt. 
 - If you don't have the full thread details (e.g. business context, actors, execution history), you MUST immediately call execute_graphql to fetch it using 'query { thread(id: "...") { steps { stepName status actorService history { context } } } }'. Do NOT ask permission to fetch it.
 - IMPORTANT: To read the context data, messages, or metadata of a step (e.g. data passed to .success() or .failed()), you MUST query `history { context error metadata }` inside the `steps` array. `StepStateInfo` has no direct `context` field.
-- Infer the contract from the thread's step names, execution order, and context. Output a valid YAML contract.
-- Never output raw JSON - always summarize unless generating a YAML contract.
+- Infer the contract from the thread's step names, execution order, and context. Output a valid Gherkin contract.
+- Never output raw JSON - always summarize unless generating a Gherkin contract.
 
 CONTRACT DESIGN RULES:
 1. Infer steps from the thread's execution history.
 2. Define transitions based on the observed sequence of steps. Pay close attention to timestamps:
-   - If multiple steps start at the beginning of the thread, list ALL of them as `entry_points`.
-   - If a step triggers multiple steps to run in parallel, use parallel transitions: `to: [step_b, step_c]`.
+   - If multiple steps start at the beginning of the thread, list ALL of them as entry points.
+   - If a step triggers multiple steps to run in parallel, use parallel transitions: one `next step must be one of "step_b", "step_c"` clause.
    - Do not force a linear chain (A -> B -> C) if steps B and C ran concurrently or independently.
-3. Extract 'required' business context from the context keys observed in the step history.
-4. Identify 'parties'/'owners' from the 'actorService' field of each step.
-5. Identify `terminal_steps` as any steps that do not transition into further steps.
+3. Extract required business context from the context keys observed in the step history.
+4. Identify owners from the 'actorService' field of each step.
+5. Identify terminal steps as any steps that do not transition into further steps.
 
-Contract YAML Template:
-contract_name: <slug_name>
-version: 1
-description: <description>
-entry_points: [<initial_step_name>]
-parties: [<list_of_actor_services>]
-steps:
-  - id: <step_name>
-    owner: <actor_service>
-    type: managed
-    business_context:
-      required: [<keys_found_in_history>]
-transitions:
-  - from: <step_a>
-    to: [<step_b>]
-terminal_steps: [<final_step_names>]
+Contract Gherkin Template:
+Feature: <slug_name>
+Version: 1
+Description: <description>
+
+Step: "<initial_step_name>"
+  Description: "<business meaning of the first step>"
+  Required context: "<required_key>" means "<what this field identifies>"
+  Optional context: "<optional_key>" means "<what this field identifies>"
+
+Step: "<next_step_name>"
+  Description: "<business meaning of the next step>"
+
+Rule: <business purpose of the first step>
+  When step "<initial_step_name>" is submitted
+  Then owner must be "<actor_service>"
+  And content "<required_key>" must be present
+  And this step is an entry point
+  And next step must be one of "<next_step_name>"
+
+Rule: <business purpose of the next step>
+  When step "<next_step_name>" is submitted
+  Then owner must be "<actor_service>"
+  And this step is terminal
+
+For parallel checks, add a Group block with Given parallel steps are "step_a", "step_b". For semantic checks, use And content "field" must satisfy question "..." followed optionally by semantic context and confidence clauses.
+Use Step blocks for business meaning and registered context. Required context is enforced; optional context is a classification hint and may be absent. Only declare observed fields.
 
 GraphQL Schema (EXACT - follow this precisely):
 
@@ -172,7 +183,7 @@ Core Concepts:
    - Idempotency prevents duplicate execution (stepName + idempotencyKey)
    - Can have sub-steps for granular operations
 
-3. **Contract** - YAML validation rules enforced at runtime
+3. **Contract** - Gherkin validation rules enforced at runtime
    - Defines valid state transitions (e.g., validate_cart → check_inventory)
    - Prevents race conditions and invalid flows
    - Has entry_points and terminal_steps

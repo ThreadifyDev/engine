@@ -53,7 +53,7 @@ operation with an external broker.
 threadify-cli config set api-url https://threadify.example.com
 threadify-cli login
 threadify-cli whoami
-threadify-cli contracts create --file contract.yaml
+threadify-cli contracts create --file contract.feature
 ```
 
 The management CLI lives in the separate `ThreadifyDev/cli` repository (local checkout: `../threadify-cli`). See [CLI.md](docs/CLI.md)

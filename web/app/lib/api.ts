@@ -3,7 +3,6 @@ import type { ProfileView } from '~/components/profiles/view/profile-view';
 
 import { getConfig } from '../config.client';
 
-import yaml from 'js-yaml';
 import { browserHeaders, csrfToken, purgeLegacyToken } from './browser-session';
 
 // Patterns that indicate internal error details which should not reach users.
@@ -430,21 +429,21 @@ class ApiClient {
     return this.request(endpoint);
   }
 
-  async createContract(data: { name: string; yaml: string }): Promise<any> {
+  async createContract(data: { name: string; source: string }): Promise<any> {
     return this.request('/contracts', {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
-      body: data.yaml,
+      body: data.source,
     });
   }
 
-  async previewContract(data: { yaml: string }): Promise<any> {
+  async previewContract(data: { source: string }): Promise<any> {
     return this.request('/contracts/preview', {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain',
       },
-      body: data.yaml,
+      body: data.source,
     });
   }
 
@@ -452,10 +451,10 @@ class ApiClient {
     return this.request(`/contracts/${id}`);
   }
 
-  async updateContract(id: string, data: { yaml: string }): Promise<any> {
+  async updateContract(id: string, data: { source: string }): Promise<any> {
     return this.request(`/contracts/${id}`, {
       method: 'PUT',
-      body: data.yaml,
+      body: data.source,
       headers: {
         'Content-Type': 'text/plain',
       },

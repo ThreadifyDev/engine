@@ -28,7 +28,11 @@ func TestContractService_CreateContract(t *testing.T) {
 	const (
 		ownerID   = "owner-1"
 		companyID = "company-1"
-		yaml      = "contract_name: test-contract\nversion: 1\ndescription: test"
+		source    = `Feature: test_contract
+Version: 1
+Rule: Test
+  When step "step" is submitted
+  Then owner must be "agent"`
 	)
 	contract := &validator.Contract{
 		ContractName: "test-contract",
@@ -43,13 +47,13 @@ func TestContractService_CreateContract(t *testing.T) {
 		ctx := context.Background()
 		svc := deps.NewContractService()
 
-		deps.Validator.EXPECT().Validate(yaml).Return(contract, &validator.ValidationResult{IsValid: true})
+		deps.Validator.EXPECT().Validate(source).Return(contract, &validator.ValidationResult{IsValid: true})
 		deps.PlanSvc.EXPECT().CheckCreditAvailable(ctx, companyID, service.MeterContractExecution, int64(1)).Return(nil)
 		deps.Validator.EXPECT().SerializeContract(contract).Return("{}", "{}", nil)
 		deps.ContractRepo.EXPECT().CreateContractWithVersion(ctx, gomock.Any(), gomock.Any()).Return(nil)
 		deps.PlanSvc.EXPECT().ChargeContract(ctx, companyID).Return(nil)
 
-		status, _ := svc.CreateContract(ctx, ownerID, companyID, ownerID, yaml)
+		status, _ := svc.CreateContract(ctx, ownerID, companyID, ownerID, source)
 
 		require.Equal(t, 200, status)
 	})
@@ -61,10 +65,10 @@ func TestContractService_CreateContract(t *testing.T) {
 		ctx := context.Background()
 		svc := deps.NewContractService()
 
-		deps.Validator.EXPECT().Validate(yaml).Return(contract, &validator.ValidationResult{IsValid: true})
+		deps.Validator.EXPECT().Validate(source).Return(contract, &validator.ValidationResult{IsValid: true})
 		deps.PlanSvc.EXPECT().CheckCreditAvailable(ctx, companyID, service.MeterContractExecution, int64(1)).Return(service.ErrInsufficientCredit)
 
-		status, resp := svc.CreateContract(ctx, ownerID, companyID, ownerID, yaml)
+		status, resp := svc.CreateContract(ctx, ownerID, companyID, ownerID, source)
 
 		require.Equal(t, 402, status)
 		require.Contains(t, resp.(map[string]string)["message"], "insufficient credit balance")
@@ -74,21 +78,21 @@ func TestContractService_CreateContract(t *testing.T) {
 func TestContractService_PreviewContract_Table(t *testing.T) {
 	tests := []struct {
 		name        string
-		yaml        string
+		source      string
 		validateOK  bool
 		wantErr     bool
 		wantInvalid bool
 	}{
 		{
 			name:        "invalid contract returns validation result without error",
-			yaml:        "bad",
+			source:      "bad",
 			validateOK:  false,
 			wantErr:     false,
 			wantInvalid: true,
 		},
 		{
 			name:        "graph build failure returns error",
-			yaml:        "{bad-json",
+			source:      "{bad-json",
 			validateOK:  true,
 			wantErr:     true,
 			wantInvalid: false,
@@ -103,9 +107,9 @@ func TestContractService_PreviewContract_Table(t *testing.T) {
 			svc := deps.NewContractService()
 
 			result := &validator.ValidationResult{IsValid: tc.validateOK}
-			deps.Validator.EXPECT().Validate(tc.yaml).Return(&validator.Contract{ContractName: "c", Version: 1}, result)
+			deps.Validator.EXPECT().Validate(tc.source).Return(&validator.Contract{ContractName: "c", Version: 1}, result)
 
-			contract, graph, vr, err := svc.PreviewContract(context.Background(), "company", tc.yaml)
+			contract, graph, vr, err := svc.PreviewContract(context.Background(), "company", tc.source)
 			if tc.wantErr {
 				require.Error(t, err)
 				require.Nil(t, vr)
@@ -144,90 +148,90 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 	}
 
 	tests := []struct {
-		name  string
-		setup func(t *testing.T, deps *common.MockedDependencies, yaml string)
-		yaml  string
-		want  int
+		name   string
+		setup  func(t *testing.T, deps *common.MockedDependencies, source string)
+		source string
+		want   int
 	}{
 		{
-			name: "not found or not owner",
-			yaml: "yaml",
-			want: 404,
-			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
+			name:   "not found or not owner",
+			source: "source",
+			want:   404,
+			setup: func(t *testing.T, deps *common.MockedDependencies, source string) {
 				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(nil, errors.New("nope"))
 			},
 		},
 		{
-			name: "invalid contract yaml",
-			yaml: "yaml",
-			want: 400,
-			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
+			name:   "invalid contract source",
+			source: "source",
+			want:   400,
+			setup: func(t *testing.T, deps *common.MockedDependencies, source string) {
 				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
-				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: false, Errors: []validator.ValidationError{{Message: "bad"}}})
+				deps.Validator.EXPECT().Validate(source).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: false, Errors: []validator.ValidationError{{Message: "bad"}}})
 			},
 		},
 		{
-			name: "version not greater than latest",
-			yaml: "yaml",
-			want: 400,
-			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
+			name:   "version not greater than latest",
+			source: "source",
+			want:   400,
+			setup: func(t *testing.T, deps *common.MockedDependencies, source string) {
 				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(2, nil), nil)
-				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
+				deps.Validator.EXPECT().Validate(source).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 			},
 		},
 		{
-			name: "insufficient credit when updating",
-			yaml: "yaml",
-			want: 402,
-			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
+			name:   "insufficient credit when updating",
+			source: "source",
+			want:   402,
+			setup: func(t *testing.T, deps *common.MockedDependencies, source string) {
 				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
-				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
+				deps.Validator.EXPECT().Validate(source).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(service.ErrInsufficientCredit)
 			},
 		},
 		{
-			name: "serialize fails",
-			yaml: "yaml",
-			want: 500,
-			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
+			name:   "serialize fails",
+			source: "source",
+			want:   500,
+			setup: func(t *testing.T, deps *common.MockedDependencies, source string) {
 				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
-				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
+				deps.Validator.EXPECT().Validate(source).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("", "", errors.New("boom"))
 			},
 		},
 		{
-			name: "content unchanged",
-			yaml: "yaml",
-			want: 400,
-			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
+			name:   "content unchanged",
+			source: "source",
+			want:   400,
+			setup: func(t *testing.T, deps *common.MockedDependencies, source string) {
 				unchanged := calculateContentHash(`{"a":"b"}`)
 				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, &unchanged), nil)
-				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
+				deps.Validator.EXPECT().Validate(source).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", `{"a":"b"}`, nil)
 			},
 		},
 		{
-			name: "graph build fails",
-			yaml: "yaml",
-			want: 500,
-			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
+			name:   "graph build fails",
+			source: "source",
+			want:   500,
+			setup: func(t *testing.T, deps *common.MockedDependencies, source string) {
 				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
-				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
+				deps.Validator.EXPECT().Validate(source).Return(&validator.Contract{Version: 2}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{bad-json", nil)
 				deps.ContractRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(baseExisting(2, nil), nil)
 			},
 		},
 		{
-			name: "charge failure does not undo persisted version",
-			yaml: "yaml",
-			want: 200,
-			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
+			name:   "charge failure does not undo persisted version",
+			source: "source",
+			want:   200,
+			setup: func(t *testing.T, deps *common.MockedDependencies, source string) {
 				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
-				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2, Description: "d"}, &validator.ValidationResult{IsValid: true})
+				deps.Validator.EXPECT().Validate(source).Return(&validator.Contract{Version: 2, Description: "d"}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
 				deps.ContractRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(baseExisting(2, nil), nil)
@@ -239,12 +243,12 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			},
 		},
 		{
-			name: "create version fails",
-			yaml: "yaml",
-			want: 500,
-			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
+			name:   "create version fails",
+			source: "source",
+			want:   500,
+			setup: func(t *testing.T, deps *common.MockedDependencies, source string) {
 				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
-				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2, Description: "d"}, &validator.ValidationResult{IsValid: true})
+				deps.Validator.EXPECT().Validate(source).Return(&validator.Contract{Version: 2, Description: "d"}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
 				deps.ContractRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(baseExisting(2, nil), nil)
@@ -252,12 +256,12 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			},
 		},
 		{
-			name: "success",
-			yaml: "yaml",
-			want: 200,
-			setup: func(t *testing.T, deps *common.MockedDependencies, yaml string) {
+			name:   "success",
+			source: "source",
+			want:   200,
+			setup: func(t *testing.T, deps *common.MockedDependencies, source string) {
 				deps.ContractRepo.EXPECT().GetByIDAndCompany(gomock.Any(), contractID, companyID).Return(baseExisting(1, nil), nil)
-				deps.Validator.EXPECT().Validate(yaml).Return(&validator.Contract{Version: 2, Description: "d"}, &validator.ValidationResult{IsValid: true})
+				deps.Validator.EXPECT().Validate(source).Return(&validator.Contract{Version: 2, Description: "d"}, &validator.ValidationResult{IsValid: true})
 				deps.PlanSvc.EXPECT().CheckCreditAvailable(gomock.Any(), companyID, service.MeterContractExecution, int64(1)).Return(nil)
 				deps.Validator.EXPECT().SerializeContract(gomock.Any()).Return("{}", "{}", nil)
 				deps.ContractRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(baseExisting(2, nil), nil)
@@ -275,9 +279,9 @@ func TestContractService_UpdateContract_Table(t *testing.T) {
 			defer deps.Ctrl.Finish()
 
 			svc := deps.NewContractService()
-			tc.setup(t, deps, tc.yaml)
+			tc.setup(t, deps, tc.source)
 
-			status, _ := svc.UpdateContract(context.Background(), contractID, companyID, createdBy, tc.yaml)
+			status, _ := svc.UpdateContract(context.Background(), contractID, companyID, createdBy, tc.source)
 			require.Equal(t, tc.want, status)
 		})
 	}

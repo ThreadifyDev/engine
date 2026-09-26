@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -41,20 +42,12 @@ func TestSemanticRuleUsesValidatedThreadContextAndFailsClosed(t *testing.T) {
 }
 
 func TestSemanticContextStepBecomesDependency(t *testing.T) {
-	graph, err := service.NewGraphBuilder().BuildGraph([]byte(`contract_name: refund
-version: 1
-description: Refund example
-parties: [agent]
-steps:
-  - id: identity_verified
-    owner: agent
-  - id: issue_refund
-    owner: agent
-    semantic_rules:
-      - field: refund_note
-        question: Does the note describe a refund for the verified customer?
-        context_steps: [identity_verified]
-`))
+	data, err := json.Marshal(domain.ContractDefinition{ContractName: "refund", Version: 1, Parties: []string{"agent"}, Steps: []domain.Step{
+		{ID: "identity_verified", Owner: "agent"},
+		{ID: "issue_refund", Owner: "agent", SemanticRules: []contractcontent.SemanticRule{{Field: "refund_note", Question: "Does the note describe a refund for the verified customer?", ContextSteps: []string{"identity_verified"}}}},
+	}})
+	require.NoError(t, err)
+	graph, err := service.NewGraphBuilder().BuildGraph(data)
 	require.NoError(t, err)
 	require.Equal(t, []string{"identity_verified"}, graph.Graph.Nodes["issue_refund"].DependsOn)
 	require.Len(t, graph.Graph.Nodes["issue_refund"].SemanticRules, 1)

@@ -15,3 +15,8 @@ string parses successfully, and only from successful observed history.
 One execution cannot prove every possible branch. Preserve observed concurrency
 and identify any inferred transitions or terminal steps as uncertain where the
 evidence is incomplete.
+For a proposed parallel `Group`, compare member start/end times and dependencies;
+an order in the history list alone does not prove concurrent execution. Ask the
+user when the workflow is intended to allow parallel work but the evidence is
+inconclusive. Treat context keys seen in history as candidates: one occurrence
+does not make a field required.

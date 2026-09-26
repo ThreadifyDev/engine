@@ -19,7 +19,7 @@ import (
 // contractCols and versionCols are the canonical SELECT column lists,
 // kept in sync with the Scan calls in scanContract and scanVersion.
 const contractCols = `id, name, company_id, description, content_hash, latest_version, owner_id, is_public, is_deleted, created_at, updated_at`
-const versionCols = `id, version, content, yaml_content, content_hash, contract_id, created_by, graph, expected_duration_ms, is_deleted, created_at, updated_at`
+const versionCols = `id, version, content, source, content_hash, contract_id, created_by, graph, expected_duration_ms, is_deleted, created_at, updated_at`
 
 const (
 	constrContractNameCompanyActive = "idx_contracts_name_company_active"
@@ -46,7 +46,7 @@ func scanContract(row pgx.Row, c *domain.Contract) error {
 // scanVersion scans a standard contract version row.
 func scanVersion(row pgx.Row, v *domain.ContractVersion) error {
 	return row.Scan(
-		&v.ID, &v.Version, &v.Content, &v.YAMLContent, &v.ContentHash,
+		&v.ID, &v.Version, &v.Content, &v.Source, &v.ContentHash,
 		&v.ContractID, &v.CreatedBy, &v.Graph, &v.ExpectedDurationMs, &v.IsDeleted,
 		&v.CreatedAt, &v.UpdatedAt,
 	)
@@ -119,7 +119,7 @@ func (r *ContractRepository) CreateContractWithVersion(ctx context.Context, cont
 		RETURNING ` + versionCols
 
 	if err := versionErr(scanVersion(tx.QueryRow(ctx, versionQuery,
-		version.ID, version.Version, version.Content, version.YAMLContent, version.ContentHash,
+		version.ID, version.Version, version.Content, version.Source, version.ContentHash,
 		version.ContractID, version.CreatedBy, version.Graph, version.ExpectedDurationMs, version.IsDeleted,
 		version.CreatedAt, version.UpdatedAt,
 	), version)); err != nil {
@@ -275,7 +275,7 @@ func (r *ContractRepository) CreateVersion(ctx context.Context, v *domain.Contra
 		RETURNING ` + versionCols
 
 	return versionErr(scanVersion(r.pool.QueryRow(ctx, query,
-		v.ID, v.Version, v.Content, v.YAMLContent, v.ContentHash,
+		v.ID, v.Version, v.Content, v.Source, v.ContentHash,
 		v.ContractID, v.CreatedBy, v.Graph, v.ExpectedDurationMs, v.IsDeleted,
 		v.CreatedAt, v.UpdatedAt,
 	), v))

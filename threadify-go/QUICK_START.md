@@ -2,7 +2,7 @@
 
 ## ✅ What's Implemented
 
-1. **Contract Validation** - Full YAML validation (223 lines, 17 tests)
+1. **Contract Validation** - Gherkin contract validation (223 lines, 17 tests)
 2. **Two-Table Database** - Contracts + Versions with proper relationships
 3. **Rate Limiting** - Token bucket, 100 req/s, burst 200
 4. **Prometheus Metrics** - 9 metric types with dedicated endpoint

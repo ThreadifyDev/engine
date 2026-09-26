@@ -573,18 +573,18 @@ func (mr *MockContractValidatorMockRecorder) SerializeContract(contract interfac
 }
 
 // Validate mocks base method.
-func (m *MockContractValidator) Validate(yamlString string) (*validator.Contract, *validator.ValidationResult) {
+func (m *MockContractValidator) Validate(source string) (*validator.Contract, *validator.ValidationResult) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Validate", yamlString)
+	ret := m.ctrl.Call(m, "Validate", source)
 	ret0, _ := ret[0].(*validator.Contract)
 	ret1, _ := ret[1].(*validator.ValidationResult)
 	return ret0, ret1
 }
 
 // Validate indicates an expected call of Validate.
-func (mr *MockContractValidatorMockRecorder) Validate(yamlString interface{}) *gomock.Call {
+func (mr *MockContractValidatorMockRecorder) Validate(source interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Validate", reflect.TypeOf((*MockContractValidator)(nil).Validate), yamlString)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Validate", reflect.TypeOf((*MockContractValidator)(nil).Validate), source)
 }
 
 // MockTimeoutMonitor is a mock of TimeoutMonitor interface.
@@ -662,18 +662,18 @@ func (m *MockContractService) EXPECT() *MockContractServiceMockRecorder {
 }
 
 // CreateContract mocks base method.
-func (m *MockContractService) CreateContract(ctx context.Context, ownerID, companyID, createdBy, contractYAML string) (int, interface{}) {
+func (m *MockContractService) CreateContract(ctx context.Context, ownerID, companyID, createdBy, source string) (int, interface{}) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateContract", ctx, ownerID, companyID, createdBy, contractYAML)
+	ret := m.ctrl.Call(m, "CreateContract", ctx, ownerID, companyID, createdBy, source)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(interface{})
 	return ret0, ret1
 }
 
 // CreateContract indicates an expected call of CreateContract.
-func (mr *MockContractServiceMockRecorder) CreateContract(ctx, ownerID, companyID, createdBy, contractYAML interface{}) *gomock.Call {
+func (mr *MockContractServiceMockRecorder) CreateContract(ctx, ownerID, companyID, createdBy, source interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateContract", reflect.TypeOf((*MockContractService)(nil).CreateContract), ctx, ownerID, companyID, createdBy, contractYAML)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateContract", reflect.TypeOf((*MockContractService)(nil).CreateContract), ctx, ownerID, companyID, createdBy, source)
 }
 
 // DeleteContract mocks base method.
@@ -767,9 +767,9 @@ func (mr *MockContractServiceMockRecorder) GetContractVersion(ctx, contractID, v
 }
 
 // PreviewContract mocks base method.
-func (m *MockContractService) PreviewContract(ctx context.Context, companyID, yamlString string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
+func (m *MockContractService) PreviewContract(ctx context.Context, companyID, source string) (*validator.Contract, *domain.ContractGraph, *validator.ValidationResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PreviewContract", ctx, companyID, yamlString)
+	ret := m.ctrl.Call(m, "PreviewContract", ctx, companyID, source)
 	ret0, _ := ret[0].(*validator.Contract)
 	ret1, _ := ret[1].(*domain.ContractGraph)
 	ret2, _ := ret[2].(*validator.ValidationResult)
@@ -778,24 +778,24 @@ func (m *MockContractService) PreviewContract(ctx context.Context, companyID, ya
 }
 
 // PreviewContract indicates an expected call of PreviewContract.
-func (mr *MockContractServiceMockRecorder) PreviewContract(ctx, companyID, yamlString interface{}) *gomock.Call {
+func (mr *MockContractServiceMockRecorder) PreviewContract(ctx, companyID, source interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreviewContract", reflect.TypeOf((*MockContractService)(nil).PreviewContract), ctx, companyID, yamlString)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreviewContract", reflect.TypeOf((*MockContractService)(nil).PreviewContract), ctx, companyID, source)
 }
 
 // UpdateContract mocks base method.
-func (m *MockContractService) UpdateContract(ctx context.Context, contractID, ownerID, createdBy, contractYAML string) (int, interface{}) {
+func (m *MockContractService) UpdateContract(ctx context.Context, contractID, ownerID, createdBy, source string) (int, interface{}) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateContract", ctx, contractID, ownerID, createdBy, contractYAML)
+	ret := m.ctrl.Call(m, "UpdateContract", ctx, contractID, ownerID, createdBy, source)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(interface{})
 	return ret0, ret1
 }
 
 // UpdateContract indicates an expected call of UpdateContract.
-func (mr *MockContractServiceMockRecorder) UpdateContract(ctx, contractID, ownerID, createdBy, contractYAML interface{}) *gomock.Call {
+func (mr *MockContractServiceMockRecorder) UpdateContract(ctx, contractID, ownerID, createdBy, source interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateContract", reflect.TypeOf((*MockContractService)(nil).UpdateContract), ctx, contractID, ownerID, createdBy, contractYAML)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateContract", reflect.TypeOf((*MockContractService)(nil).UpdateContract), ctx, contractID, ownerID, createdBy, source)
 }
 
 // MockThreadService is a mock of ThreadService interface.

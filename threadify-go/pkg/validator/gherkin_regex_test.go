@@ -1,10 +1,9 @@
 package validator
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
 
 func TestGherkinRegexRoundTrip(t *testing.T) {
@@ -18,11 +17,15 @@ func TestGherkinRegexRoundTrip(t *testing.T) {
 	if rule.Operator != "matches" || rule.Value != `^TRK-\d{8}$` {
 		t.Fatalf("incorrect compiled rule: %+v", rule)
 	}
-	data, err := yaml.Marshal(c)
+	data, err := json.Marshal(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reloaded, result := v.Validate(string(data))
+	var reloaded Contract
+	if err := json.Unmarshal(data, &reloaded); err != nil {
+		t.Fatal(err)
+	}
+	_, result = v.ValidateCompiled(&reloaded)
 	if !result.IsValid {
 		t.Fatal(result.Errors)
 	}
@@ -30,7 +33,7 @@ func TestGherkinRegexRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, after, err := v.SerializeContract(reloaded)
+	_, after, err := v.SerializeContract(&reloaded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,12 +41,8 @@ func TestGherkinRegexRoundTrip(t *testing.T) {
 		t.Fatal("regex changed during normalization")
 	}
 	reloaded.Steps[1].ContentRules[0].Value = "["
-	data, err = yaml.Marshal(reloaded)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, result := v.Validate(string(data)); result.IsValid {
-		t.Fatal("invalid YAML regex accepted")
+	if _, result := v.ValidateCompiled(&reloaded); result.IsValid {
+		t.Fatal("invalid compiled regex accepted")
 	}
 }
 

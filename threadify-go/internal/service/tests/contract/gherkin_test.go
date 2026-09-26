@@ -39,6 +39,8 @@ func TestGherkinPreviewPersistenceAndRuntimeChecks(t *testing.T) {
 	require.JSONEq(t, string(data), string(reloadedJSON))
 	validation := service.NewContractValidationServiceFromParts(nil, nil, nil, zap.NewNop())
 	node := loaded.Graph.Nodes["charge"]
+	require.Equal(t, "Amount charged.", node.BusinessContext.Descriptions["amount"])
+	require.Equal(t, "Provider receipt identifier.", node.BusinessContext.Descriptions["provider_transaction_id"])
 	require.NoError(t, validation.ValidateStepContext(context.Background(), node, map[string]string{"amount": "12.50", "currency": "GBP", "reference": "r1"}))
 	for _, content := range []map[string]string{
 		{"amount": "12.50", "currency": "GBP", "reference": "invalid-reference"},
@@ -56,9 +58,44 @@ func TestGherkinPreviewPersistenceAndRuntimeChecks(t *testing.T) {
 	denied, err := service.EvaluateStepProposal("thread", domain.ThreadStatusActive, loaded, "charge", nil)
 	require.NoError(t, err)
 	require.False(t, denied.Allowed)
-	version, err := mapper.ToContractVersionDTO(&domain.ContractVersion{YAMLContent: string(source)}, "payment_processing")
+	version, err := mapper.ToContractVersionDTO(&domain.ContractVersion{Source: string(source)}, "payment_processing")
 	require.NoError(t, err)
 	require.Equal(t, "gherkin", version.SourceFormat)
 	require.Equal(t, string(source), version.Source)
-	require.Equal(t, version.Source, version.YAMLContent)
+}
+
+func TestGherkinParallelAndSemanticRulesSurviveGraphStorage(t *testing.T) {
+	source, err := os.ReadFile("../../../../examples/parallel_review.feature")
+	require.NoError(t, err)
+	compiled, result := validator.NewContractValidator().Validate(string(source))
+	require.True(t, result.IsValid, "%v", result.Errors)
+	_, content, err := validator.NewContractValidator().SerializeContract(compiled)
+	require.NoError(t, err)
+	graph, err := service.NewGraphBuilder().BuildGraph([]byte(content))
+	require.NoError(t, err)
+	group := graph.Graph.Nodes["parallel_reviews"]
+	require.Equal(t, "all_of", group.Mode)
+	require.Equal(t, "5m", group.MaxDuration)
+	step := graph.Graph.Nodes["fraud_review"]
+	require.Equal(t, "parallel_reviews", step.ParentGroup)
+	require.Len(t, step.SemanticRules, 1)
+	require.Equal(t, "received", step.SemanticRules[0].ContextSteps[0])
+	require.Equal(t, .85, step.SemanticRules[0].MinProbability)
+}
+
+func TestContractServiceRejectsNonGherkinSource(t *testing.T) {
+	svc := service.NewContractService(nil, nil, zap.NewNop())
+	for _, source := range []string{
+		"contract_name: old_contract\nversion: 1\nsteps: []\n",
+		`{"ContractName":"json_contract","Version":1}`,
+	} {
+		contract, graph, result, err := svc.PreviewContract(context.Background(), "company", source)
+		require.NoError(t, err)
+		require.Nil(t, contract)
+		require.Nil(t, graph)
+		require.False(t, result.IsValid)
+		require.NotEmpty(t, result.Errors)
+		status, _ := svc.CreateContract(context.Background(), "owner", "company", "owner", source)
+		require.Equal(t, 400, status)
+	}
 }

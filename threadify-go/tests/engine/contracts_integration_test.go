@@ -23,11 +23,11 @@ type testContract struct {
 }
 
 type testContractVersion struct {
-	ID          string `json:"id"`
-	Version     int    `json:"version"`
-	ContractID  string `json:"contractId"`
-	Content     string `json:"content"` // add this
-	YAMLContent string `json:"yamlContent"`
+	ID         string `json:"id"`
+	Version    int    `json:"version"`
+	ContractID string `json:"contractId"`
+	Content    string `json:"content"` // add this
+	Source     string `json:"source"`
 }
 
 type testContractResponse struct {
@@ -36,156 +36,122 @@ type testContractResponse struct {
 }
 
 const (
-	initialYAML = `
-contract_name: integration_test_engine
-version: 1
-description: Integration test contract
-parties:
-  - merchant
-  - payment_processor
-steps:
-  - id: order_placed
-    owner: merchant
-    type: managed
-    timeout: 5m
-    business_context:
-      required:
-        - order_id
-        - customer_id
-      optional:
-        - notes
-  - id: payment_validation
-    owner: payment_processor
-    type: external
-    timeout: 30s
-    business_context:
-      required:
-        - payment_method
-        - amount
-  - id: payment_validated
-    owner: payment_processor
-    type: managed
-  - id: order_cancelled
-    owner: merchant
-    type: managed
-    business_context:
-      required:
-        - cancellation_reason
-transitions:
-  - from: order_placed
-    to:
-      - payment_validation
-    timeout: 2m
-    max_retries: 3
-  - from: payment_validation
-    to:
-      - payment_validated
-      - order_cancelled
-    timeout: 30s
-    max_retries: 3
-entry_points:
-  - order_placed
-terminal_steps:
-  - payment_validated
-  - order_cancelled
-validation:
-  max_duration: 1h
-  allow_multiple_terminals: true
-  multiple_terminals_severity: minor
-versioning:
-  threads_lock_to_version: true
-`
+	initialSource = `Feature: integration_test_engine
+Version: 1
+Description: Integration test contract
 
-	updatedYAML = `
-contract_name: integration_test_engine
-version: 2
-description: Updated integration test contract
-parties:
-  - merchant
-  - payment_processor
-  - logistics_carrier
-steps:
-  - id: order_placed
-    owner: merchant
-    type: managed
-    timeout: 5m
-    business_context:
-      required:
-        - order_id
-        - customer_id
-      optional:
-        - notes
-  - id: payment_validation
-    owner: payment_processor
-    type: external
-    timeout: 30s
-    business_context:
-      required:
-        - payment_method
-        - amount
-  - id: payment_validated
-    owner: payment_processor
-    type: managed
-  - id: order_cancelled
-    owner: merchant
-    type: managed
-    business_context:
-      required:
-        - cancellation_reason
-  - id: shipped
-    owner: logistics_carrier
-    type: managed
-    timeout: 24h
-    business_context:
-      required:
-        - tracking_number
-        - carrier_name
-      optional:
-        - estimated_delivery
-  - id: delivered
-    owner: logistics_carrier
-    type: managed
-    business_context:
-      required:
-        - delivery_timestamp
-transitions:
-  - from: order_placed
-    to:
-      - payment_validation
-    timeout: 2m
-    max_retries: 3
-  - from: payment_validation
-    to:
-      - payment_validated
-      - order_cancelled
-    timeout: 30s
-    max_retries: 3
-  - from: payment_validated
-    to:
-      - shipped
-    timeout: 5m
-  - from: shipped
-    to:
-      - delivered
-    timeout: 72h
-entry_points:
-  - order_placed
-terminal_steps:
-  - delivered
-  - order_cancelled
-validation:
-  max_duration: 72h
-  allow_multiple_terminals: true
-  multiple_terminals_severity: major
-versioning:
-  threads_lock_to_version: true
-`
+Background:
+  Given the thread must finish within "1h"
+  And multiple terminal steps are allowed
+  And multiple terminal severity is "minor"
+  And threads lock to this version
 
-	invalidYAML = `
-contract_name: broken_contract
-version: 1
-    description:
-    - broken
+Rule: Place an order
+  When step "order_placed" is submitted
+  Then owner must be "merchant"
+  And step type is "managed"
+  And this step must finish within "5m"
+  And content "order_id" must be present
+  And content "customer_id" must be present
+  And content "notes" is optional
+  And this step is an entry point
+  And next step must be one of "payment_validation"
+  And the next step must start within "2m"
+  And this step may be retried at most 3 times
+
+Rule: Validate payment
+  When step "payment_validation" is submitted
+  Then owner must be "payment_processor"
+  And step type is "external"
+  And this step must finish within "30s"
+  And content "payment_method" must be present
+  And content "amount" must be present
+  And next step must be one of "payment_validated", "order_cancelled"
+  And the next step must start within "30s"
+  And this step may be retried at most 3 times
+
+Rule: Confirm payment
+  When step "payment_validated" is submitted
+  Then owner must be "payment_processor"
+  And step type is "managed"
+  And this step is terminal
+
+Rule: Cancel order
+  When step "order_cancelled" is submitted
+  Then owner must be "merchant"
+  And step type is "managed"
+  And content "cancellation_reason" must be present
+  And this step is terminal
+`
+	updatedSource = `Feature: integration_test_engine
+Version: 2
+Description: Updated integration test contract
+
+Background:
+  Given the thread must finish within "72h"
+  And multiple terminal steps are allowed
+  And multiple terminal severity is "major"
+  And threads lock to this version
+
+Rule: Place an order
+  When step "order_placed" is submitted
+  Then owner must be "merchant"
+  And step type is "managed"
+  And this step must finish within "5m"
+  And content "order_id" must be present
+  And content "customer_id" must be present
+  And content "notes" is optional
+  And this step is an entry point
+  And next step must be one of "payment_validation"
+  And the next step must start within "2m"
+  And this step may be retried at most 3 times
+
+Rule: Validate payment
+  When step "payment_validation" is submitted
+  Then owner must be "payment_processor"
+  And step type is "external"
+  And this step must finish within "30s"
+  And content "payment_method" must be present
+  And content "amount" must be present
+  And next step must be one of "payment_validated", "order_cancelled"
+  And the next step must start within "30s"
+  And this step may be retried at most 3 times
+
+Rule: Confirm payment
+  When step "payment_validated" is submitted
+  Then owner must be "payment_processor"
+  And step type is "managed"
+  And next step must be one of "shipped"
+  And the next step must start within "5m"
+
+Rule: Cancel order
+  When step "order_cancelled" is submitted
+  Then owner must be "merchant"
+  And step type is "managed"
+  And content "cancellation_reason" must be present
+  And this step is terminal
+
+Rule: Ship order
+  When step "shipped" is submitted
+  Then owner must be "logistics_carrier"
+  And step type is "managed"
+  And this step must finish within "24h"
+  And content "tracking_number" must be present
+  And content "carrier_name" must be present
+  And content "estimated_delivery" is optional
+  And next step must be one of "delivered"
+  And the next step must start within "72h"
+
+Rule: Deliver order
+  When step "delivered" is submitted
+  Then owner must be "logistics_carrier"
+  And step type is "managed"
+  And content "delivery_timestamp" must be present
+  And this step is terminal
+`
+	invalidSource = `Feature: broken_contract
+Rule: Missing step declaration
+  Then owner must be "broken"
 `
 )
 
@@ -195,7 +161,7 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 
 	t.Run("preview_valid", func(t *testing.T) {
 		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts/preview",
-			[]byte(initialYAML), "text/plain", user.Token)
+			[]byte(initialSource), "text/plain", user.Token)
 		require.Equal(t, http.StatusOK, resp.StatusCode,
 			"preview body: %s", resp.Body)
 
@@ -206,18 +172,18 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 		assert.True(t, valid, "contract should be valid; errors: %v", body["errors"])
 	})
 
-	t.Run("preview_invalid_yaml", func(t *testing.T) {
+	t.Run("preview_invalid_source", func(t *testing.T) {
 		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts/preview",
-			[]byte(invalidYAML), "text/plain", user.Token)
+			[]byte(invalidSource), "text/plain", user.Token)
 
 		if resp.StatusCode == http.StatusOK {
 			body := enginetest.DecodeJSONBody(t, resp)
 			valid, _ := body["valid"].(bool)
 			assert.False(t, valid,
-				"invalid YAML should have valid=false; body: %s", resp.Body)
+				"invalid Gherkin should have valid=false; body: %s", resp.Body)
 		} else {
 			assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
-				"invalid YAML must be rejected; body: %s", resp.Body)
+				"invalid Gherkin must be rejected; body: %s", resp.Body)
 		}
 	})
 
@@ -225,7 +191,7 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 
 	t.Run("create", func(t *testing.T) {
 		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts",
-			[]byte(initialYAML), "text/plain", user.Token)
+			[]byte(initialSource), "text/plain", user.Token)
 		require.Equal(t, http.StatusOK, resp.StatusCode,
 			"create body: %s", resp.Body)
 
@@ -279,7 +245,7 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 
 	t.Run("update", func(t *testing.T) {
 		resp := httpc.DoWithAuth(t, http.MethodPut, "/v1/contracts/"+contractID,
-			[]byte(updatedYAML), "text/plain", user.Token)
+			[]byte(updatedSource), "text/plain", user.Token)
 		require.Equal(t, http.StatusOK, resp.StatusCode,
 			"update body: %s", resp.Body)
 
@@ -327,9 +293,9 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 			"deleted contract must not appear in list")
 	})
 
-	t.Run("create_invalid_yaml", func(t *testing.T) {
+	t.Run("create_invalid_source", func(t *testing.T) {
 		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts",
-			[]byte(invalidYAML), "text/plain", user.Token)
+			[]byte(invalidSource), "text/plain", user.Token)
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
 			"body: %s", resp.Body)
 
@@ -348,7 +314,7 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 	t.Run("update_not_found", func(t *testing.T) {
 		resp := httpc.DoWithAuth(t, http.MethodPut,
 			"/v1/contracts/nonexistent_"+uuid.NewString()[:8],
-			[]byte(initialYAML), "text/plain", user.Token)
+			[]byte(initialSource), "text/plain", user.Token)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 
@@ -361,7 +327,7 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 
 	t.Run("create_duplicate_name", func(t *testing.T) {
 		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts",
-			[]byte(initialYAML), "text/plain", user.Token)
+			[]byte(initialSource), "text/plain", user.Token)
 		require.Equal(t, http.StatusOK, resp.StatusCode,
 			"first create body: %s", resp.Body)
 		first := requireContractFromBody(t, resp)
@@ -383,7 +349,7 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 		})
 
 		resp = httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts",
-			[]byte(initialYAML), "text/plain", user.Token)
+			[]byte(initialSource), "text/plain", user.Token)
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
 			"duplicate contract name must be rejected; body: %s", resp.Body)
 
@@ -400,9 +366,9 @@ func TestContracts_Engine_Lifecycle(t *testing.T) {
 			body   []byte
 		}{
 			{http.MethodGet, "/v1/contracts", nil},
-			{http.MethodPost, "/v1/contracts", []byte(initialYAML)},
+			{http.MethodPost, "/v1/contracts", []byte(initialSource)},
 			{http.MethodGet, "/v1/contracts/" + contractID, nil},
-			{http.MethodPut, "/v1/contracts/" + contractID, []byte(updatedYAML)},
+			{http.MethodPut, "/v1/contracts/" + contractID, []byte(updatedSource)},
 			{http.MethodDelete, "/v1/contracts/" + contractID, nil},
 		} {
 			resp := httpc.DoWithAuth(t, tc.method, tc.path, tc.body, "text/plain", "")

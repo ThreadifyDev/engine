@@ -59,32 +59,35 @@ func doGraphQL(t *testing.T, token, apiKey string, reqBody graphQLRequest) (*eng
 func createContractVersion(t *testing.T, token, contractName string, version int, terminalSteps []string) (contractID string) {
 	t.Helper()
 
-	steps := "" +
-		"steps:\n" +
-		"  - id: stepA\n    owner: actor1\n    type: managed\n" +
-		"  - id: stepB\n    owner: actor1\n    type: managed\n"
+	source := fmt.Sprintf(`Feature: %s
+Version: %d
+Description: graphql test contract
 
-	transitions := "" +
-		"transitions:\n" +
-		"  - from: stepA\n    to: [stepB]\n"
+Rule: First step
+  When step "stepA" is submitted
+  Then owner must be "actor1"
+  And this step is an entry point
+  And next step must be one of "stepB"
 
+Rule: Second step
+  When step "stepB" is submitted
+  Then owner must be "actor1"
+`, contractName, version)
 	if version >= 2 {
-		steps += "  - id: stepC\n    owner: actor1\n    type: managed\n"
-		transitions += "  - from: stepB\n    to: [stepC]\n"
+		source += `  And next step must be one of "stepC"
+
+Rule: Third step
+  When step "stepC" is submitted
+  Then owner must be "actor1"
+`
+	}
+	for _, terminal := range terminalSteps {
+		marker := fmt.Sprintf("  When step %q is submitted\n  Then owner must be \"actor1\"\n", terminal)
+		source = strings.Replace(source, marker, marker+"  And this step is terminal\n", 1)
 	}
 
-	yaml := "" +
-		"contract_name: " + contractName + "\n" +
-		"version: " + fmt.Sprintf("%d", version) + "\n" +
-		"description: graphql test contract\n" +
-		"parties: [actor1]\n" +
-		steps +
-		transitions +
-		"entry_points: [stepA]\n" +
-		"terminal_steps: [" + strings.Join(terminalSteps, ", ") + "]\n"
-
 	if version == 1 {
-		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts", []byte(yaml), "text/plain", token)
+		resp := httpc.DoWithAuth(t, http.MethodPost, "/v1/contracts", []byte(source), "text/plain", token)
 		require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", resp.Body)
 		result := requireContractFromBody(t, resp)
 		return result.Contract.ID
@@ -102,7 +105,7 @@ func createContractVersion(t *testing.T, token, contractName string, version int
 	}
 	require.NotEmpty(t, id)
 
-	updateResp := httpc.DoWithAuth(t, http.MethodPut, "/v1/contracts/"+id, []byte(yaml), "text/plain", token)
+	updateResp := httpc.DoWithAuth(t, http.MethodPut, "/v1/contracts/"+id, []byte(source), "text/plain", token)
 	require.Equal(t, http.StatusOK, updateResp.StatusCode, "body: %s", updateResp.Body)
 	return id
 }

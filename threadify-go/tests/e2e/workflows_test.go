@@ -245,32 +245,32 @@ func TestStandaloneWorkflows(t *testing.T) {
 	})
 
 	contractName := "e2e_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	contractYAML := fmt.Sprintf(`contract_name: %s
-version: 1
-description: Standalone binary workflow verification
-parties: [worker]
-steps:
-  - id: received
-    owner: worker
-    type: managed
-  - id: completed
-    owner: worker
-    type: managed
-transitions:
-  - from: received
-    to: [completed]
-entry_points: [received]
-terminal_steps: [completed]
-validation:
-  max_duration: 1h
-versioning:
-  threads_lock_to_version: true
+	contractSource := fmt.Sprintf(`Feature: %s
+Version: 1
+Description: Standalone binary workflow verification
+
+Background:
+  Given the thread must finish within "1h"
+  And threads lock to this version
+
+Rule: Receive work
+  When step "received" is submitted
+  Then owner must be "worker"
+  And step type is "managed"
+  And this step is an entry point
+  And next step must be one of "completed"
+
+Rule: Complete work
+  When step "completed" is submitted
+  Then owner must be "worker"
+  And step type is "managed"
+  And this step is terminal
 `, contractName)
 	var contractID string
 	contractCreated := t.Run("contract_creation", func(t *testing.T) {
-		code, data := request(t, "POST", "/v1/contracts", "text/plain", []byte(contractYAML), false)
+		code, data := request(t, "POST", "/v1/contracts", "text/plain", []byte(contractSource), false)
 		require.Equal(t, 401, code, string(data))
-		code, data = request(t, "POST", "/v1/contracts", "text/plain", []byte(contractYAML), true)
+		code, data = request(t, "POST", "/v1/contracts", "text/plain", []byte(contractSource), true)
 		require.Equal(t, 200, code, string(data))
 		var result struct {
 			Contract struct {
@@ -286,7 +286,7 @@ versioning:
 		require.Contains(t, string(data), contractName)
 		evidence["contract_id"] = contractID
 		testCompanyContractBrowserAccess(t, base, v.GetString("registry.license_key"), contractID)
-		code, data = request(t, "POST", "/v1/contracts", "text/plain", []byte(contractYAML), true)
+		code, data = request(t, "POST", "/v1/contracts", "text/plain", []byte(contractSource), true)
 		require.Equal(t, 400, code, "duplicate contract: %s", data)
 		code, data = request(t, "POST", "/v1/contracts", "text/plain", []byte("contract_name: [invalid"), true)
 		require.Equal(t, 400, code, "invalid contract: %s", data)
@@ -354,7 +354,7 @@ versioning:
 	})
 
 	t.Run("thread_key_sdk", func(t *testing.T) {
-		code, data := request(t, "POST", "/v1/contracts", "text/plain", []byte(contractYAML), true)
+		code, data := request(t, "POST", "/v1/contracts", "text/plain", []byte(contractSource), true)
 		if code != 200 {
 			require.Equal(t, 400, code, string(data))
 			require.NotEmpty(t, contractID)

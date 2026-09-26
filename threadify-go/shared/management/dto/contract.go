@@ -25,7 +25,6 @@ type ContractVersion struct {
 	ID                 string          `json:"id"`
 	Version            int             `json:"version"`
 	Content            string          `json:"content"`
-	YAMLContent        string          `json:"yamlContent"`
 	ContentHash        string          `json:"contentHash"`
 	ContractID         string          `json:"contractId"`
 	CreatedBy          string          `json:"createdBy"`

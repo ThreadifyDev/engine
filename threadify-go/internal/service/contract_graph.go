@@ -8,10 +8,9 @@ import (
 	"github.com/threadify/engine/internal/domain"
 	"github.com/threadify/engine/pkg/contractcontent"
 	"github.com/threadify/engine/pkg/validator"
-	"gopkg.in/yaml.v3"
 )
 
-// GraphBuilder builds contract graphs from YAML/JSON content.
+// GraphBuilder builds contract graphs from Gherkin or compiled JSON content.
 type GraphBuilder struct{}
 
 // NewGraphBuilder creates a new GraphBuilder instance.
@@ -19,7 +18,7 @@ func NewGraphBuilder() *GraphBuilder {
 	return &GraphBuilder{}
 }
 
-// BuildGraph converts contract content (YAML/JSON) to a ContractGraph.
+// BuildGraph converts Gherkin or compiled JSON content to a ContractGraph.
 // Only builds the execution graph — metadata (contract_id, version) is stored in DB.
 func (b *GraphBuilder) BuildGraph(content []byte) (*domain.ContractGraph, error) {
 	contract, err := parseContract(content)
@@ -79,19 +78,22 @@ func (b *GraphBuilder) BuildGraph(content []byte) (*domain.ContractGraph, error)
 	}, nil
 }
 
-// parseContract tries JSON first (PascalCase from Go serialization),
-// then YAML (snake_case from user input).
-func parseContract(content []byte) (*domain.ContractYAML, error) {
-	normalized, err := validator.NormalizeSource(string(content))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse contract: %w", err)
+// parseContract accepts authored Gherkin and the compiled JSON saved with a
+// contract version. Other source formats are never interpreted as contracts.
+func parseContract(content []byte) (*domain.ContractDefinition, error) {
+	if validator.IsGherkin(string(content)) {
+		compiled, err := validator.ParseGherkin(string(content))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse contract: %w", err)
+		}
+		var errMarshal error
+		content, errMarshal = json.Marshal(compiled)
+		if errMarshal != nil {
+			return nil, fmt.Errorf("failed to compile contract: %w", errMarshal)
+		}
 	}
-	content = []byte(normalized)
-	var contract domain.ContractYAML
-	if err := json.Unmarshal(content, &contract); err == nil {
-		return &contract, nil
-	}
-	if err := yaml.Unmarshal(content, &contract); err != nil {
+	var contract domain.ContractDefinition
+	if err := json.Unmarshal(content, &contract); err != nil {
 		return nil, fmt.Errorf("failed to parse contract: %w", err)
 	}
 	return &contract, nil
@@ -106,7 +108,7 @@ func stepOwner(step domain.Step) string {
 }
 
 // validateParties checks that every step owner is declared in the contract's parties list.
-func (b *GraphBuilder) validateParties(contract *domain.ContractYAML) error {
+func (b *GraphBuilder) validateParties(contract *domain.ContractDefinition) error {
 	if len(contract.Parties) == 0 {
 		return nil
 	}
@@ -124,12 +126,13 @@ func (b *GraphBuilder) validateParties(contract *domain.ContractYAML) error {
 }
 
 // buildNodes constructs the full node map for steps and parallel groups.
-func (b *GraphBuilder) buildNodes(contract *domain.ContractYAML, transitions []domain.Transition) map[string]domain.GraphNode {
+func (b *GraphBuilder) buildNodes(contract *domain.ContractDefinition, transitions []domain.Transition) map[string]domain.GraphNode {
 	nodes := make(map[string]domain.GraphNode, len(contract.Steps)+len(contract.Groups))
 
 	for _, step := range contract.Steps {
 		nodes[step.ID] = domain.GraphNode{
 			ID:              step.ID,
+			Description:     step.Description,
 			Owner:           stepOwner(step),
 			Role:            stepOwner(step),
 			Type:            "step",

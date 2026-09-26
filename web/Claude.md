@@ -24,7 +24,7 @@ Postges for DB = URL ("postgres://td_engine:tdtdtd@localhost:5434/threadify?sslm
 3. Threadify SDK: (https://www.npmjs.com/package/@threadify/sdk)
 
 **Threadify Web has these components:**
-1. *Contract & Contract Versions* - When you create a contract a version is created (v1) and when you update the contract a new version is created (v2). Contract versions can be deleted. Contracts is a yaml script (check contract.yaml for example). When a thread is created, if no version is specified, it binds to the latest version. Contracts also define notification configuration for different actions (who can receive what notification), but the actual reaction handlers are implemented in application code via the SDK.
+1. *Contract & Contract Versions* - When you create a contract a version is created (v1) and when you update the contract a new version is created (v2). Contract versions can be deleted. Contracts use Gherkin source (see payment.feature for an example). When a thread is created, if no version is specified, it binds to the latest version. Contracts also define notification configuration for different actions (who can receive what notification), but the actual reaction handlers are implemented in application code via the SDK.
 
 2. *Threads* - Threads are live grouped records that contains all services, agents, and humans that participated in the delivery of a business service. You cannot create a thread from the UI. You can view threads that has been created and it renders as a flowchart(mermaid maybe). You can also view as a thread tree and view more details of each step of the thread when you click on them. It opens a sidebar that shows the details of the step (with a button in the sidebar to view context of the step). Because threads represent a records of actions in the delivery of a business service, a medium size business could have hundreds of them or even thousands. This means it's not important to view all threads, instead thread should mostly be shown after a search operation and shows only 20 threads at a time. Threads are meant to be used to enable understanding of the delivery of business services. A thread is then important for context of all that was executed in the delivery of the business service, if they followed the pattern we wanted, and ability to react to changes in a thread (reactions could be circuit breaking, smart routing/agentic routing, workflow coordination, etc).
 
@@ -115,14 +115,8 @@ Notification scope determines what notifications a user/service account receives
 
 1. **Creator** → Always gets `owner` scope (all notifications)
 2. **Explicit scope** → Passed via invitation token or direct join
-3. **Contract role_defaults** → Defined in contract YAML:
-   ```yaml
-   notification_config:
-     role_defaults:
-       merchant: "owner"
-       logistics: "participant"
-       auditor: "observer"
-   ```
+3. **Contract notification defaults** → Older stored graphs may carry role scopes. New contract source uses Gherkin; configure participant access through invitations and account roles.
+
 4. **Contract default_scope** → Fallback defined in contract
 5. **System default_scope** → Global fallback (default: `participant`)
 
@@ -167,7 +161,7 @@ Example: A user with `read_only` account scope but `owner` thread role:
 Roles and permissions are defined in:
 - `/threadify-go/shared/rbac/roles.json` - Role definitions
 - `/threadify-go/shared/rbac/permissions.json` - Permission definitions
-- Contract YAML - Thread-specific role mappings and notification scopes
+- Contract Gherkin - Workflow rules and business context
 
 **7. Migration from Scopes to Roles:**
 

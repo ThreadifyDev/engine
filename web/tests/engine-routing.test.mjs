@@ -30,8 +30,8 @@ test('all dashboard clients use Engine management routes even with an old Web AP
   try {
     await graphql.getThread('thread-1');
     await api.getAllContracts({ search: 'support' });
-    await api.createContract({ name: 'support', yaml: 'contract_name: support' });
-    await api.previewContract({ yaml: 'contract_name: support' });
+    await api.createContract({ name: 'support', source: 'Feature: support' });
+    await api.previewContract({ source: 'Feature: support' });
     await api.getUserProfile();
     await api.listServiceAccounts();
     await api.listEngineUsers();
@@ -59,7 +59,7 @@ test('all dashboard clients use Engine management routes even with an old Web AP
       assert.equal(call.headers['X-Threadify-CSRF'], 'csrf-proof');
       assert.equal(call.credentials, 'include');
     }
-    assert.equal(calls[2].body, 'contract_name: support');
+    assert.equal(calls[2].body, 'Feature: support');
     assert.equal(calls[2].headers['Content-Type'], 'text/plain');
     assert.equal(calls[7].method, 'POST');
     assert.deepEqual(JSON.parse(calls[7].body), { email: 'member@example.test', full_name: 'Member', role: 'member' });

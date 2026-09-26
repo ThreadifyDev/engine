@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/threadify/engine/pkg/contractcontent"
-	"gopkg.in/yaml.v3"
 )
 
 type ContractValidator struct{}
@@ -16,18 +16,34 @@ func NewContractValidator() *ContractValidator {
 	return &ContractValidator{}
 }
 
-func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationResult) {
-	errors := []ValidationError{}
-
-	// Compile supported source formats before validating the common contract model.
-	contract, err := v.parseContract(yamlString)
+func (v *ContractValidator) Validate(source string) (*Contract, *ValidationResult) {
+	contract, err := ParseGherkin(source)
 	if err != nil {
 		return nil, &ValidationResult{
 			IsValid: false,
 			Errors: []ValidationError{
-				{Field: "source", Message: fmt.Sprintf("Failed to parse contract: %v", err)},
+				{Field: "source", Message: fmt.Sprintf("Failed to parse Gherkin contract: %v", err)},
 			},
 		}
+	}
+	return v.ValidateCompiled(contract)
+}
+
+// ValidateCompiled checks a Gherkin-compiled contract, including expanded includes.
+func (v *ContractValidator) ValidateCompiled(contract *Contract) (*Contract, *ValidationResult) {
+	errors := []ValidationError{}
+	if contract == nil {
+		return nil, &ValidationResult{Errors: []ValidationError{{Field: "source", Message: "Contract is required"}}}
+	}
+	for i := range contract.Steps {
+		step := &contract.Steps[i]
+		for _, dep := range step.FreshDependsOn {
+			if !slices.Contains(step.DependsOn, dep) {
+				step.DependsOn = append(step.DependsOn, dep)
+			}
+		}
+		step.DependsOn = contractcontent.Dependencies(step.DependsOn, step.ContentRules)
+		step.DependsOn = contractcontent.SemanticDependencies(step.DependsOn, step.SemanticRules)
 	}
 	if len(contract.Includes) > 0 {
 		return contract, &ValidationResult{IsValid: false, Errors: []ValidationError{{Field: "includes", Message: "Includes must be resolved against a company before validation"}}}
@@ -83,6 +99,9 @@ func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationR
 
 	// Validate steps
 	for _, step := range contract.Steps {
+		if step.Description != "" && (strings.TrimSpace(step.Description) == "" || len(step.Description) > 500) {
+			errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.description", step.ID), Message: "Step description must contain text and be at most 500 bytes"})
+		}
 		if err := contractcontent.Validate(step.ContentRules); err != nil {
 			errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.content_rules", step.ID), Message: err.Error()})
 		}
@@ -144,8 +163,21 @@ func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationR
 	}
 
 	// Validate groups if present
+	groupIds := make(map[string]bool, len(contract.Groups))
 	for _, group := range contract.Groups {
+		if group.ID == "" || groupIds[group.ID] || stepIds[group.ID] {
+			errors = append(errors, ValidationError{Field: "groups", Message: "Group ID must be nonempty and distinct from every step and group ID"})
+		}
+		groupIds[group.ID] = true
+		if len(group.Steps) < 2 {
+			errors = append(errors, ValidationError{Field: fmt.Sprintf("groups.%s.steps", group.ID), Message: "Parallel group requires at least two steps"})
+		}
+		seenGroupSteps := make(map[string]bool, len(group.Steps))
 		for _, stepId := range group.Steps {
+			if seenGroupSteps[stepId] {
+				errors = append(errors, ValidationError{Field: fmt.Sprintf("groups.%s.steps", group.ID), Message: "Parallel group repeats step " + stepId})
+			}
+			seenGroupSteps[stepId] = true
 			if !stepIds[stepId] {
 				errors = append(errors, ValidationError{
 					Field:   fmt.Sprintf("groups.%s.steps", group.ID),
@@ -208,28 +240,7 @@ func (v *ContractValidator) Validate(yamlString string) (*Contract, *ValidationR
 // ParseSource reads a contract before include resolution. It performs syntax
 // parsing and dependency normalization; Validate checks the complete contract.
 func ParseSource(source string) (*Contract, error) {
-	return NewContractValidator().parseContract(source)
-}
-
-func (v *ContractValidator) parseContract(yamlString string) (*Contract, error) {
-	normalized, err := NormalizeSource(yamlString)
-	if err != nil {
-		return nil, err
-	}
-	var contract Contract
-	if err := yaml.Unmarshal([]byte(normalized), &contract); err != nil {
-		return nil, err
-	}
-	for i := range contract.Steps {
-		for _, dep := range contract.Steps[i].FreshDependsOn {
-			if !slices.Contains(contract.Steps[i].DependsOn, dep) {
-				contract.Steps[i].DependsOn = append(contract.Steps[i].DependsOn, dep)
-			}
-		}
-		contract.Steps[i].DependsOn = contractcontent.Dependencies(contract.Steps[i].DependsOn, contract.Steps[i].ContentRules)
-		contract.Steps[i].DependsOn = contractcontent.SemanticDependencies(contract.Steps[i].DependsOn, contract.Steps[i].SemanticRules)
-	}
-	return &contract, nil
+	return ParseGherkin(source)
 }
 
 func (v *ContractValidator) isValidDuration(duration string) bool {
@@ -524,18 +535,42 @@ func (v *ContractValidator) validateNoOrphanedSteps(contract *Contract, stepIds 
 // validateBusinessContext validates the business_context structure
 func (v *ContractValidator) validateBusinessContext(contract *Contract) []ValidationError {
 	errors := []ValidationError{}
+	steps := make(map[string]Step, len(contract.Steps))
+	for _, step := range contract.Steps {
+		steps[step.ID] = step
+	}
 
 	for _, step := range contract.Steps {
+		for _, rule := range step.ContentRules {
+			if rule.Reference == nil {
+				continue
+			}
+			referenced := steps[rule.Reference.Step]
+			if referenced.BusinessContext != nil && !declaresContextField(referenced.BusinessContext, rule.Reference.Field) {
+				errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.content_rules", step.ID), Message: fmt.Sprintf("Referenced field %q is not declared by step %q", rule.Reference.Field, rule.Reference.Step)})
+			}
+		}
 		if step.BusinessContext == nil {
 			continue
 		}
 
 		bc := step.BusinessContext
 		for _, rule := range step.ContentRules {
+			if !declaresContextField(bc, rule.Field) {
+				errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.content_rules", step.ID), Message: fmt.Sprintf("Content rule field %q must be declared in business_context", rule.Field)})
+			}
 			for _, optional := range bc.Optional {
 				if rule.Field == optional {
 					errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.content_rules", step.ID), Message: fmt.Sprintf("Content rule requires field %q, which is declared optional", rule.Field)})
 				}
+			}
+		}
+		for _, rule := range step.SemanticRules {
+			if !declaresContextField(bc, rule.Field) {
+				errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.semantic_rules", step.ID), Message: fmt.Sprintf("Semantic rule field %q must be declared in business_context", rule.Field)})
+			}
+			if slices.Contains(bc.Optional, rule.Field) {
+				errors = append(errors, ValidationError{Field: fmt.Sprintf("steps.%s.semantic_rules", step.ID), Message: fmt.Sprintf("Semantic rule requires field %q, which is declared optional", rule.Field)})
 			}
 		}
 
@@ -561,9 +596,21 @@ func (v *ContractValidator) validateBusinessContext(contract *Contract) []Valida
 				})
 			}
 		}
+		for field, meaning := range bc.Descriptions {
+			if !declaresContextField(bc, field) || strings.TrimSpace(meaning) == "" || len(meaning) > 500 {
+				errors = append(errors, ValidationError{
+					Field:   fmt.Sprintf("steps.%s.business_context.descriptions", step.ID),
+					Message: fmt.Sprintf("Description for context field %q must refer to a declared field and contain 1–500 bytes of text", field),
+				})
+			}
+		}
 	}
 
 	return errors
+}
+
+func declaresContextField(context *BusinessContext, field string) bool {
+	return context != nil && (slices.Contains(context.Required, field) || slices.Contains(context.Optional, field))
 }
 
 // validateValidationRules validates the validation rules structure

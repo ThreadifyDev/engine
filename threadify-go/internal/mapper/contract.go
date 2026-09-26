@@ -32,19 +32,18 @@ func ToContractVersionDTO(d *domain.ContractVersion, contractName string) (*dto.
 		return nil, nil
 	}
 
-	sourceFormat := "yaml"
-	if validator.IsGherkin(d.YAMLContent) {
+	sourceFormat := "legacy"
+	if validator.IsGherkin(d.Source) {
 		sourceFormat = "gherkin"
 	}
 	var normalizedGraph json.RawMessage = d.Graph
 
 	return &dto.ContractVersion{
-		Source:             d.YAMLContent,
+		Source:             d.Source,
 		SourceFormat:       sourceFormat,
 		ID:                 d.ID,
 		Version:            d.Version,
 		Content:            d.Content,
-		YAMLContent:        d.YAMLContent,
 		ContentHash:        d.ContentHash,
 		ContractID:         d.ContractID,
 		ContractName:       contractName,
@@ -102,6 +101,7 @@ func ToContractGraphDTO(d *domain.ContractGraph) *dto.ContractGraphDTO {
 		for k, v := range d.Graph.Nodes {
 			nodeDTO := dto.GraphNode{
 				ID:             v.ID,
+				Description:    v.Description,
 				Owner:          v.Owner,
 				Role:           v.Role,
 				Type:           v.Type,
@@ -120,8 +120,9 @@ func ToContractGraphDTO(d *domain.ContractGraph) *dto.ContractGraphDTO {
 
 			if v.BusinessContext != nil {
 				nodeDTO.BusinessContext = &dto.BusinessContext{
-					Required: v.BusinessContext.Required,
-					Optional: v.BusinessContext.Optional,
+					Required:     v.BusinessContext.Required,
+					Optional:     v.BusinessContext.Optional,
+					Descriptions: v.BusinessContext.Descriptions,
 				}
 			}
 
@@ -177,6 +178,7 @@ func FromContractGraphDTO(d *dto.ContractGraphDTO) *domain.ContractGraph {
 	for k, v := range d.Graph.Nodes {
 		node := domain.GraphNode{
 			ID:             v.ID,
+			Description:    v.Description,
 			Owner:          v.Owner,
 			Role:           v.Role,
 			Type:           v.Type,
@@ -195,8 +197,9 @@ func FromContractGraphDTO(d *dto.ContractGraphDTO) *domain.ContractGraph {
 
 		if v.BusinessContext != nil {
 			node.BusinessContext = &domain.BusinessContext{
-				Required: v.BusinessContext.Required,
-				Optional: v.BusinessContext.Optional,
+				Required:     v.BusinessContext.Required,
+				Optional:     v.BusinessContext.Optional,
+				Descriptions: v.BusinessContext.Descriptions,
 			}
 		}
 

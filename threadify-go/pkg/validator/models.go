@@ -3,70 +3,72 @@ package validator
 import "github.com/threadify/engine/pkg/contractcontent"
 
 type Contract struct {
-	ContractName  string            `yaml:"contract_name"`
-	Version       int               `yaml:"version"`
-	Description   string            `yaml:"description"`
-	Includes      []ContractInclude `yaml:"includes,omitempty" json:"includes,omitempty"`
-	EntryPoints   []string          `yaml:"entry_points,omitempty"`
-	Parties       []string          `yaml:"parties"`
-	Steps         []Step            `yaml:"steps"`
-	Transitions   []Transition      `yaml:"transitions,omitempty"`
-	TerminalSteps []string          `yaml:"terminal_steps,omitempty"`
-	Groups        []Group           `yaml:"groups,omitempty"`
-	Validation    ValidationRules   `yaml:"validation"`
-	Versioning    VersioningRules   `yaml:"versioning,omitempty"`
+	ContractName  string
+	Version       int
+	Description   string
+	Includes      []ContractInclude `json:"includes,omitempty"`
+	EntryPoints   []string
+	Parties       []string
+	Steps         []Step
+	Transitions   []Transition
+	TerminalSteps []string
+	Groups        []Group
+	Validation    ValidationRules
+	Versioning    VersioningRules
 }
 
 // ContractInclude pins a version of another contract in the same company.
 type ContractInclude struct {
-	Name    string `yaml:"name" json:"name"`
-	Version int    `yaml:"version" json:"version"`
+	Name    string `json:"name"`
+	Version int    `json:"version"`
 }
 
 type Step struct {
-	ID              string                         `yaml:"id"`
-	Owner           string                         `yaml:"owner"`
-	Type            string                         `yaml:"type,omitempty"`
-	FreshDependsOn  []string                       `yaml:"fresh_depends_on,omitempty" json:"fresh_depends_on,omitempty"`
-	DependsOn       []string                       `yaml:"depends_on,omitempty"`
-	Timeout         string                         `yaml:"timeout,omitempty"`
-	BusinessContext *BusinessContext               `yaml:"business_context,omitempty"`
-	ContentRules    []contractcontent.Rule         `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
-	SemanticRules   []contractcontent.SemanticRule `yaml:"semantic_rules,omitempty" json:"semantic_rules,omitempty"`
+	ID              string
+	Description     string `json:"description,omitempty"`
+	Owner           string
+	Type            string
+	FreshDependsOn  []string `json:"fresh_depends_on,omitempty"`
+	DependsOn       []string
+	Timeout         string
+	BusinessContext *BusinessContext
+	ContentRules    []contractcontent.Rule         `json:"content_rules,omitempty"`
+	SemanticRules   []contractcontent.SemanticRule `json:"semantic_rules,omitempty"`
 }
 
 type Group struct {
-	ID      string     `yaml:"id"`
-	Steps   []string   `yaml:"steps"`
-	Rules   GroupRules `yaml:"rules"`
-	Timeout string     `yaml:"timeout,omitempty"`
+	ID      string
+	Steps   []string
+	Rules   GroupRules
+	Timeout string
 }
 
 type GroupRules struct {
-	AllMustSucceed      *bool  `yaml:"all_must_succeed,omitempty"`
-	MaxCombinedDuration string `yaml:"max_combined_duration,omitempty"`
+	AllMustSucceed      *bool
+	MaxCombinedDuration string
 }
 
 type ValidationRules struct {
-	MaxDuration               string `yaml:"max_duration"`
-	AllowMultipleTerminals    bool   `yaml:"allow_multiple_terminals,omitempty"`
-	MultipleTerminalsSeverity string `yaml:"multiple_terminals_severity,omitempty"`
+	MaxDuration               string
+	AllowMultipleTerminals    bool
+	MultipleTerminalsSeverity string
 }
 
 type BusinessContext struct {
-	Required []string `yaml:"required,omitempty"`
-	Optional []string `yaml:"optional,omitempty"`
+	Required     []string
+	Optional     []string
+	Descriptions map[string]string `json:"descriptions,omitempty"`
 }
 
 type Transition struct {
-	From       string   `yaml:"from"`
-	To         []string `yaml:"to"`
-	Timeout    string   `yaml:"timeout,omitempty"`
-	MaxRetries int      `yaml:"max_retries,omitempty"`
+	From       string
+	To         []string
+	Timeout    string
+	MaxRetries int
 }
 
 type VersioningRules struct {
-	ThreadsLockToVersion bool `yaml:"threads_lock_to_version,omitempty"`
+	ThreadsLockToVersion bool
 }
 
 type ValidationError struct {

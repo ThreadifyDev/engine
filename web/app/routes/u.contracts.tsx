@@ -65,7 +65,7 @@ export default function Contracts() {
   }, [debouncedSearch, navigate, offset, refresh]);
 
   const handleCreate = async () => {
-    await api.createContract({ name: '', yaml: contractDraft.source });
+    await api.createContract({ name: '', source: contractDraft.source });
     setContractEditorOpen(false);
     editContractDraft('');
     setOffset(0);

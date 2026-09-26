@@ -6,30 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strings"
 
 	shderrors "threadify-go/shared/errors"
 
 	"github.com/threadify/engine/pkg/validator"
-	"gopkg.in/yaml.v3"
 )
 
 var includedContractName = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 var includeDeclaration = regexp.MustCompile(`(?m)^\s*Include:`)
-var yamlIncludeDeclaration = regexp.MustCompile(`(?m)^[ \t]*includes[ \t]*:`)
 
 func sourceDeclaresIncludes(source string) bool {
-	if validator.IsGherkin(source) {
-		return includeDeclaration.MatchString(source)
-	}
-	if strings.HasPrefix(strings.TrimSpace(source), "{") {
-		var object map[string]json.RawMessage
-		if json.Unmarshal([]byte(source), &object) == nil {
-			_, present := object["includes"]
-			return present
-		}
-	}
-	return yamlIncludeDeclaration.MatchString(source)
+	return includeDeclaration.MatchString(source)
 }
 
 func (s *ContractService) expandContractSource(ctx context.Context, companyID, source string) (string, *validator.ValidationResult, error) {
@@ -149,13 +136,13 @@ func (s *ContractService) resolveContractIncludes(ctx context.Context, companyID
 	if len(composed.TerminalSteps) == 0 {
 		composed.TerminalSteps = inheritedTerminals
 	}
-	data, err := yaml.Marshal(&composed)
-	if err != nil {
-		return "", nil, fmt.Errorf("serialize expanded contract: %w", err)
-	}
-	validated, result := validator.NewContractValidator().Validate(string(data))
+	validated, result := validator.NewContractValidator().ValidateCompiled(&composed)
 	if !result.IsValid {
 		return "", result, nil
+	}
+	data, err := json.Marshal(validated)
+	if err != nil {
+		return "", nil, fmt.Errorf("serialize expanded contract: %w", err)
 	}
 	graph, err := NewGraphBuilder().BuildGraph(data)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"github.com/threadify/engine/internal/dto"
 	"github.com/threadify/engine/internal/mapper"
 	"github.com/threadify/engine/pkg/contractcontent"
+	"github.com/threadify/engine/pkg/validator"
 
 	"github.com/threadify/engine/internal/domain"
 	"go.uber.org/zap"
@@ -94,6 +95,7 @@ func (v *ContractValidationService) ValidateStepInContract(ctx context.Context, 
 // ValidateStepContext validates the business context for a step node.
 // Accepts an already-fetched node to avoid duplicate graph lookups.
 func (v *ContractValidationService) ValidateStepContext(ctx context.Context, stepNode domain.GraphNode, businessCtx map[string]string, threadID ...string) error {
+	businessCtx, _ = registeredStepContext(stepNode, businessCtx)
 	// Resolve a step at most once per submission so its fields come from one snapshot.
 	snapshots := map[string]map[string]string{}
 	resolve := func(ref contractcontent.Reference) (string, error) {
@@ -126,6 +128,35 @@ func (v *ContractValidationService) ValidateStepContext(ctx context.Context, ste
 		}
 	}
 	return v.validateSemanticRules(ctx, stepNode.SemanticRules, businessCtx, threadID)
+}
+
+// registeredStepContext separates contract facts from extra telemetry. A step
+// without a business_context declaration keeps legacy behavior.
+func registeredStepContext(stepNode domain.GraphNode, context map[string]string) (map[string]string, map[string]string) {
+	if stepNode.BusinessContext == nil {
+		return context, nil
+	}
+	registered := make(map[string]string)
+	for _, field := range stepNode.BusinessContext.Required {
+		if value, ok := context[field]; ok {
+			registered[field] = value
+		}
+	}
+	for _, field := range stepNode.BusinessContext.Optional {
+		if value, ok := context[field]; ok {
+			registered[field] = value
+		}
+	}
+	var extra map[string]string
+	for field, value := range context {
+		if _, ok := registered[field]; !ok {
+			if extra == nil {
+				extra = make(map[string]string)
+			}
+			extra[field] = value
+		}
+	}
+	return registered, extra
 }
 
 func (v *ContractValidationService) validateSemanticRules(ctx context.Context, rules []contractcontent.SemanticRule, candidate map[string]string, threadID []string) error {
@@ -233,16 +264,20 @@ func (v *ContractValidationService) GetContractGraph(ctx context.Context, contra
 	}
 	loadedGraph := mapper.FromContractGraphDTO(&graphDTO)
 	if requiresContractGraphMigration(loadedGraph) {
-		source := contractVersion.YAMLContent
-		if source == "" {
-			source = contractVersion.Content
-		}
+		source := contractVersion.Content
 		if source == "" {
 			return nil, fmt.Errorf("contract %q v%d requires partial-order migration but has no source content", contractName, targetVersion)
 		}
-		loadedGraph, err = NewGraphBuilder().BuildGraph([]byte(source))
-		if err != nil {
-			return nil, fmt.Errorf("failed to rebuild contract %q v%d with partial-order semantics: %w", contractName, targetVersion, err)
+		if !json.Valid([]byte(source)) && !validator.IsGherkin(source) {
+			// Historical source is retained as data only. Keep its persisted graph
+			// executable without interpreting a removed authoring format.
+			v.logger.Warn("retaining historical contract graph without source recompilation",
+				zap.String("contract_name", contractName), zap.Int("version", targetVersion))
+		} else {
+			loadedGraph, err = NewGraphBuilder().BuildGraph([]byte(source))
+			if err != nil {
+				return nil, fmt.Errorf("failed to rebuild contract %q v%d with partial-order semantics: %w", contractName, targetVersion, err)
+			}
 		}
 	}
 

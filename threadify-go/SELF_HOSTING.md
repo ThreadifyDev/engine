@@ -68,7 +68,7 @@ Install the separate `threadify-cli` client from `ThreadifyDev/cli` for login an
 ```sh
 threadify-cli config set api-url https://threadify.example.com
 threadify-cli login
-threadify-cli contracts create --file contract.yaml
+threadify-cli contracts create --file contract.feature
 threadify-cli profile-types create --file customers.yaml
 ```
 

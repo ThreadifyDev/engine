@@ -193,7 +193,7 @@ export default function AgentProvider({ children }: { children: ReactNode }) {
             }
           },
           previewDraft: async draft => {
-            const result = await api.previewContract({ yaml: draft.source });
+            const result = await api.previewContract({ source: draft.source });
             controller.signal.throwIfAborted();
             if (draftRef.current.revision === draft.revision) {
               const next = { ...draftRef.current, preview: result };

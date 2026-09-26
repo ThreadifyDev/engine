@@ -23,7 +23,7 @@ type ContractVersion struct {
 	ID                 string
 	Version            int
 	Content            string
-	YAMLContent        string // Original YAML source code
+	Source             string // Original authored source; historical rows may contain legacy content.
 	ContentHash        string
 	ContractID         string
 	CreatedBy          string

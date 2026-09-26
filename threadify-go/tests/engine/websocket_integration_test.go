@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,106 +30,46 @@ func wsConnectAndAuth(t *testing.T, apiKey string) *websocket.Conn {
 
 // wsSetupContract creates a contract and returns its name.
 func wsSetupContract(t *testing.T, token string, parties []string, steps []map[string]interface{}, transitions []map[string]interface{}, entryPoints, terminalSteps []string) string {
-	t.Helper()
-	contractName := "ws_contract_" + uuid.NewString()[:8]
-
-	partiesYAML := ""
-	for _, p := range parties {
-		partiesYAML += p + ", "
-	}
-
-	stepsYAML := ""
-	for _, s := range steps {
-		stepsYAML += fmt.Sprintf("  - id: %s\n    owner: %s\n    type: %s\n", s["id"], s["owner"], s["type"])
-	}
-
-	transitionsYAML := ""
-	for _, tr := range transitions {
-		toList := ""
-		for _, to := range tr["to"].([]string) {
-			toList += to + ", "
-		}
-		transitionsYAML += fmt.Sprintf("  - from: %s\n    to: [%s]\n", tr["from"], toList)
-	}
-
-	entryYAML := ""
-	for _, e := range entryPoints {
-		entryYAML += e + ", "
-	}
-	terminalYAML := ""
-	for _, te := range terminalSteps {
-		terminalYAML += te + ", "
-	}
-
-	yaml := fmt.Sprintf(`
-contract_name: %s
-version: 1
-description: test contract
-parties: [%s]
-steps:
-%s
-transitions:
-%s
-entry_points: [%s]
-terminal_steps: [%s]
-`, contractName, partiesYAML, stepsYAML, transitionsYAML, entryYAML, terminalYAML)
-
-	resp := httpc.DoWithAuth(t, "POST", "/v1/contracts", []byte(yaml), "text/plain", token)
-	require.Equal(t, 200, resp.StatusCode, "failed to create contract: %s", resp.Body)
-	return contractName
+	return wsSetupContractWithValidation(t, token, parties, steps, transitions, entryPoints, terminalSteps, "")
 }
 
-func wsSetupContractWithValidation(t *testing.T, token string, parties []string, steps []map[string]interface{}, transitions []map[string]interface{}, entryPoints, terminalSteps []string, maxDuration string) string {
+func wsSetupContractWithValidation(t *testing.T, token string, _ []string, steps []map[string]interface{}, transitions []map[string]interface{}, entryPoints, terminalSteps []string, maxDuration string) string {
 	t.Helper()
 	contractName := "ws_contract_" + uuid.NewString()[:8]
-
-	partiesYAML := ""
-	for _, p := range parties {
-		partiesYAML += p + ", "
-	}
-
-	stepsYAML := ""
-	for _, s := range steps {
-		stepsYAML += fmt.Sprintf("  - id: %s\n    owner: %s\n    type: %s\n", s["id"], s["owner"], s["type"])
-	}
-
-	transitionsYAML := ""
-	for _, tr := range transitions {
-		toList := ""
-		for _, to := range tr["to"].([]string) {
-			toList += to + ", "
-		}
-		transitionsYAML += fmt.Sprintf("  - from: %s\n    to: [%s]\n", tr["from"], toList)
-	}
-
-	entryYAML := ""
-	for _, e := range entryPoints {
-		entryYAML += e + ", "
-	}
-	terminalYAML := ""
-	for _, te := range terminalSteps {
-		terminalYAML += te + ", "
-	}
-
-	validationYAML := ""
+	var source strings.Builder
+	fmt.Fprintf(&source, "Feature: %s\nVersion: 1\nDescription: test contract\n", contractName)
 	if maxDuration != "" {
-		validationYAML = fmt.Sprintf("validation:\n  max_duration: %s\n", maxDuration)
+		fmt.Fprintf(&source, "\nBackground:\n  Given the thread must finish within %q\n", maxDuration)
 	}
-
-	yaml := fmt.Sprintf(`
-contract_name: %s
-version: 1
-description: test contract
-parties: [%s]
-steps:
-%s
-transitions:
-%s
-entry_points: [%s]
-terminal_steps: [%s]
-%s`, contractName, partiesYAML, stepsYAML, transitionsYAML, entryYAML, terminalYAML, validationYAML)
-
-	resp := httpc.DoWithAuth(t, "POST", "/v1/contracts", []byte(yaml), "text/plain", token)
+	for _, step := range steps {
+		id := fmt.Sprint(step["id"])
+		fmt.Fprintf(&source, "\nRule: Execute %s\n  When step %q is submitted\n  Then owner must be %q\n", id, id, fmt.Sprint(step["owner"]))
+		if typ := fmt.Sprint(step["type"]); typ != "<nil>" && typ != "" {
+			fmt.Fprintf(&source, "  And step type is %q\n", typ)
+		}
+		for _, entry := range entryPoints {
+			if entry == id {
+				source.WriteString("  And this step is an entry point\n")
+			}
+		}
+		for _, terminal := range terminalSteps {
+			if terminal == id {
+				source.WriteString("  And this step is terminal\n")
+			}
+		}
+		for _, tr := range transitions {
+			if tr["from"] != id {
+				continue
+			}
+			targets := tr["to"].([]string)
+			quoted := make([]string, len(targets))
+			for i, target := range targets {
+				quoted[i] = fmt.Sprintf("%q", target)
+			}
+			fmt.Fprintf(&source, "  And next step must be one of %s\n", strings.Join(quoted, ", "))
+		}
+	}
+	resp := httpc.DoWithAuth(t, "POST", "/v1/contracts", []byte(source.String()), "text/plain", token)
 	require.Equal(t, 200, resp.StatusCode, "failed to create contract: %s", resp.Body)
 	return contractName
 }

@@ -122,7 +122,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		id UUID PRIMARY KEY,
 		version INT NOT NULL,
 		content TEXT NOT NULL,
-		yaml_content TEXT,
+		source TEXT,
 		content_hash VARCHAR(64) NOT NULL,
 		contract_id UUID NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
 		created_by VARCHAR(255) NOT NULL DEFAULT '',
@@ -133,7 +133,17 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		CONSTRAINT unique_contract_version UNIQUE(contract_id, version)
 	);
 
-	ALTER TABLE contract_versions ADD COLUMN IF NOT EXISTS yaml_content TEXT;
+	DO $$ BEGIN
+		IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'contract_versions' AND column_name = 'yaml_content') THEN
+			IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'contract_versions' AND column_name = 'source') THEN
+				ALTER TABLE contract_versions RENAME COLUMN yaml_content TO source;
+			ELSE
+				UPDATE contract_versions SET source = yaml_content WHERE source IS NULL;
+				ALTER TABLE contract_versions DROP COLUMN yaml_content;
+			END IF;
+		END IF;
+	END $$;
+	ALTER TABLE contract_versions ADD COLUMN IF NOT EXISTS source TEXT;
 
 	CREATE INDEX IF NOT EXISTS idx_contract_versions_contract_id ON contract_versions(contract_id);
 	CREATE INDEX IF NOT EXISTS idx_contract_versions_graph ON contract_versions USING GIN (graph) WHERE graph IS NOT NULL;

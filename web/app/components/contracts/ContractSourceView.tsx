@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 
-type LineKind = 'feature' | 'include' | 'rule' | 'step' | 'context' | 'owner' | 'dependency' | 'flow' | 'timing' | 'lifecycle' | 'background' | 'plain';
+type LineKind = 'feature' | 'include' | 'rule' | 'definition' | 'definitionDescription' | 'definitionContext' | 'step' | 'context' | 'owner' | 'dependency' | 'flow' | 'timing' | 'lifecycle' | 'background' | 'plain';
 
 const lineStyles: Record<LineKind, { label: string; className: string }> = {
   feature: { label: 'Feature', className: 'bg-violet-50 text-violet-700 ring-violet-200' },
   include: { label: 'Module', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
   rule: { label: 'Rule', className: 'bg-slate-100 text-slate-700 ring-slate-200' },
+  definition: { label: 'Step definition', className: 'bg-sky-100 text-sky-800 ring-sky-200' },
+  definitionDescription: { label: 'Meaning', className: 'bg-violet-50 text-violet-800 ring-violet-200' },
+  definitionContext: { label: 'Context', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
   step: { label: 'Step name', className: 'bg-sky-50 text-sky-700 ring-sky-200' },
   context: { label: 'Context check', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
   owner: { label: 'Owner check', className: 'bg-amber-50 text-amber-800 ring-amber-200' },
@@ -23,6 +26,9 @@ function classifyLine(line: string): LineKind {
   if (/^Feature:/.test(trimmed)) return 'feature';
   if (/^Include:/.test(trimmed)) return 'include';
   if (/^Rule:/.test(trimmed)) return 'rule';
+  if (/^Step:/.test(trimmed)) return 'definition';
+  if (/^Description: "/.test(trimmed) || /^(?:Given|And)\s+description is "/.test(trimmed)) return 'definitionDescription';
+  if (/^(?:Required|Optional) context: "/.test(trimmed) || /^(?:Given|And)\s+(?:required|optional) context "/.test(trimmed)) return 'definitionContext';
   if (/^When\s+step\s+"/.test(trimmed)) return 'step';
   if (/^(?:Then|And)\s+content\s+"/.test(trimmed) || /^Given\s+the thread/.test(trimmed)) return 'context';
   if (/^(?:Then|And)\s+owner\s+must\s+be\s+"/.test(trimmed)) return 'owner';
@@ -50,6 +56,11 @@ function renderLine(line: string, kind: LineKind) {
     if (match) return <><span className="text-slate-400">{match[1]}</span><span className="font-semibold text-slate-900">{match[2]}</span></>;
   }
 
+  if (kind === 'definition') {
+    const match = line.match(/^(\s*Step:\s*)("(?:[^"\\]|\\.)*")(.*)$/);
+    if (match) return <><span className="text-sky-500">{match[1]}</span><span className="font-semibold text-sky-900">{match[2]}</span>{match[3]}</>;
+  }
+
   if (kind === 'feature') {
     const match = line.match(/^(\s*Feature:\s*)(.*)$/);
     if (match) return <><span className="text-violet-500">{match[1]}</span><span className="font-semibold text-violet-900">{match[2]}</span></>;
@@ -75,7 +86,7 @@ export default function ContractSourceView({ source }: { source: string }) {
   if (!isGherkin) {
     let formatted = source;
     try { formatted = JSON.stringify(JSON.parse(source), null, 2); }
-    catch { /* YAML and other stored source are shown unchanged. */ }
+    catch { /* Historical stored source is shown unchanged. */ }
     return <section aria-label="Contract source" className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm shadow-stone-200/40">
       <div className="flex items-center justify-between gap-3 border-b border-stone-200 px-5 py-4">
         <div><h2 className="text-sm font-semibold text-stone-900">Contract source</h2><p className="mt-1 text-xs text-stone-500">Published source for this version</p></div>

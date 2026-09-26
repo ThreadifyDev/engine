@@ -38,7 +38,7 @@ The generated agents use the current `extensions/threadify/` and `lifecycle/`
 layout. Each checked-in `harnest.lock` pins Google ADK 2.8.0, the framework
 version resolved by Harnest 0.12.1.
 
-Create `contract.yaml` in the Threadify Engine. Give every Nanite its own
+Create `contract.feature` in the Threadify Engine. Give every Nanite its own
 Threadify service-account key. The dispatcher owns the workflow event stream;
 workers use their own key for joins and step mutations, plus the dispatcher's
 key for subscriptions:

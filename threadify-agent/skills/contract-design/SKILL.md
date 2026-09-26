@@ -18,20 +18,33 @@ description: Create, revise, review, or explain a Threadify Gherkin contract usi
    does not establish that it is mandatory. Ask focused questions about unclear
    owners, required steps, timing, or failure behavior before encoding those
    decisions in a draft. Surface important assumptions.
-4. Prefer successful prerequisites when unrelated work can intervene. If any
+4. Describe each business step with `Step: "name"`, a declarative
+   `Description: "..."`, and one `Required context: "field"` or
+   `Optional context: "field"` line per registered field. Add `means "..."`
+   when a field's business meaning helps classification. Do not use
+   Given/When/And clauses inside new Step definitions. Give every defined step
+   one matching executable `Rule` with its owner. Required fields need evidence
+   or user intent; observed but nonessential fields should be optional.
+5. Use `Group: "name"` for two or more existing steps that may run in parallel.
+   Give every member its own Step definition and Rule. Include `Given parallel
+   steps are "a", "b"`; add `And all parallel steps must succeed` and a
+   combined duration only when those requirements are intended. Use explicit
+   prerequisites for any downstream step that must wait for group members.
+   An observed ordering alone does not justify a strict transition.
+6. Prefer successful prerequisites when unrelated work can intervene. If any
    strict next-step clause is used, every permitted immediate edge must be listed.
    For human approval, ask who may approve and whether one validated approval
    can cover later invocations. Model the reviewer-owned approval as a Contract
    step, then choose `must have succeeded` or `must succeed before each
    invocation` accordingly. A Harnest prompt alone is not a Contract step;
    the host must record an approved outcome under the authorized reviewer.
-5. Navigate to `contracts`, then call get_page_context to read the current
+7. Navigate to `contracts`, then call get_page_context to read the current
    contract draft and revision. Then
    open_contract_draft with the complete source and expected revision. Preserve
    user edits; on conflict, read again before proposing a new draft.
-6. Call preview_contract_draft with the returned revision. Repair compiler errors
+8. Call preview_contract_draft with the returned revision. Repair compiler errors
    at most twice, without silently dropping requirements. Unsupported requirements
    remain visible to the user. Only report validation success from the tool result.
-7. Summarize the rules and assumptions. The draft is not published; the user saves
+9. Summarize the rules and assumptions. The draft is not published; the user saves
    it from the editor. If no frontend is connected, provide a fenced `gherkin`
    draft without claiming to have opened or validated it.

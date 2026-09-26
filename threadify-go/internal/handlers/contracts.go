@@ -94,7 +94,7 @@ func (h *ContractHandler) CreateContract(c *gin.Context) {
 		return
 	}
 
-	yamlBytes, err := io.ReadAll(c.Request.Body)
+	sourceBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
 		return
@@ -102,7 +102,7 @@ func (h *ContractHandler) CreateContract(c *gin.Context) {
 
 	statusCode, response := h.contractService.CreateContract(
 		c.Request.Context(), c.GetString(sharedauth.CtxUserID), companyID,
-		c.GetString(sharedauth.CtxUserID), string(yamlBytes),
+		c.GetString(sharedauth.CtxUserID), string(sourceBytes),
 	)
 	recordContractMetrics(statusCode)
 	c.JSON(statusCode, response)
@@ -131,7 +131,7 @@ func (h *ContractHandler) UpdateContract(c *gin.Context) {
 		return
 	}
 
-	yamlContent, err := io.ReadAll(c.Request.Body)
+	source, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
 		return
@@ -139,7 +139,7 @@ func (h *ContractHandler) UpdateContract(c *gin.Context) {
 
 	statusCode, response := h.contractService.UpdateContract(
 		c.Request.Context(), c.Param("id"), companyID,
-		c.GetString(sharedauth.CtxUserID), string(yamlContent),
+		c.GetString(sharedauth.CtxUserID), string(source),
 	)
 	recordContractMetrics(statusCode)
 	c.JSON(statusCode, response)
@@ -204,13 +204,13 @@ func (h *ContractHandler) PreviewContract(c *gin.Context) {
 	if !ok {
 		return
 	}
-	yamlBody, err := io.ReadAll(c.Request.Body)
+	sourceBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, PreviewResponse{Valid: false, Errors: []string{"Failed to read request body"}})
 		return
 	}
 
-	contract, graph, validationResult, err := h.contractService.PreviewContract(c.Request.Context(), companyID, string(yamlBody))
+	contract, graph, validationResult, err := h.contractService.PreviewContract(c.Request.Context(), companyID, string(sourceBody))
 	if err != nil {
 		h.logger.Error("failed to preview contract", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, PreviewResponse{Valid: false, Errors: []string{"Failed to process contract"}})

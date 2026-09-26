@@ -206,10 +206,23 @@ func (r *queryResolver) decisionSnapshot(ctx context.Context, facts *decisionFac
 		if err != nil {
 			return snapshot, err
 		}
+		var declared map[string]bool
+		if node, ok := facts.graph.Graph.Nodes[step]; ok && node.BusinessContext != nil {
+			declared = make(map[string]bool, len(node.BusinessContext.Required)+len(node.BusinessContext.Optional))
+			for _, field := range node.BusinessContext.Required {
+				declared[field] = true
+			}
+			for _, field := range node.BusinessContext.Optional {
+				declared[field] = true
+			}
+		}
 		bounded := make(map[string]string)
 		for field, value := range content {
 			if len(bounded) >= 32 {
 				break
+			}
+			if declared != nil && !declared[field] {
+				continue
 			}
 			if len(field) <= 128 && len(value) <= 512 {
 				bounded[field] = value

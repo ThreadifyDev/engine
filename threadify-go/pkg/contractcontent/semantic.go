@@ -10,10 +10,10 @@ import (
 // SemanticRule asks one bounded yes/no question about a candidate content
 // field, optionally grounded in successful earlier step content.
 type SemanticRule struct {
-	Field          string   `yaml:"field" json:"field"`
-	Question       string   `yaml:"question" json:"question"`
-	ContextSteps   []string `yaml:"context_steps,omitempty" json:"context_steps,omitempty"`
-	MinProbability float64  `yaml:"min_probability,omitempty" json:"min_probability,omitempty"`
+	Field          string   `json:"field"`
+	Question       string   `json:"question"`
+	ContextSteps   []string `json:"context_steps,omitempty"`
+	MinProbability float64  `json:"min_probability,omitempty"`
 }
 
 func ValidateSemantic(rules []SemanticRule) error {

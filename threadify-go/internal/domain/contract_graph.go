@@ -28,93 +28,96 @@ type Graph struct {
 // GraphNode represents a step or parallel group in the workflow
 type GraphNode struct {
 	ID              string
+	Description     string
 	Owner           string
 	Role            string // Deprecated alias for Owner (kept for backward compatibility)
 	Type            string
 	Mode            string
 	Required        bool
-	FreshDependsOn  []string `yaml:"fresh_depends_on,omitempty" json:"fresh_depends_on,omitempty"`
+	FreshDependsOn  []string `json:"fresh_depends_on,omitempty"`
 	DependsOn       []string
 	Next            []string
 	Steps           []string
 	Timeout         string
 	MaxDuration     string
 	BusinessContext *BusinessContext
-	ContentRules    []contractcontent.Rule         `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
-	SemanticRules   []contractcontent.SemanticRule `yaml:"semantic_rules,omitempty" json:"semantic_rules,omitempty"`
+	ContentRules    []contractcontent.Rule         `json:"content_rules,omitempty"`
+	SemanticRules   []contractcontent.SemanticRule `json:"semantic_rules,omitempty"`
 	ParentGroup     string
 }
 
-// ContractYAML represents the parsed YAML/JSON contract
-type ContractYAML struct {
-	ContractName       string              `yaml:"contract_name"`
-	Version            int                 `yaml:"version"`
-	Description        string              `yaml:"description"`
-	EntryPoints        []string            `yaml:"entry_points,omitempty"`
-	Parties            []string            `yaml:"parties"`
-	Steps              []Step              `yaml:"steps"`
-	Transitions        []Transition        `yaml:"transitions,omitempty"`
-	TerminalSteps      []string            `yaml:"terminal_steps,omitempty"`
-	Groups             []Group             `yaml:"groups,omitempty"`
-	Validation         *Validation         `yaml:"validation,omitempty"`
-	Versioning         *Versioning         `yaml:"versioning,omitempty"`
-	NotificationConfig *NotificationConfig `yaml:"notification_config,omitempty"`
+// ContractDefinition represents a compiled contract
+type ContractDefinition struct {
+	ContractName       string
+	Version            int
+	Description        string
+	EntryPoints        []string
+	Parties            []string
+	Steps              []Step
+	Transitions        []Transition
+	TerminalSteps      []string
+	Groups             []Group
+	Validation         *Validation
+	Versioning         *Versioning
+	NotificationConfig *NotificationConfig
 }
 
 // Step represents a workflow step
 type Step struct {
-	ID              string                         `yaml:"id"`
-	Owner           string                         `yaml:"owner,omitempty"`
-	Role            string                         `yaml:"role,omitempty"`
-	FreshDependsOn  []string                       `yaml:"fresh_depends_on,omitempty" json:"fresh_depends_on,omitempty"`
-	DependsOn       []string                       `yaml:"depends_on,omitempty"`
-	Timeout         string                         `yaml:"timeout,omitempty"`
-	BusinessContext *BusinessContext               `yaml:"business_context,omitempty"`
-	ContentRules    []contractcontent.Rule         `yaml:"content_rules,omitempty" json:"content_rules,omitempty"`
-	SemanticRules   []contractcontent.SemanticRule `yaml:"semantic_rules,omitempty" json:"semantic_rules,omitempty"`
+	ID              string
+	Description     string `json:"description,omitempty"`
+	Owner           string
+	Role            string
+	FreshDependsOn  []string `json:"fresh_depends_on,omitempty"`
+	DependsOn       []string
+	Timeout         string
+	BusinessContext *BusinessContext
+	ContentRules    []contractcontent.Rule         `json:"content_rules,omitempty"`
+	SemanticRules   []contractcontent.SemanticRule `json:"semantic_rules,omitempty"`
 }
 
 // Group represents a parallel group of steps
 type Group struct {
-	ID    string      `yaml:"id"`
-	Steps []string    `yaml:"steps"`
-	Rules *GroupRules `yaml:"rules,omitempty"`
+	ID    string
+	Steps []string
+	Rules *GroupRules
 }
 
 // GroupRules defines execution rules for a group
 type GroupRules struct {
-	AllMustSucceed      bool   `yaml:"all_must_succeed,omitempty"`
-	MaxCombinedDuration string `yaml:"max_combined_duration,omitempty"`
+	AllMustSucceed      bool
+	MaxCombinedDuration string
 }
 
 // Validation defines contract-level validation rules
 type Validation struct {
-	MaxDuration               string `yaml:"max_duration,omitempty"`
-	AllowMultipleTerminals    bool   `yaml:"allow_multiple_terminals,omitempty"`
-	MultipleTerminalsSeverity string `yaml:"multiple_terminals_severity,omitempty"`
+	MaxDuration               string
+	AllowMultipleTerminals    bool
+	MultipleTerminalsSeverity string
 }
 
 // Transition represents a valid step-to-step flow
 type Transition struct {
-	From       string   `yaml:"from"`
-	To         []string `yaml:"to"`
-	Timeout    string   `yaml:"timeout,omitempty"`
-	MaxRetries int      `yaml:"max_retries,omitempty"`
+	From       string
+	To         []string
+	Timeout    string
+	MaxRetries int
 }
 
 // Versioning defines version locking rules
 type Versioning struct {
-	ThreadsLockToVersion bool `yaml:"threads_lock_to_version,omitempty"`
+	ThreadsLockToVersion bool
 }
 
 // BusinessContext represents the business context structure
 type BusinessContext struct {
-	Required []string `yaml:"required,omitempty"`
-	Optional []string `yaml:"optional,omitempty"`
+	Required     []string
+	Optional     []string
+	Descriptions map[string]string `json:"descriptions,omitempty"`
 }
 
 // NotificationConfig defines notification scope configuration for a contract
 type NotificationConfig struct {
-	DefaultScope string            `yaml:"default_scope,omitempty"`
-	RoleDefaults map[string]string `yaml:"role_defaults,omitempty"`
+	DefaultScope string
+	RoleDefaults map[string]string
 }

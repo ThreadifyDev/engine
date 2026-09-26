@@ -1,37 +1,31 @@
 import CodeMirror from '@uiw/react-codemirror';
-import { yaml } from '@codemirror/lang-yaml';
 import { EditorView } from '@codemirror/view';
 
-interface YamlEditorProps {
+interface ContractEditorProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   height?: string;
   readOnly?: boolean;
-  contractSource?: boolean;
   appearance?: 'default' | 'soft';
 }
 
-export default function YamlEditor({
+export default function ContractEditor({
   value,
   onChange,
-  placeholder = 'Enter YAML here...',
+  placeholder = 'Feature: your_workflow',
   height = '400px',
   readOnly = false,
-  contractSource = false,
   appearance = 'default',
-}: YamlEditorProps) {
-  const firstLine = value.split(/\r?\n/).map(line => line.trim()).find(line => line && !line.startsWith("#"));
-  const isGherkin = contractSource && firstLine?.startsWith("Feature:");
+}: ContractEditorProps) {
   return (
     <div className={appearance === 'soft' ? 'overflow-hidden' : 'border-2 border-black'}>
       <CodeMirror
         value={value}
         height={height}
         extensions={[
-          ...(isGherkin ? [] : [yaml()]),
           EditorView.lineWrapping,
-          EditorView.contentAttributes.of({ 'aria-label': contractSource ? 'Contract source' : 'YAML source' }),
+          EditorView.contentAttributes.of({ 'aria-label': 'Contract source' }),
           ...(appearance === 'soft' ? [EditorView.theme({
             '&': { backgroundColor: '#fff' },
             '&.cm-focused': { outline: 'none' },

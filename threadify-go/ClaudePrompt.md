@@ -112,7 +112,7 @@ type ContractVersion struct {
     ContractID      int64
     Version         int
     Description     string
-    Content         []byte  // YAML/JSON content - ALREADY EXISTS
+    Content         []byte  // compiled JSON content - ALREADY EXISTS
     Graph           []byte  // NEW: Contract graph (JSON) - ADD THIS
     CreatedBy       string
     CreatedAt       time.Time
@@ -131,7 +131,7 @@ type ContractVersion struct {
 
 **File:** `internal/service/contract_graph.go` (CREATE NEW)
 
-**Purpose:** Convert contract YAML/JSON content into a DAG (Directed Acyclic Graph) for efficient validation and navigation.
+**Purpose:** Convert contract compiled JSON content into a DAG (Directed Acyclic Graph) for efficient validation and navigation.
 
 ### Graph Structure
 
@@ -163,57 +163,34 @@ type GraphNode struct {
 }
 ```
 
-### Contract YAML Structure (Reference)
+### Gherkin contract source (Reference)
 
-```yaml
-contract_name: payment_processing
-version: 1
-description: Payment processing with fraud checks
+```gherkin
+Feature: payment_processing
+Version: 1
+Description: Payment processing with fraud checks
 
-parties:
-  - merchant
-  - payment_processor
-  - bank
+Rule: Initiate payment
+  When step "payment_initiated" is submitted
+  Then owner must be "merchant"
+  And content "amount" must be present
+  And this step is an entry point
+  And next step must be one of "fraud_check", "risk_assessment"
 
-steps:
-  - id: payment_initiated
-    owner: merchant
-    business_context:
-      amount: number
-      currency: string
+Rule: Check fraud
+  When step "fraud_check" is submitted
+  Then owner must be "payment_processor"
+  And this step is terminal
 
-  - id: fraud_check
-    owner: payment_processor
-    depends_on: payment_initiated
-    timeout: 2s
+Rule: Assess risk
+  When step "risk_assessment" is submitted
+  Then owner must be "payment_processor"
+  And this step is terminal
 
-  - id: risk_assessment
-    owner: payment_processor
-    depends_on: payment_initiated
-    timeout: 2s
-
-  - id: bank_authorization
-    owner: bank
-    depends_on:
-      - fraud_check
-      - risk_assessment
-    timeout: 5s
-
-  - id: payment_complete
-    owner: merchant
-    depends_on: bank_authorization
-
-groups:
-  - id: fraud_validation
-    steps:
-      - fraud_check
-      - risk_assessment
-    rules:
-      all_must_succeed: true
-      max_combined_duration: 3s
-
-validation:
-  max_duration: 10s
+Group: "fraud_validation"
+  Given parallel steps are "fraud_check", "risk_assessment"
+  And all parallel steps must succeed
+  And combined duration must be within "3s"
 ```
 
 ### Graph Building Algorithm
@@ -225,11 +202,11 @@ func NewGraphBuilder() *GraphBuilder {
     return &GraphBuilder{}
 }
 
-// BuildGraph converts contract content (YAML/JSON) to ContractGraph
+// BuildGraph converts compiled contract JSON to ContractGraph
 func (b *GraphBuilder) BuildGraph(contractName string, version int, content []byte) (*ContractGraph, error) {
-    // 1. Parse YAML/JSON content into Contract struct
+    // 1. Parse compiled JSON content into Contract struct
     var contract Contract
-    err := yaml.Unmarshal(content, &contract)
+    err := json.Unmarshal(content, &contract)
     if err != nil {
         return nil, fmt.Errorf("failed to parse contract: %w", err)
     }
@@ -384,36 +361,36 @@ func contains(slice []string, item string) bool {
 
 ```go
 type Contract struct {
-    ContractName string   `yaml:"contract_name" json:"contract_name"`
-    Version      int      `yaml:"version" json:"version"`
-    Description  string   `yaml:"description" json:"description"`
-    Parties      []string `yaml:"parties" json:"parties"`
-    Steps        []Step   `yaml:"steps" json:"steps"`
-    Groups       []Group  `yaml:"groups,omitempty" json:"groups,omitempty"`
-    Validation   *Validation `yaml:"validation,omitempty" json:"validation,omitempty"`
+    ContractName string `json:"contract_name"`
+    Version      int `json:"version"`
+    Description  string `json:"description"`
+    Parties      []string `json:"parties"`
+    Steps        []Step `json:"steps"`
+    Groups       []Group `json:"groups,omitempty"`
+    Validation   *Validation `json:"validation,omitempty"`
 }
 
 type Step struct {
-    ID              string            `yaml:"id" json:"id"`
-    Owner           string            `yaml:"owner" json:"owner"`
-    DependsOn       []string          `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
-    Timeout         string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-    BusinessContext map[string]string `yaml:"business_context,omitempty" json:"business_context,omitempty"`
+    ID              string `json:"id"`
+    Owner           string `json:"owner"`
+    DependsOn       []string `json:"depends_on,omitempty"`
+    Timeout         string `json:"timeout,omitempty"`
+    BusinessContext map[string]string `json:"business_context,omitempty"`
 }
 
 type Group struct {
-    ID    string      `yaml:"id" json:"id"`
-    Steps []string    `yaml:"steps" json:"steps"`
-    Rules *GroupRules `yaml:"rules,omitempty" json:"rules,omitempty"`
+    ID    string `json:"id"`
+    Steps []string `json:"steps"`
+    Rules *GroupRules `json:"rules,omitempty"`
 }
 
 type GroupRules struct {
-    AllMustSucceed       bool   `yaml:"all_must_succeed,omitempty" json:"all_must_succeed,omitempty"`
-    MaxCombinedDuration  string `yaml:"max_combined_duration,omitempty" json:"max_combined_duration,omitempty"`
+    AllMustSucceed       bool `json:"all_must_succeed,omitempty"`
+    MaxCombinedDuration  string `json:"max_combined_duration,omitempty"`
 }
 
 type Validation struct {
-    MaxDuration string `yaml:"max_duration,omitempty" json:"max_duration,omitempty"`
+    MaxDuration string `json:"max_duration,omitempty"`
 }
 ```
 
@@ -425,7 +402,7 @@ type Validation struct {
 - Test final step detection
 - Test parent group assignment
 - Test with contract without groups
-- Test error handling (invalid YAML, missing fields)
+- Test error handling (invalid Gherkin, missing fields)
 
 ---
 
