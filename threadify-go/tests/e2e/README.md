@@ -78,9 +78,8 @@ admin role is removed afterwards.
   be rejected before they create recorded events.
 - The parallel contract starts with Orders, runs four operations per system
   concurrently, then finishes with Warehouse: ten total steps, five per system.
-  Each operation uses `depends_on: [order_received]`; `dispatched` depends on
-  all eight operations. Explicit `transitions` enforce immediate sequence and
-  are intentionally omitted from this partial-order contract.
+  Each operation requires `order_received`; `dispatched` requires all eight
+  operations. Both contracts are published through the Gherkin-only API.
 - The terminal step completes each thread automatically. The test does not send
   an explicit close command for contract-based threads.
 - Both identities verify the stored contract ID/name/version, participant records,

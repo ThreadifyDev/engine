@@ -29,6 +29,12 @@ def next_release():
         for tag in git("tag", "--merged", "HEAD").splitlines()
         if (match := STABLE.fullmatch(tag))
     )
+    # An explicitly pushed stable tag selects its own release, even when an
+    # older release series has a numerically higher version (for a version reset).
+    explicit = os.environ.get("REF_NAME", "") if os.environ.get("REF_TYPE") == "tag" else ""
+    if STABLE.fullmatch(explicit) and any(tag == explicit for _, tag in versions):
+        prior = [tag for number, tag in versions if number < tuple(map(int, STABLE.fullmatch(explicit).groups()))]
+        return explicit, prior[-1] if prior else ""
     previous = versions[-1][1] if versions else ""
     if previous and git("rev-list", "-n", "1", previous) == git("rev-parse", "HEAD"):
         return previous, versions[-2][1] if len(versions) > 1 else ""

@@ -116,6 +116,22 @@ class EngineVersionTests(unittest.TestCase):
         self.git("tag", "v2.0.0-rc.1")
         self.assertEqual(version.next_release(), ("v1.0.1", "v1.0.0"))
 
+    def test_explicit_tag_can_start_a_new_release_series(self):
+        self.commit("feat: original engine")
+        self.git("tag", "v1.5.2")
+        self.commit("fix: release validation")
+        self.git("tag", "v0.1.0")
+        old_type, old_name = os.environ.get("REF_TYPE"), os.environ.get("REF_NAME")
+        os.environ.update(REF_TYPE="tag", REF_NAME="v0.1.0")
+        try:
+            self.assertEqual(version.next_release(), ("v0.1.0", ""))
+        finally:
+            for key, value in (("REF_TYPE", old_type), ("REF_NAME", old_name)):
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
 
 if __name__ == "__main__":
     unittest.main()

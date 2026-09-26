@@ -35,12 +35,12 @@ Add the binary directory to `PATH` if you want to run `threadify` by name.
 To choose a published version or installation directories:
 
 ```sh
-sh install.sh --version v1.2.3 \
+sh install.sh --version v0.1.0 \
   --bin-dir "$HOME/.local/bin" \
   --config-dir "$HOME/.config/threadify"
 ```
 
-Replace `v1.2.3` with your desired release. Rerun the installer to upgrade;
+Replace `v0.1.0` with your desired release. Rerun the installer to upgrade;
 restart the Engine to use the new executable. Stop a running Windows Engine
 before replacing its binary.
 

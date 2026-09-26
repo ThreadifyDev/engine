@@ -177,43 +177,80 @@ func runMultiSystemJoin(t *testing.T, contractBased bool) {
 	if contractBased {
 		prefix := "multi_system_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 		sequentialName, parallelName = prefix+"_sequential", prefix+"_parallel"
-		createContract := func(name string, steps, transitions, includes []any, entry, terminal string) {
-			declaration := map[string]any{"contract_name": name, "version": 1, "description": "Two-system contract E2E", "parties": []string{"orders", "warehouse"}, "steps": steps, "transitions": transitions, "entry_points": []string{entry}, "terminal_steps": []string{terminal}, "validation": map[string]any{"max_duration": "1h"}, "versioning": map[string]any{"threads_lock_to_version": true}}
-			if len(includes) > 0 {
-				declaration["includes"] = includes
-			}
-			body, err := json.Marshal(declaration)
-			require.NoError(t, err) // JSON is valid YAML.
-			result := request(t, provisioner, "/v1/contracts", "text/plain", body)
+		createContract := func(name, source string) {
+			result := request(t, provisioner, "/v1/contracts", "text/plain", []byte(source))
 			contractIDs[name] = result["contract"].(map[string]any)["id"].(string)
 		}
-		steps, transitions := []any{}, []any{}
-		ordered := []string{"order_received", "inventory_reserved", "dispatch_requested", "dispatched"}
-		for i, step := range ordered {
-			role := "orders"
-			if i%2 == 1 {
-				role = "warehouse"
-			}
-			steps = append(steps, map[string]any{"id": step, "owner": role, "type": "managed"})
-			if i > 0 {
-				transitions = append(transitions, map[string]any{"from": ordered[i-1], "to": []string{step}})
-			}
-		}
 		moduleName := prefix + "_first_half"
-		createContract(moduleName, steps[:2], transitions[:1], nil, ordered[0], ordered[1])
-		createContract(sequentialName, steps[2:], transitions[1:], []any{map[string]any{"name": moduleName, "version": 1}}, ordered[0], ordered[3])
-		steps = []any{map[string]any{"id": "order_received", "owner": "orders", "type": "managed"}, map[string]any{"id": "dispatched", "owner": "warehouse", "type": "managed"}}
-		transitions = []any{}
-		branches := []string{}
+		createContract(moduleName, fmt.Sprintf(`Feature: %s
+Version: 1
+
+Background:
+  Given the thread must finish within "1h"
+  And threads lock to this version
+
+Rule: Receive order
+  When step "order_received" is submitted
+  Then owner must be "orders"
+  And this step is an entry point
+
+Rule: Reserve inventory
+  When step "inventory_reserved" is submitted
+  Then owner must be "warehouse"
+  And step "order_received" must have succeeded
+  And this step is terminal
+`, moduleName))
+		createContract(sequentialName, fmt.Sprintf(`Feature: %s
+Version: 1
+Include: %s:1
+
+Rule: Request dispatch
+  When step "dispatch_requested" is submitted
+  Then owner must be "orders"
+  And step "inventory_reserved" must have succeeded
+
+Rule: Dispatch order
+  When step "dispatched" is submitted
+  Then owner must be "warehouse"
+  And step "dispatch_requested" must have succeeded
+  And this step is terminal
+`, sequentialName, moduleName))
+		var parallel strings.Builder
+		fmt.Fprintf(&parallel, `Feature: %s
+Version: 1
+
+Background:
+  Given the thread must finish within "1h"
+  And threads lock to this version
+
+Rule: Receive order
+  When step "order_received" is submitted
+  Then owner must be "orders"
+  And this step is an entry point
+`, parallelName)
+		branches := make([]string, 0, 8)
 		for i, role := range []string{"orders", "warehouse"} {
 			for j := 0; j < 4; j++ {
 				step := fmt.Sprintf("system_%d_operation_%d", i, j)
 				branches = append(branches, step)
-				steps = append(steps, map[string]any{"id": step, "owner": role, "type": "managed", "depends_on": []string{"order_received"}})
+				fmt.Fprintf(&parallel, `
+Rule: Complete %s
+  When step "%s" is submitted
+  Then owner must be "%s"
+  And step "order_received" must have succeeded
+`, step, step, role)
 			}
 		}
-		steps[1].(map[string]any)["depends_on"] = branches
-		createContract(parallelName, steps, transitions, nil, "order_received", "dispatched")
+		parallel.WriteString(`
+Rule: Dispatch order
+  When step "dispatched" is submitted
+  Then owner must be "warehouse"
+`)
+		for _, step := range branches {
+			fmt.Fprintf(&parallel, "  And step %q must have succeeded\n", step)
+		}
+		parallel.WriteString("  And this step is terminal\n")
+		createContract(parallelName, parallel.String())
 	}
 	event := func(id, step string) map[string]any {
 		return map[string]any{"action": "recordThreadEvent", "threadId": id, "stepName": step, "type": "managed", "status": "success", "idempotencyKey": uuid.NewString(), "startedAt": time.Now().Add(-time.Millisecond).UTC().Format(time.RFC3339Nano), "finishedAt": time.Now().UTC().Format(time.RFC3339Nano), "context": map[string]string{"scenario": "multi-system-join"}}

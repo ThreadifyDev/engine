@@ -9,7 +9,7 @@ Install Threadify, bundled Valkey (Linux/macOS), and missing configuration templ
 
 Usage: sh install.sh [--version VERSION] [--bin-dir DIR] [--config-dir DIR]
 
-  --version VERSION  Stable release (e.g. v1.2.3 or 1.2.3); default: latest
+  --version VERSION  Stable release (e.g. v0.1.0 or 0.1.0); default: latest
   --bin-dir DIR      Binary directory; default: $HOME/.local/bin
   --config-dir DIR   Configuration directory; default: $XDG_CONFIG_HOME/threadify
                     or $HOME/.config/threadify
@@ -70,7 +70,7 @@ if [ "$version" = latest ]; then
   esac
 fi
 version=${version#v}
-printf '%s\n' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || fail 'Version must be a stable release such as v1.2.3'
+printf '%s\n' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || fail 'Version must be a stable release such as v0.1.0'
 archive=threadify_${version}_${target}.${extension}
 download_root=$release_root/download/v$version
 
