@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: Object.fromEntries([
-      "/api", "/v1", "/graphql", "/threads", "/sse",
+      "/api", "/v1", "/graphql", "/threads", "/mcp", "/sse",
       "^/auth/(?!forgot-password|reset-password|verify-otp)",
     ].map(path => [path, {
       target: process.env.THREADIFY_DEV_ENGINE_URL || "http://127.0.0.1:8081",

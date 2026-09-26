@@ -86,6 +86,7 @@ func browserFixture(t *testing.T) (*BrowserService, *browserRegistryFixture) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	require.NoError(t, err)
 	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["TimeZone"] = "Europe/London"
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -201,6 +202,10 @@ func TestBrowserServiceKeyPreservesAuthorityAndRevocation(t *testing.T) {
 	_, err = s.pool.Exec(ctx, `UPDATE api_keys SET revoked_at=NULL,expires_at=NOW()-interval '1 minute'`)
 	require.NoError(t, err)
 	_, _, err = s.ExchangeKey(ctx, "service-key")
+	require.Error(t, err)
+	_, err = s.Authenticate(ctx, token)
+	require.Error(t, err)
+	_, err = s.AuthenticateAPIKey(ctx, "service-key")
 	require.Error(t, err)
 	_, err = s.pool.Exec(ctx, `UPDATE api_keys SET expires_at=NULL; UPDATE service_accounts SET is_active=false`)
 	require.NoError(t, err)

@@ -24,7 +24,7 @@ func (s *BrowserService) Authenticate(ctx context.Context, token string) (*Token
 	var expiry time.Time
 	err := s.pool.QueryRow(ctx, `SELECT b.principal_id,b.principal_type,b.expires_at FROM threadify_browser_sessions b
  WHERE b.token_hash=$1 AND b.company_id=$2 AND b.installation_id=$3 AND b.revoked_at IS NULL AND b.expires_at>$4 AND b.auth_generation=$5
- AND (b.source_key_id IS NULL OR EXISTS(SELECT 1 FROM api_keys k WHERE k.id=b.source_key_id AND k.company_id=b.company_id AND k.is_active AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>$4)))`, browserHash(token), s.registry.CompanyID(), s.registry.InstallationID(), s.now().UTC(), s.signed("generation", "v1")).Scan(&id, &kind, &expiry)
+ AND (b.source_key_id IS NULL OR EXISTS(SELECT 1 FROM api_keys k WHERE k.id=b.source_key_id AND k.company_id=b.company_id AND k.is_active AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>($4::timestamptz AT TIME ZONE current_setting('TimeZone')))))`, browserHash(token), s.registry.CompanyID(), s.registry.InstallationID(), s.now().UTC(), s.signed("generation", "v1")).Scan(&id, &kind, &expiry)
 	if err != nil {
 		return nil, ErrBrowserAuth
 	}
@@ -103,7 +103,7 @@ func (s *BrowserService) ExchangeKey(ctx context.Context, key string) (string, t
 		kind = "user"
 		source = "license_exchange"
 	} else {
-		err = tx.QueryRow(ctx, `SELECT k.id,COALESCE(k.service_account_id,k.user_id),CASE WHEN k.service_account_id IS NOT NULL THEN 'service_account' ELSE 'user' END FROM api_keys k WHERE k.key_hash=$1 AND k.company_id=$2 AND k.is_active AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>$3) FOR SHARE`, browserHash(key), s.registry.CompanyID(), s.now().UTC()).Scan(&keyID, &id, &kind)
+		err = tx.QueryRow(ctx, `SELECT k.id,COALESCE(k.service_account_id,k.user_id),CASE WHEN k.service_account_id IS NOT NULL THEN 'service_account' ELSE 'user' END FROM api_keys k WHERE k.key_hash=$1 AND k.company_id=$2 AND k.is_active AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>($3::timestamptz AT TIME ZONE current_setting('TimeZone'))) FOR SHARE`, browserHash(key), s.registry.CompanyID(), s.now().UTC()).Scan(&keyID, &id, &kind)
 		source = "api_key_exchange"
 		if err == nil && kind == "service_account" {
 			var active bool

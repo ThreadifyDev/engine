@@ -19,11 +19,13 @@ import (
 )
 
 type contextKeyAPIKey struct{}
+type contextKeyBearer struct{}
 
 func pullContextAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiKey := c.GetHeader("X-API-Key")
 		ctx := context.WithValue(c.Request.Context(), contextKeyAPIKey{}, apiKey)
+		ctx = context.WithValue(ctx, contextKeyBearer{}, c.GetHeader("Authorization"))
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
@@ -103,6 +105,8 @@ func graphQLQuery(ctx context.Context, apiPort int, query string, variables map[
 	}
 	if apiKey != "" {
 		req.Header.Set("X-API-Key", apiKey)
+	} else if bearer, _ := ctx.Value(contextKeyBearer{}).(string); bearer != "" {
+		req.Header.Set("Authorization", bearer)
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -394,5 +398,5 @@ func mountMCPServer(r *gin.RouterGroup, cfg *config.Config, planSvc domain.PlanS
 	r.Any("", acceptPatchMiddleware, pullContextAuthMiddleware(), mcpInitializePatchMiddleware(), gin.WrapH(streamHandler))
 	r.Any("/", acceptPatchMiddleware, pullContextAuthMiddleware(), mcpInitializePatchMiddleware(), gin.WrapH(streamHandler))
 
-	logger.Info("MCP server mounted", zap.String("path", "/sse"))
+	logger.Info("MCP server mounted", zap.String("path", r.BasePath()))
 }

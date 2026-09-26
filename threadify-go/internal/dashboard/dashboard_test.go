@@ -22,7 +22,7 @@ func TestDashboardRoutesAndAPIIsolation(t *testing.T) {
 			t.Fatalf("%s: %d %s", path, r.Code, r.Body.String())
 		}
 	}
-	for _, path := range []string{"/auth/session", "/auth/managed/start", "/api/user/profile", "/graphql", "/v1/contracts", "/v1/missing", "/threads", "/sse", "/health", "/metrics", "/missing"} {
+	for _, path := range []string{"/auth/session", "/auth/managed/start", "/api/user/profile", "/graphql", "/v1/contracts", "/v1/missing", "/threads", "/mcp", "/sse", "/health", "/metrics", "/missing"} {
 		r := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", path, nil)
 		req.Header.Set("Upgrade", "websocket")

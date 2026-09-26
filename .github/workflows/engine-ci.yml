@@ -7,6 +7,7 @@ on:
       - '!threadify-go/**/README.md'
       - '.github/workflows/engine-*.yml'
       - '.github/actions/setup-engine-go/**'
+      - '.github/actions/setup-private-core/**'
       - '.github/scripts/*engine*'
       - 'install.sh'
       - 'web/**'
@@ -14,6 +15,9 @@ on:
       - '.nvmrc'
   # Main/tag pushes are validated by Engine release through this same workflow.
   workflow_call:
+    secrets:
+      FUSED_OPEN_CORE_DEPLOY_KEY:
+        required: true
 
 permissions:
   contents: read
@@ -136,6 +140,8 @@ jobs:
           if-no-files-found: error
           compression-level: 0
   validate:
+    # Forked PRs cannot receive the private module's deploy key.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     needs: [valkey, dashboard, agent-runtime]
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -175,6 +181,9 @@ jobs:
         working-directory: .
       - run: chmod 755 bundle/*/valkey-server
       - uses: ./.github/actions/setup-engine-go
+      - uses: ./.github/actions/setup-private-core
+        with:
+          deploy-key: ${{ secrets.FUSED_OPEN_CORE_DEPLOY_KEY }}
       - name: Test engine release versioning
         run: |
           python3 ../.github/scripts/test_engine_version.py

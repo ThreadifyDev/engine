@@ -225,8 +225,12 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 	hdlrs.otlpTrace.WithIngestionRules(ingestionRules)
 	agent := newAgentConnection(cfg, logger)
 	router := browser.IngestionRulesHandler(ingestionRules, browser.EngineSettingsHandler(cfg.Server.PublicURL, browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger, agent))))
+	appHandler, err := browser.OAuthServer(ctx, rbacLoader, cfg.Server.PublicURL, dashboard.Wrap(browser.Wrap(licensed.WrapEngine(router))))
+	if err != nil {
+		return nil, fmt.Errorf("initialize OAuth server: %w", err)
+	}
 	return &App{
-		Handler: dashboard.Wrap(browser.Wrap(licensed.WrapEngine(router))),
+		Handler: appHandler,
 		infra:   inf,
 		svcs:    svcs,
 		hdlrs:   hdlrs,
@@ -625,11 +629,18 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 	)
 	r.GET("/graphql/playground", gin.WrapH(playground.Handler("GraphQL Playground", "/graphql")))
 
-	// MCP.
-	sseGroup := r.Group("/sse")
-	sseGroup.Use(middleware.AuthMiddleware(svcs.auth, middleware.AuthAPIKey))
-	sseGroup.Use(middleware.CreditUsageMiddleware(svcs.plan, logger))
-	mountMCPServer(sseGroup, cfg, svcs.plan, logger)
+	// Streamable HTTP MCP. Keep /sse as an alias for existing clients.
+	for _, path := range []string{"/mcp", "/sse"} {
+		group := r.Group(path)
+		metadataURL := strings.TrimRight(cfg.Server.PublicURL, "/") + "/.well-known/oauth-protected-resource" + path
+		group.Use(func(c *gin.Context) {
+			c.Set("oauth_resource_metadata", metadataURL)
+			c.Next()
+		})
+		group.Use(middleware.AuthMiddleware(svcs.auth, middleware.AuthDual))
+		group.Use(middleware.CreditUsageMiddleware(svcs.plan, logger))
+		mountMCPServer(group, cfg, svcs.plan, logger)
+	}
 
 	// Public v1.
 	v1Public := r.Group("/v1")
