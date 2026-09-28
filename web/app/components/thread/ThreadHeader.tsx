@@ -45,8 +45,7 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
   const { data: hashChainStatus, isLoading: isVerifying } = useQuery({
     queryKey: ['threadIntegrity', thread.id],
     queryFn: () => graphqlClient.verifyThreadIntegrity(thread.id),
-    enabled: !!thread.id && steps.length > 0,
-    refetchInterval: false,
+    enabled: !!thread.id && steps.length > 0 && thread.status !== 'active',
   });
 
   // Resolve owner name from ownerId
@@ -94,7 +93,7 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
         </span>
         
         {/* Hash Chain Verification Badge */}
-        {steps.length > 0 && (
+        {steps.length > 0 && thread.status !== 'active' && (
           <div className="flex items-center">
             {isVerifying ? (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-50 border border-gray-200">

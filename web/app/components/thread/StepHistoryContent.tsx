@@ -29,6 +29,7 @@ export function StepHistoryContent({
   const { data: history, isLoading } = useQuery({
     queryKey: ['stepHistory', threadId, step.stepName, step.idempotencyKey],
     queryFn: () => graphqlClient.getStepHistory(threadId, step.stepName, step.idempotencyKey, 100),
+    refetchOnWindowFocus: true,
   });
 
   // Extract unique actor IDs from history and resolve them

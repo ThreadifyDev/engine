@@ -371,6 +371,48 @@ class GraphQLClient {
     return data.thread;
   }
 
+  // Fetch one changed step for the live thread view. Keeping history and
+  // substeps inside this filtered query makes the open detail panel current.
+  async getThreadStep(threadId: string, stepName: string, idempotencyKey: string): Promise<StepStateInfo | null> {
+    const query = `
+      query GetThreadStep($id: ID!, $stepName: String!, $idempotencyKey: String!) {
+        thread(id: $id) {
+          steps(stepName: $stepName, idempotencyKey: $idempotencyKey) {
+            threadId
+            stepName
+            idempotencyKey
+            status
+            retryCount
+            firstSeenAt
+            lastUpdatedAt
+            startedAt
+            finishedAt
+            latestStepID
+            previousStep
+            actor
+            actorService
+            latestContext
+            hash
+            prevHash
+            history(limit: 1) { metadata }
+            subSteps {
+              id
+              threadId
+              stepId
+              name
+              status
+              payload
+              recordedAt
+              createdAt
+            }
+          }
+        }
+      }
+    `;
+    const data = await this.request<{ thread: { steps: StepStateInfo[] } }>(query, { id: threadId, stepName, idempotencyKey });
+    return data.thread.steps[0] ?? null;
+  }
+
   async getThreadNotifications(
     threadId: string,
     options?: {

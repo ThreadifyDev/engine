@@ -97,3 +97,22 @@ func TestPoolUsesInProcessConnectionsAndDrains(t *testing.T) {
 		require.True(t, pool.GetClientByIndex(i).Conn().IsClosed())
 	}
 }
+
+func TestStepPublishSignalsOnlyItsThread(t *testing.T) {
+	r := testBroker(t)
+	c := testClient(t, r, &config.NATSConfig{URL: gonats.DefaultURL, StreamName: "NOTIFICATIONS"})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, c.InitStreams(ctx))
+	sub, err := c.Conn().SubscribeSync(ThreadUpdateSubject("thread-a"))
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+	require.NoError(t, c.Conn().FlushWithContext(ctx))
+	p := NewArchivalPublisher(c, zap.NewNop())
+	require.NoError(t, p.PublishStepState(ctx, map[string]interface{}{"threadId": "thread-b", "stepName": "other"}))
+	require.NoError(t, p.PublishStepState(ctx, map[string]interface{}{"threadId": "thread-a", "stepName": "match"}))
+	msg, err := sub.NextMsg(time.Second)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"type":"state.step","stepName":"match","idempotencyKey":"","actor":""}`, string(msg.Data))
+	require.NotEqual(t, ThreadUpdateSubject("thread-a"), ThreadUpdateSubject("thread-b"))
+}

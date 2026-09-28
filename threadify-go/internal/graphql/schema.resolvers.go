@@ -462,9 +462,13 @@ func (r *queryResolver) Thread(ctx context.Context, id string) (*domain.Thread, 
 		return nil, fmt.Errorf("failed to get thread: %w", err)
 	}
 
-	// Batch load refs if requested in selections
-	if err := r.BatchLoadThreadData(ctx, []*domain.Thread{thread}); err != nil {
-		return nil, err
+	// A single-thread query without refs can resolve its selected fields
+	// directly. This avoids scanning all PostgreSQL steps for a filtered step
+	// update in the live view.
+	if ExtractFieldSelections(ctx).Has("refs") {
+		if err := r.BatchLoadThreadData(ctx, []*domain.Thread{thread}); err != nil {
+			return nil, err
+		}
 	}
 
 	// Cache the access check result for child resolvers (steps, validationResults, etc.)
@@ -1443,6 +1447,17 @@ func (r *threadResolver) Steps(ctx context.Context, obj *domain.Thread, stepName
 		if err == nil && permCheck != nil && permCheck.HasAccess {
 			steps, err := r.stepStateRepo.GetStepsWithPermissionCheck(ctx, obj.ID, ownerID, companyID, permCheck, stepName, idempotencyKey, status)
 			if err == nil {
+				// A filtered live-step query can use the archived row once it has
+				// caught up. Valkey supplies the newest status immediately; Postgres
+				// carries the richer timing, service, and context fields.
+				if stepName != nil && idempotencyKey != nil && len(steps) == 1 {
+					archived, archivedErr := r.stepStatePostgres.GetStepsWithPermissionCheck(ctx, obj.ID, companyID, stepName, idempotencyKey, status)
+					if archivedErr == nil && len(archived) == 1 && archived[0].Status == steps[0].Status &&
+						archived[0].LatestStepID == steps[0].LatestStepID && !archived[0].LastUpdatedAt.Before(steps[0].LastUpdatedAt) &&
+						(permCheck.HasFullRead || archived[0].Actor == ownerID) {
+						return archived, nil
+					}
+				}
 				return steps, nil
 			}
 			// Fall through to PostgreSQL on error

@@ -2,6 +2,7 @@ package nats
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -89,7 +90,31 @@ func (p *ArchivalPublisher) publishData(ctx context.Context, subject string, dat
 	if _, err := p.client.JetStream().Publish(ctx, subject, jsonData); err != nil {
 		return fmt.Errorf("failed to publish to NATS subject %s: %w", subject, err)
 	}
+	// Browser viewers receive a small change signal scoped to one thread. The
+	// durable archival publish above remains the source of truth; losing a live
+	// signal does not affect ingestion or persistence.
+	if subject == "state.step" || subject == "metadata.thread" || subject == "validations.thread" || subject == "notifications.thread" {
+		if event, ok := data.(map[string]interface{}); ok {
+			if threadID, ok := event["threadId"].(string); ok && threadID != "" {
+				updateData := map[string]string{"type": subject}
+				if subject == "state.step" {
+					updateData["stepName"], _ = event["stepName"].(string)
+					updateData["idempotencyKey"], _ = event["idempotencyKey"].(string)
+					updateData["actor"], _ = event["actor"].(string)
+				}
+				update, _ := json.Marshal(updateData)
+				if err := p.client.Conn().Publish(ThreadUpdateSubject(threadID), update); err != nil {
+					p.logger.Warn("failed to signal live thread update", zap.String("thread_id", threadID), zap.Error(err))
+				}
+			}
+		}
+	}
 	return nil
+}
+
+// ThreadUpdateSubject avoids placing user supplied IDs directly in NATS subjects.
+func ThreadUpdateSubject(threadID string) string {
+	return fmt.Sprintf("live.thread.%x", sha256.Sum256([]byte(threadID)))
 }
 
 func (p *ArchivalPublisher) PublishAsync(subject string, event map[string]interface{}) {

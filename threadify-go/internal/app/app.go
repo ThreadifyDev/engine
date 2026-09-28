@@ -615,6 +615,10 @@ func buildRouter(cfg *config.Config, inf *infra, svcs *services, repos *reposito
 
 	// WebSocket.
 	r.GET("/threads", hdlrs.wsHandler.HandleWebSocket)
+	r.GET("/v1/threads/:id/events",
+		middleware.AuthMiddleware(svcs.auth, middleware.AuthJWT),
+		threadEvents(repos.threadCache, inf.natsPool.GetClient().Conn()),
+	)
 
 	// Standard OTLP/HTTP trace ingestion (API key authentication is handled by
 	// the OTLP handler so protocol errors remain protobuf-encoded).

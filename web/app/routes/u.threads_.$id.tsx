@@ -1,7 +1,8 @@
 import { TabBar } from '~/components/TabBar';
 import { useParams, useNavigate } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { graphqlClient, type Thread, type StepStateInfo, type ValidationResultInfo, type StepHistory, type ThreadNotification, type NotificationSummary } from '~/lib/graphql';
+import { getConfig } from '~/config.client';
 
 import { formatDistanceToNow } from 'date-fns';
 import {
@@ -29,7 +30,7 @@ import {
   Info,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import AppLayout from '~/components/AppLayout';
 import ThreadGraphView from '~/components/ThreadGraphView';
 import ThreadTimelineView from '~/components/ThreadTimelineView';
@@ -65,6 +66,8 @@ function calculateExecutionTime(startedAt?: string, finishedAt?: string): string
 export default function ThreadDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [liveConnected, setLiveConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('timeline');
   const [sidebarView, setSidebarView] = useState<SidebarView>(null);
   const [selectedStep, setSelectedStep] = useState<StepStateInfo | null>(null);
@@ -77,13 +80,155 @@ export default function ThreadDetailPage() {
   const [selectedSubSteps, setSelectedSubSteps] = useState<{subSteps: any[], stepName: string, stepStartedAt?: string} | null>(null);
   const [selectedService, setSelectedService] = useState<string | null>(null);
   
-  const { data: thread, isLoading, error } = useQuery({
+  const { data: thread, isLoading, error, isRefetching } = useQuery({
     queryKey: ['thread', id],
     queryFn: () => graphqlClient.getThread(id!),
     enabled: !!id,
-    staleTime: 0, // Always fetch fresh data for thread details
-    refetchOnMount: true, // Refetch when component mounts
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
   });
+
+  const isLive = thread?.status === 'active';
+  useEffect(() => {
+    if (!id || !isLive) return;
+    let source: EventSource | null = null;
+    let refreshTimer: number | undefined;
+    let reconcileTimer: number | undefined;
+    let fullRefresh = false;
+    let refreshNotifications = false;
+    let refreshHistory = false;
+    const changedSteps = new Map<string, { stepName: string; idempotencyKey: string }>();
+    const reconcileSteps = new Map<string, { stepName: string; idempotencyKey: string }>();
+    const loadChangedSteps = async (steps: { stepName: string; idempotencyKey: string }[]) => {
+      try {
+        const updates = await Promise.all(steps.map(step =>
+          graphqlClient.getThreadStep(id, step.stepName, step.idempotencyKey)
+        ));
+        if (updates.some(step => !step)) {
+          void queryClient.invalidateQueries({ queryKey: ['thread', id] });
+          return;
+        }
+        queryClient.setQueryData<Thread>(['thread', id], previous => {
+          if (!previous) return previous;
+          const nextSteps = [...(previous.steps ?? [])];
+          for (const step of updates as StepStateInfo[]) {
+            const index = nextSteps.findIndex(existing =>
+              existing.stepName === step.stepName && existing.idempotencyKey === step.idempotencyKey
+            );
+            if (index < 0) nextSteps.push(step);
+            else if (new Date(step.lastUpdatedAt).getTime() >= new Date(nextSteps[index].lastUpdatedAt).getTime()) nextSteps[index] = step;
+          }
+          return { ...previous, steps: nextSteps };
+        });
+      } catch {
+        void queryClient.invalidateQueries({ queryKey: ['thread', id] });
+      }
+    };
+    const refresh = async () => {
+      refreshTimer = undefined;
+      const steps = [...changedSteps.values()];
+      changedSteps.clear();
+      const notificationsChanged = refreshNotifications;
+      const historyChanged = refreshHistory;
+      refreshNotifications = false;
+      refreshHistory = false;
+      if (fullRefresh || steps.length > 3) {
+        fullRefresh = false;
+        void queryClient.invalidateQueries({ queryKey: ['thread', id] });
+      } else if (steps.length > 0) {
+        await loadChangedSteps(steps);
+      }
+      if (notificationsChanged) {
+        void queryClient.invalidateQueries({ queryKey: ['threadNotifications', id] });
+        void queryClient.invalidateQueries({ queryKey: ['stepViolations', id] });
+      }
+      if (historyChanged) void queryClient.invalidateQueries({ queryKey: ['stepHistory', id] });
+    };
+    const scheduleRefresh = () => {
+      if (refreshTimer === undefined) refreshTimer = window.setTimeout(() => { void refresh(); }, 2000);
+    };
+    const onReady = () => {
+      setLiveConnected(true);
+      fullRefresh = true;
+      scheduleRefresh(); // catch changes between the initial query and subscription
+    };
+    const onUpdate = (event: Event) => {
+      try {
+        const update = JSON.parse((event as MessageEvent).data) as { type?: string; stepName?: string; idempotencyKey?: string };
+        if (update.type === 'state.step' && update.stepName && update.idempotencyKey !== undefined) {
+          refreshHistory = true;
+          if (reconcileTimer === undefined) {
+            // The archiver writes richer step details asynchronously. Recheck
+            // changed steps once after its batch window.
+            reconcileTimer = window.setTimeout(() => {
+              reconcileTimer = undefined;
+              const steps = [...reconcileSteps.values()];
+              reconcileSteps.clear();
+              if (steps.length > 3) void queryClient.invalidateQueries({ queryKey: ['thread', id] });
+              else if (steps.length > 0) void loadChangedSteps(steps);
+            }, 10000);
+          }
+          const key = JSON.stringify([update.stepName, update.idempotencyKey]);
+          const step = {
+            stepName: update.stepName,
+            idempotencyKey: update.idempotencyKey,
+          };
+          changedSteps.set(key, step);
+          reconcileSteps.set(key, step);
+        } else {
+          fullRefresh = true;
+          refreshNotifications ||= update.type === 'notifications.thread' || update.type === 'validations.thread' || update.type === 'resync';
+          refreshHistory ||= update.type === 'resync';
+        }
+      } catch {
+        fullRefresh = true;
+        refreshNotifications = true;
+        refreshHistory = true;
+      }
+      scheduleRefresh();
+    };
+    const disconnect = () => {
+      source?.close();
+      source = null;
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      if (reconcileTimer !== undefined) window.clearTimeout(reconcileTimer);
+      refreshTimer = undefined;
+      reconcileTimer = undefined;
+      changedSteps.clear();
+      reconcileSteps.clear();
+      fullRefresh = false;
+      refreshNotifications = false;
+      refreshHistory = false;
+      setLiveConnected(false);
+    };
+    const connect = () => {
+      if (document.hidden || source) return;
+      source = new EventSource(`${getConfig().engineUrl.replace(/\/+$/, '')}/v1/threads/${encodeURIComponent(id)}/events`, { withCredentials: true });
+      source.addEventListener('ready', onReady);
+      source.addEventListener('update', onUpdate);
+      source.onerror = () => setLiveConnected(false);
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) disconnect();
+      else connect();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    connect();
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      disconnect();
+    };
+  }, [id, isLive, queryClient]);
+  const currentStep = thread?.steps?.find(step =>
+    step.stepName === selectedStep?.stepName && step.idempotencyKey === selectedStep?.idempotencyKey
+  ) ?? selectedStep;
+  const currentStepForHistory = thread?.steps?.find(step =>
+    step.stepName === selectedStepForHistory?.stepName && step.idempotencyKey === selectedStepForHistory?.idempotencyKey
+  ) ?? selectedStepForHistory;
+  const currentStepForViolations = thread?.steps?.find(step =>
+    step.stepName === selectedStepForViolations?.stepName && step.idempotencyKey === selectedStepForViolations?.idempotencyKey
+  ) ?? selectedStepForViolations;
 
 
   // Fetch step history only when participants view is opened
@@ -102,11 +247,12 @@ export default function ThreadDetailPage() {
 
   // Fetch full notifications only when validations view is opened
   const { data: notifications, isLoading: notificationsLoading } = useQuery({
-    queryKey: ['threadNotifications', id, severityFilter],
+    queryKey: ['threadNotifications', id],
     queryFn: () => graphqlClient.getThreadNotifications(id!, {
       limit: 100,
     }),
     enabled: !!id && sidebarView === 'validations',
+    refetchOnWindowFocus: true,
   });
 
   // Fetch step-specific violations when violation history view is opened
@@ -121,6 +267,7 @@ export default function ThreadDetailPage() {
       return result;
     },
     enabled: !!id && !!selectedStepForViolations && sidebarView === 'step-violations',
+    refetchOnWindowFocus: true,
   });
 
   if (isLoading) {
@@ -131,7 +278,7 @@ export default function ThreadDetailPage() {
     );
   }
 
-  if (error) {
+  if (error && !thread) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md">
@@ -155,6 +302,13 @@ export default function ThreadDetailPage() {
       <div className="min-h-screen min-w-0 w-full overflow-x-hidden bg-gray-50 p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto">
           <ThreadHeader thread={thread} />
+          {isLive && (
+            <div role="status" className="mt-3 flex items-center gap-2 text-xs text-blue-700">
+              <span className={`h-2 w-2 rounded-full ${liveConnected ? 'bg-blue-500' : 'bg-amber-500'}`} />
+              {liveConnected ? 'Live' : 'Connecting to live updates'}
+              {isRefetching && <RefreshCw className="h-3 w-3 animate-spin" aria-label="Refreshing" />}
+            </div>
+          )}
           
           {/* Tabs */}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -261,7 +415,7 @@ export default function ThreadDetailPage() {
         </div>
 
         {/* Right Sidebar */}
-        {sidebarView === 'step' && selectedStep && (
+        {sidebarView === 'step' && currentStep && (
           <RightSidebar
             isOpen={true}
             onClose={() => {
@@ -273,7 +427,7 @@ export default function ThreadDetailPage() {
             width="lg"
           >
             <StepDetailContent 
-              step={selectedStep} 
+              step={currentStep}
               threadId={id!}
               showContext={showContext}
               onToggleContext={() => setShowContext(!showContext)}
@@ -351,7 +505,7 @@ export default function ThreadDetailPage() {
         )}
 
         {/* Step History Layered Sidebar */}
-        {selectedStepForHistory && (
+        {currentStepForHistory && (
           <RightSidebar
             isOpen={true}
             onClose={() => setSelectedStepForHistory(null)}
@@ -371,13 +525,13 @@ export default function ThreadDetailPage() {
             width="lg"
           >
             <StepHistoryContent 
-              step={selectedStepForHistory}
+              step={currentStepForHistory}
               threadId={id!}
             />
           </RightSidebar>
         )}
 
-        {sidebarView === 'step-validations' && selectedStep && (
+        {sidebarView === 'step-validations' && currentStep && (
           <RightSidebar
             isOpen={true}
             onClose={() => {
@@ -389,7 +543,7 @@ export default function ThreadDetailPage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
-                    setSelectedStep(selectedStep);
+                    setSelectedStep(currentStep);
                     setSidebarView(previousView);
                     setPreviousView(null);
                   }}
@@ -399,19 +553,19 @@ export default function ThreadDetailPage() {
                   Back
                 </button>
                 <span className="text-gray-300">|</span>
-                <span>Validations: {selectedStep.stepName}</span>
+                <span>Validations: {currentStep.stepName}</span>
               </div>
             }
             width="lg"
           >
             <StepValidationResultsView 
-              step={selectedStep}
+              step={currentStep}
               validations={thread.validationResults || []}
             />
           </RightSidebar>
         )}
 
-        {sidebarView === 'step-violations' && selectedStepForViolations && (
+        {sidebarView === 'step-violations' && currentStepForViolations && (
           <RightSidebar
             isOpen={true}
             onClose={() => {
@@ -433,8 +587,8 @@ export default function ThreadDetailPage() {
                   Back
                 </button>
                 <span className="text-gray-300 flex-shrink-0">|</span>
-                <span className="truncate" title={`Violation History: ${selectedStepForViolations.stepName}`}>
-                  Violation History: {selectedStepForViolations.stepName}
+                <span className="truncate" title={`Violation History: ${currentStepForViolations.stepName}`}>
+                  Violation History: {currentStepForViolations.stepName}
                 </span>
               </div>
             }
