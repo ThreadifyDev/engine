@@ -546,6 +546,7 @@ class ApiClient {
   async createAPIKey(data: {
     name: string;
     expires_in?: number;
+    expires_at?: string;
     service_account_id?: string;
     create_service_account?: boolean;
     service_account_role?: string;

@@ -3,11 +3,12 @@ package dto
 import "time"
 
 type CreateAPIKeyRequest struct {
-	Name                 string  `json:"name" binding:"required"`
-	ExpiresIn            *int    `json:"expires_in"`
-	ServiceAccountID     *string `json:"service_account_id"`
-	CreateServiceAccount bool    `json:"create_service_account"`
-	ServiceAccountRole   *string `json:"service_account_role"`
+	Name                 string     `json:"name" binding:"required"`
+	ExpiresIn            *int       `json:"expires_in"`
+	ExpiresAt            *time.Time `json:"expires_at"`
+	ServiceAccountID     *string    `json:"service_account_id"`
+	CreateServiceAccount bool       `json:"create_service_account"`
+	ServiceAccountRole   *string    `json:"service_account_role"`
 }
 
 type APIKeyInfo struct {

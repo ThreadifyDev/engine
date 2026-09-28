@@ -47,6 +47,9 @@ func (s *APIKeyService) CreateAPIKey(
 	if req.Name == "" {
 		return nil, ErrApiKeyNameRequired
 	}
+	if req.ExpiresAt != nil && (req.ExpiresIn != nil || !req.ExpiresAt.After(time.Now())) {
+		return nil, ErrInvalidApiKeyExpiry
+	}
 
 	serviceAccountID, err := s.resolveServiceAccount(ctx, userID, companyID, req)
 	if err != nil {
@@ -65,6 +68,9 @@ func (s *APIKeyService) CreateAPIKey(
 	var expiresAt *time.Time
 	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
 		expiry := time.Now().AddDate(0, 0, *req.ExpiresIn)
+		expiresAt = &expiry
+	} else if req.ExpiresAt != nil {
+		expiry := req.ExpiresAt.UTC()
 		expiresAt = &expiry
 	}
 

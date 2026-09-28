@@ -22,6 +22,7 @@ var (
 
 	// API Key errors
 	ErrApiKeyNameRequired        = serror.ErrApiKeyNameRequired
+	ErrInvalidApiKeyExpiry       = serror.ErrInvalidApiKeyExpiry
 	ErrInvalidServiceAccountRole = serror.ErrInvalidServiceAccountRole
 	ErrServiceAccountNotFound    = serror.ErrServiceAccountNotFound
 	ErrUnauthorizedCompany       = serror.ErrUnauthorizedCompany

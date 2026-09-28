@@ -21,6 +21,7 @@ var (
 
 	// API Key errors
 	ErrApiKeyNameRequired        = NewDomainError("API key name is required", http.StatusBadRequest)
+	ErrInvalidApiKeyExpiry       = NewDomainError("API key expiry date must be in the future and cannot be combined with a duration", http.StatusBadRequest)
 	ErrInvalidServiceAccountRole = NewDomainError("invalid service account role: must be from api_level", http.StatusBadRequest)
 	ErrServiceAccountNotFound    = NewDomainError("service account not found", http.StatusNotFound)
 	ErrUnauthorizedCompany       = NewDomainError("unauthorized: service account belongs to different company", http.StatusForbidden)

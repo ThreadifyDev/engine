@@ -23,7 +23,6 @@ export const pages: Page[] = [
   { path: '/u/team', title: 'Team', component: lazy(() => import('./routes/u.team')) },
   { path: '/u/settings', title: 'Settings', component: lazy(() => import('./routes/u.settings')) },
   { path: '/u/developer', title: 'Developer', component: lazy(() => import('./routes/u.developer')) },
-  { path: '/u/api-keys', title: 'API Keys', component: lazy(() => import('./routes/u.api-keys')) },
   { path: '/u/service-accounts', title: 'Service Accounts', component: lazy(() => import('./routes/u.service-accounts')) },
   { path: '/u/onboarding', title: 'Onboarding', component: lazy(() => import('./routes/u.onboarding')) },
   { path: '/u/getting-started', title: 'Getting Started', component: lazy(() => import('./routes/u.getting-started')) },

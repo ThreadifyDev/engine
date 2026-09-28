@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Key, Check } from 'lucide-react';
 import { api } from '~/lib/api';
+import { apiKeyExpiryParams, availableServiceAccounts, defaultServiceAccountSelection, localToday } from '~/lib/api-key-creation';
 import { useServiceAccountRoles } from '~/hooks/useRoles';
 import Alert, { isCreditError } from '~/components/Alert';
 import { useNavigate } from 'react-router';
@@ -14,13 +15,17 @@ export function APIKeysTab() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
   const [expiresIn, setExpiresIn] = useState<string>('never');
+  const [customExpiryDate, setCustomExpiryDate] = useState('');
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
-  const [createServiceAccount, setCreateServiceAccount] = useState(true);
+  const [createServiceAccount, setCreateServiceAccount] = useState(false);
   const [serviceAccountRole, setServiceAccountRole] = useState('standard_service');
   const [serviceAccounts, setServiceAccounts] = useState<any[]>([]);
+  const [serviceAccountsLoading, setServiceAccountsLoading] = useState(true);
+  const [serviceAccountsError, setServiceAccountsError] = useState('');
   const [selectedServiceAccountId, setSelectedServiceAccountId] = useState<string>('');
+  const activeServiceAccounts = availableServiceAccounts(serviceAccounts);
 
   // Set default role when roles are loaded
   useEffect(() => {
@@ -35,18 +40,33 @@ export function APIKeysTab() {
     fetchServiceAccounts();
 
     // Listen for create button click from parent
-    const handleCreate = () => setShowCreateModal(true);
+    const handleCreate = () => openCreateModal();
     window.addEventListener('create-api-key', handleCreate);
     return () => window.removeEventListener('create-api-key', handleCreate);
   }, []);
 
   const fetchServiceAccounts = async () => {
+    setServiceAccountsLoading(true);
+    setServiceAccountsError('');
     try {
       const response = await api.listServiceAccounts();
-      setServiceAccounts(response.service_accounts || []);
+      const accounts = response.service_accounts || [];
+      const defaultSelection = defaultServiceAccountSelection(accounts);
+      setServiceAccounts(accounts);
+      setCreateServiceAccount(defaultSelection.createNew);
+      setSelectedServiceAccountId(defaultSelection.selectedId);
     } catch (err) {
       console.error('Failed to load service accounts:', err);
+      setServiceAccountsError('Could not load service accounts. Try again before creating a key.');
+    } finally {
+      setServiceAccountsLoading(false);
     }
+  };
+
+  const openCreateModal = () => {
+    setError('');
+    setShowCreateModal(true);
+    void fetchServiceAccounts();
   };
 
   const fetchAPIKeys = async () => {
@@ -67,10 +87,9 @@ export function APIKeysTab() {
     setCreating(true);
 
     try {
-      const expiresInDays = expiresIn === 'never' ? undefined : parseInt(expiresIn);
       const response = await api.createAPIKey({
         name: newKeyName,
-        expires_in: expiresInDays,
+        ...apiKeyExpiryParams(expiresIn, customExpiryDate),
         service_account_id: !createServiceAccount && selectedServiceAccountId ? selectedServiceAccountId : undefined,
         create_service_account: createServiceAccount,
         service_account_role: createServiceAccount ? serviceAccountRole : undefined,
@@ -79,8 +98,7 @@ export function APIKeysTab() {
       setCreatedKey(response.key);
       setNewKeyName('');
       setExpiresIn('never');
-      setCreateServiceAccount(true);
-      setSelectedServiceAccountId('');
+      setCustomExpiryDate('');
       setServiceAccountRole('standard_service');
       await Promise.all([fetchAPIKeys(), fetchServiceAccounts()]);
     } catch (err) {
@@ -134,7 +152,7 @@ export function APIKeysTab() {
       )}
 
       {/* Error Message */}
-      {error && (
+      {error && !showCreateModal && (
         <Alert
           type="error"
           message={error}
@@ -165,7 +183,7 @@ export function APIKeysTab() {
             Create your first API key to start using the Threadify API
           </p>
           <button
-            onClick={() => setShowCreateModal(true)}
+            onClick={openCreateModal}
             className="rounded-lg bg-stone-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-stone-800"
           >
             Create Your First API Key
@@ -267,6 +285,7 @@ export function APIKeysTab() {
               </div>
             ) : (
               <form onSubmit={handleCreateKey}>
+                {error && <Alert type="error" message={error} className="mb-4" />}
                 <div className="mb-4">
                   <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
                     Key Name <span className="text-red-600">*</span>
@@ -297,16 +316,30 @@ export function APIKeysTab() {
                     <option value="90">90 days</option>
                     <option value="180">180 days</option>
                     <option value="365">1 year</option>
+                    <option value="custom">Custom date</option>
                   </select>
                 </div>
 
+                {expiresIn === 'custom' && (
+                  <div className="mb-4">
+                    <label htmlFor="customExpiryDate" className="mb-2 block text-sm font-medium text-gray-700">Expiry date</label>
+                    <input id="customExpiryDate" type="date" required min={localToday()} value={customExpiryDate}
+                      onChange={e => setCustomExpiryDate(e.target.value)}
+                      className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" />
+                    <p className="mt-1 text-xs text-gray-600">The key expires at the end of this day in your time zone.</p>
+                  </div>
+                )}
+
                 <div className="mb-4 p-4 border border-gray-200 rounded bg-gray-50">
+                  {serviceAccountsLoading && <p className="mb-3 text-sm text-gray-600">Loading service accounts...</p>}
+                  {serviceAccountsError && <div className="mb-3 text-sm text-red-700">{serviceAccountsError} <button type="button" className="underline" onClick={fetchServiceAccounts}>Retry</button></div>}
                   <div className="flex items-center mb-3">
                     <input
                       type="checkbox"
                       id="createServiceAccount"
                       checked={createServiceAccount}
                       onChange={(e) => setCreateServiceAccount(e.target.checked)}
+                      disabled={serviceAccountsLoading || !!serviceAccountsError || activeServiceAccounts.length === 0}
                       className="w-4 h-4 text-black border-gray-300 rounded focus:ring-black"
                     />
                     <label htmlFor="createServiceAccount" className="ml-2 text-sm font-medium text-gray-700">
@@ -330,7 +363,7 @@ export function APIKeysTab() {
                         required={!createServiceAccount}
                       >
                         <option value="">Select a service account...</option>
-                        {serviceAccounts.map((sa) => (
+                        {activeServiceAccounts.map((sa) => (
                           <option key={sa.id} value={sa.id}>
                             {sa.name} {!sa.is_active ? '(Inactive)' : ''}
                           </option>
@@ -374,6 +407,7 @@ export function APIKeysTab() {
                       setShowCreateModal(false);
                       setNewKeyName('');
                       setExpiresIn('never');
+                      setCustomExpiryDate('');
                     }}
                     className="text-red-500 hover:text-red-700 font-medium transition-colors text-sm"
                   >
@@ -381,7 +415,7 @@ export function APIKeysTab() {
                   </button>
                   <button
                     type="submit"
-                    disabled={creating}
+                    disabled={creating || serviceAccountsLoading || !!serviceAccountsError}
                     className="px-8 py-3 bg-black rounded-xl text-white hover:bg-gray-800 transition-colors font-medium disabled:opacity-50"
                   >
                     {creating ? 'Creating...' : 'Create Key'}

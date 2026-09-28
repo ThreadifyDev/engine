@@ -4,6 +4,7 @@ import (
 	"net/mail"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -160,6 +161,13 @@ func ValidateCreateAPIKeyRequest(req *dto.CreateAPIKeyRequest) error {
 		b.add("name", "Name is required")
 	} else if utf8.RuneCountInString(req.Name) > 100 {
 		b.add("name", "Name exceeds maximum length")
+	}
+	if req.ExpiresAt != nil {
+		if req.ExpiresIn != nil {
+			b.add("expires_at", "Choose either an expiry date or a duration")
+		} else if !req.ExpiresAt.After(time.Now()) {
+			b.add("expires_at", "Expiry date must be in the future")
+		}
 	}
 
 	return b.err()
