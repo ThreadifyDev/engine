@@ -3,6 +3,9 @@
 A Vite/React single-page app embedded in the Threadify Engine. Open the Engine's
 URL (default `http://localhost:8081`) to sign in. Production needs no Node server.
 The [public website](https://threadify.dev) and Registry signup are maintained separately.
+The dashboard calls the Engine at its serving origin for authentication, REST,
+GraphQL and WebSocket requests. Its optional agent UI calls Harnest through the
+Engine's `/api/harnest` route.
 
 ## Develop
 
@@ -45,8 +48,11 @@ without them; UI routes then return 503 with instructions. GoReleaser and source
 Docker builds require prepared assets. The Engine Docker image runs the same
 binary; there is no separate dashboard container.
 
-See [Engine connection](ENGINE_CONNECTION.md) and
-[browser authentication](../threadify-go/docs/BROWSER_AUTH.md) for deployment.
+For production, serve the Engine at the root of an HTTPS origin and set
+`registry.browser_origin` to that origin. `server.public_url` advertises the
+client address; it does not change the dashboard's serving origin. See
+[browser authentication](../threadify-go/docs/BROWSER_AUTH.md) and
+[agent setup](../threadify-agent/README.md) for deployment details.
 
 ## Profile configuration
 
