@@ -22,6 +22,7 @@ const contractCols = `id, name, company_id, description, content_hash, latest_ve
 const versionCols = `id, version, content, source, content_hash, contract_id, created_by, graph, expected_duration_ms, is_deleted, created_at, updated_at`
 
 const (
+	constrContractNameActive        = "idx_contracts_name_active"
 	constrContractNameCompanyActive = "idx_contracts_name_company_active"
 	constrUniqueContractName        = "unique_contract_name"
 )
@@ -61,8 +62,10 @@ func contractErr(err error) error {
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
-		if strings.Contains(pgErr.ConstraintName, constrContractNameCompanyActive) ||
+		if strings.Contains(pgErr.ConstraintName, constrContractNameActive) ||
+			strings.Contains(pgErr.ConstraintName, constrContractNameCompanyActive) ||
 			strings.Contains(pgErr.ConstraintName, constrUniqueContractName) ||
+			strings.Contains(pgErr.Message, constrContractNameActive) ||
 			strings.Contains(pgErr.Message, constrContractNameCompanyActive) {
 			return shderrors.ErrContractAlreadyExists
 		}
