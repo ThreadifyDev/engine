@@ -339,6 +339,10 @@ class ApiClient {
     return this.request('/engine/settings', { method: 'DELETE' });
   }
 
+  saveEngineThreadRetention(thread_retention_days: number): Promise<EngineSettings> {
+    return this.request('/engine/settings/retention', { method: 'PUT', body: JSON.stringify({ thread_retention_days }) });
+  }
+
   approveCLILogin(transaction_id: string, browser_token: string): Promise<{ status: string }> {
     return this.browserAuth('cli/approve', { method: 'POST', body: JSON.stringify({ transaction_id, browser_token }) });
   }
@@ -386,6 +390,7 @@ class ApiClient {
     industry: string;
     company_size: string;
     use_case: string;
+    thread_retention_days?: number;
   }): Promise<{ message: string; user: User }> {
     return this.request('/user/profile', {
       method: 'POST',
@@ -784,6 +789,7 @@ export interface EngineSettings {
   config_public_url: string;
   source: 'config' | 'ui' | 'unset';
   can_manage: boolean;
+  thread_retention_days: number;
   endpoints: Record<string, string>;
 }
 

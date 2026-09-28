@@ -16,11 +16,12 @@ type User struct {
 }
 
 type Company struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	Industry *string `json:"industry"`
-	Size     *string `json:"company_size"`
-	UseCase  *string `json:"use_case"`
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	Industry            *string `json:"industry"`
+	Size                *string `json:"company_size"`
+	UseCase             *string `json:"use_case"`
+	ThreadRetentionDays int     `json:"thread_retention_days"`
 }
 
 type UserProfileResult struct {
@@ -29,11 +30,12 @@ type UserProfileResult struct {
 }
 
 type UpdateProfileRequest struct {
-	FullName    string `json:"full_name" binding:"required"`
-	JobRole     string `json:"job_role" binding:"required"`
-	Industry    string `json:"industry"`
-	CompanySize string `json:"company_size"`
-	UseCase     string `json:"use_case"`
+	FullName            string `json:"full_name" binding:"required"`
+	JobRole             string `json:"job_role" binding:"required"`
+	Industry            string `json:"industry"`
+	CompanySize         string `json:"company_size"`
+	UseCase             string `json:"use_case"`
+	ThreadRetentionDays *int   `json:"thread_retention_days"`
 }
 
 type TeamMember struct {

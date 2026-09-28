@@ -131,10 +131,10 @@ func (v *ContractValidationService) ValidateStepContext(ctx context.Context, ste
 }
 
 // registeredStepContext separates contract facts from extra telemetry. A step
-// without a business_context declaration keeps legacy behavior.
+// without declared business context has no fields available to the engine.
 func registeredStepContext(stepNode domain.GraphNode, context map[string]string) (map[string]string, map[string]string) {
 	if stepNode.BusinessContext == nil {
-		return context, nil
+		return map[string]string{}, context
 	}
 	registered := make(map[string]string)
 	for _, field := range stepNode.BusinessContext.Required {

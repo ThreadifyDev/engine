@@ -19,14 +19,17 @@ func TestEnginePublicURLPersistenceAndScope(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "config", setting.Source)
 	require.Equal(t, configured, setting.PublicURL)
+	require.Zero(t, setting.ThreadRetentionDays)
 	require.Equal(t, "wss://config.example.test/threads", setting.Endpoints["websocket"])
 	require.NoError(t, s.changeEngineURL(ctx, owner, "https://public.example.test/threadify/", false))
+	require.NoError(t, s.changeThreadRetention(ctx, owner, 30))
 	// Recreate the service against the same DB, as a restart or another replica would.
 	restarted, err := NewBrowserService(ctx, s.pool, f)
 	require.NoError(t, err)
 	setting, err = restarted.engineSettings(ctx, owner, "https://changed-config.example.test")
 	require.NoError(t, err)
 	require.Equal(t, "ui", setting.Source)
+	require.Equal(t, 30, setting.ThreadRetentionDays)
 	require.Equal(t, "https://public.example.test/threadify/v1/traces", setting.Endpoints["otel"])
 	require.Equal(t, "https://public.example.test/threadify/mcp", setting.Endpoints["mcp"])
 	other := *owner
@@ -34,10 +37,18 @@ func TestEnginePublicURLPersistenceAndScope(t *testing.T) {
 	_, err = s.engineSettings(ctx, &other, configured)
 	require.ErrorIs(t, err, ErrUserDenied)
 	require.ErrorIs(t, s.changeEngineURL(ctx, &other, "https://evil.test", false), ErrUserDenied)
+	require.ErrorIs(t, s.changeThreadRetention(ctx, &other, 5), ErrUserDenied)
+	require.ErrorIs(t, s.changeThreadRetention(ctx, owner, -1), ErrInvalidUser)
+	require.ErrorIs(t, s.changeThreadRetention(ctx, owner, 36501), ErrInvalidUser)
 	// Claims alone cannot grant mutation authority; roles are rechecked in PostgreSQL.
 	member := *owner
 	member.UserID = "unknown-member"
 	require.ErrorIs(t, s.changeEngineURL(ctx, &member, "https://evil.test", false), ErrUserDenied)
+	require.ErrorIs(t, s.changeThreadRetention(ctx, &member, 5), ErrUserDenied)
+	require.NoError(t, s.changeThreadRetention(ctx, owner, 0))
+	setting, err = s.engineSettings(ctx, owner, configured)
+	require.NoError(t, err)
+	require.Zero(t, setting.ThreadRetentionDays)
 	require.ErrorIs(t, s.changeEngineURL(ctx, owner, "https://user:password@host.test", false), ErrInvalidUser)
 	require.NoError(t, restarted.changeEngineURL(ctx, owner, "", true))
 	setting, err = s.engineSettings(ctx, owner, configured)
@@ -80,4 +91,27 @@ func TestEnginePublicURLHTTPRequiresAdminAndCSRF(t *testing.T) {
 	w = call("GET", "", true, false)
 	require.Equal(t, 200, w.Code)
 	require.Contains(t, w.Body.String(), `"source":"config"`)
+	retentionCall := func(body string, withCSRF bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPut, "http://127.0.0.1:8083/v1/engine/settings/retention", strings.NewReader(body))
+		r.Header.Set("Origin", s.origin)
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(&http.Cookie{Name: s.cookieName(r, "session"), Value: token})
+		if withCSRF {
+			csrf := s.signed("csrf", token)
+			r.AddCookie(&http.Cookie{Name: s.cookieName(r, "csrf"), Value: csrf})
+			r.Header.Set(BrowserCSRFHeader, csrf)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	require.Equal(t, 403, retentionCall(`{"thread_retention_days":30}`, false).Code)
+	w = retentionCall(`{"thread_retention_days":30}`, true)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"thread_retention_days":30`)
+	require.Equal(t, 400, retentionCall(`{"thread_retention_days":-1}`, true).Code)
+	require.Equal(t, 400, retentionCall(`{"thread_retention_days":36501}`, true).Code)
+	require.Equal(t, 400, retentionCall(`{}`, true).Code)
+	w = call("GET", "", true, false)
+	require.Contains(t, w.Body.String(), `"thread_retention_days":30`)
 }

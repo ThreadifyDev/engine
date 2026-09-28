@@ -11,11 +11,12 @@ import (
 )
 
 type EngineSettings struct {
-	PublicURL       string            `json:"public_url"`
-	ConfigPublicURL string            `json:"config_public_url"`
-	Source          string            `json:"source"`
-	CanManage       bool              `json:"can_manage"`
-	Endpoints       map[string]string `json:"endpoints"`
+	PublicURL           string            `json:"public_url"`
+	ConfigPublicURL     string            `json:"config_public_url"`
+	Source              string            `json:"source"`
+	CanManage           bool              `json:"can_manage"`
+	ThreadRetentionDays int               `json:"thread_retention_days"`
+	Endpoints           map[string]string `json:"endpoints"`
 }
 
 // engineSettings reads the installation override on each request so changes apply across replicas.
@@ -26,6 +27,9 @@ func (s *BrowserService) engineSettings(ctx context.Context, actor *TokenClaims,
 	result := EngineSettings{PublicURL: configured, ConfigPublicURL: configured, Source: "config", CanManage: userHasRole(actor, "admin"), Endpoints: map[string]string{}}
 	if configured == "" {
 		result.Source = "unset"
+	}
+	if err := s.pool.QueryRow(ctx, `SELECT thread_retention_days FROM companies WHERE id=$1`, actor.CompanyID).Scan(&result.ThreadRetentionDays); err != nil {
+		return EngineSettings{}, err
 	}
 	var override string
 	err := s.pool.QueryRow(ctx, `SELECT public_url FROM threadify_engine_settings WHERE company_id=$1 AND installation_id=$2`, actor.CompanyID, s.registry.InstallationID()).Scan(&override)
@@ -41,6 +45,31 @@ func (s *BrowserService) engineSettings(ctx context.Context, actor *TokenClaims,
 		result.Endpoints = map[string]string{"http": base, "websocket": ws + "/threads", "graphql": base + "/graphql", "otel": base + "/v1/traces", "mcp": base + "/mcp"}
 	}
 	return result, nil
+}
+
+func (s *BrowserService) changeThreadRetention(ctx context.Context, actor *TokenClaims, days int) error {
+	if days < 0 || days > 36500 {
+		return ErrInvalidUser
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err = s.lockUsers(ctx, tx); err != nil {
+		return err
+	}
+	if err = s.authorizeUserMutation(ctx, tx, actor); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE companies SET thread_retention_days=$1,updated_at=NOW() WHERE id=$2`, days, actor.CompanyID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrUserDenied
+	}
+	return tx.Commit(ctx)
 }
 
 // changeEngineURL persists an advertised address only; it never redirects credentials or changes the listener.
@@ -63,7 +92,7 @@ func (s *BrowserService) changeEngineURL(ctx context.Context, actor *TokenClaims
 	if reset {
 		_, err = tx.Exec(ctx, `DELETE FROM threadify_engine_settings WHERE company_id=$1 AND installation_id=$2`, actor.CompanyID, s.registry.InstallationID())
 	} else {
-		_, err = tx.Exec(ctx, `INSERT INTO threadify_engine_settings(company_id,installation_id,public_url,updated_by,updated_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(company_id,installation_id) DO UPDATE SET public_url=EXCLUDED.public_url,updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at`, actor.CompanyID, s.registry.InstallationID(), normalized, actor.UserID, s.now().UTC())
+		_, err = tx.Exec(ctx, `INSERT INTO threadify_engine_settings(company_id,installation_id,public_url,updated_by,updated_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(installation_id) DO UPDATE SET public_url=EXCLUDED.public_url,updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at`, actor.CompanyID, s.registry.InstallationID(), normalized, actor.UserID, s.now().UTC())
 	}
 	if err != nil {
 		return err
@@ -74,13 +103,42 @@ func (s *BrowserService) changeEngineURL(ctx context.Context, actor *TokenClaims
 // EngineSettingsHandler is mounted by the Engine inside browser CSRF and Registry authorization middleware.
 func (s *BrowserService) EngineSettingsHandler(configured string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/engine/settings" {
+		if r.URL.Path != "/v1/engine/settings" && r.URL.Path != "/v1/engine/settings/retention" {
 			next.ServeHTTP(w, r)
 			return
 		}
 		actor, err := s.managementActor(r)
 		if err != nil || actor == nil {
 			browserError(w, 401, "authentication_required")
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		if r.URL.Path == "/v1/engine/settings/retention" {
+			if r.Method != http.MethodPut {
+				browserError(w, 405, "method_not_allowed")
+				return
+			}
+			var body struct {
+				Days *int `json:"thread_retention_days"`
+			}
+			if !decodeBrowserBody(w, r, &body) || body.Days == nil {
+				browserError(w, 400, "invalid_retention_days")
+				return
+			}
+			if err = s.changeThreadRetention(r.Context(), actor, *body.Days); err != nil {
+				if errors.Is(err, ErrInvalidUser) {
+					browserError(w, 400, "invalid_retention_days")
+				} else {
+					s.userError(w, err)
+				}
+				return
+			}
+			result, err := s.engineSettings(r.Context(), actor, configured)
+			if err != nil {
+				s.userError(w, err)
+				return
+			}
+			browserJSON(w, 200, result)
 			return
 		}
 		switch r.Method {

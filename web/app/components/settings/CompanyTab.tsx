@@ -36,10 +36,9 @@ export function CompanyTab({ user, companyForm, setCompanyForm, loading, onSubmi
 
           <div>
             <label className="mb-2 block text-sm font-medium text-stone-700">
-              Industry <span className="text-red-600">*</span>
+              Industry
             </label>
             <select
-              required
               value={companyForm.industry}
               onChange={(e) => setCompanyForm({ ...companyForm, industry: e.target.value })}
               className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
@@ -58,10 +57,9 @@ export function CompanyTab({ user, companyForm, setCompanyForm, loading, onSubmi
 
           <div>
             <label className="mb-2 block text-sm font-medium text-stone-700">
-              Company Size <span className="text-red-600">*</span>
+              Company Size
             </label>
             <select
-              required
               value={companyForm.company_size}
               onChange={(e) => setCompanyForm({ ...companyForm, company_size: e.target.value })}
               className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
@@ -76,10 +74,9 @@ export function CompanyTab({ user, companyForm, setCompanyForm, loading, onSubmi
 
           <div>
             <label className="mb-2 block text-sm font-medium text-stone-700">
-              Primary Use Case <span className="text-red-600">*</span>
+              Primary Use Case
             </label>
             <select
-              required
               value={companyForm.use_case}
               onChange={(e) => setCompanyForm({ ...companyForm, use_case: e.target.value })}
               className="w-full rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"

@@ -66,10 +66,23 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		industry VARCHAR(100),
 		size VARCHAR(50),
 		use_case TEXT,
+		thread_retention_days INT NOT NULL DEFAULT 0 CHECK (thread_retention_days BETWEEN 0 AND 36500),
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		external_customer_id VARCHAR(255)
 	);
+	ALTER TABLE companies ADD COLUMN IF NOT EXISTS thread_retention_days INT NOT NULL DEFAULT 0;
+	DO $$ BEGIN
+		IF (SELECT count(*) FROM companies) > 1 THEN
+			RAISE EXCEPTION 'this Engine supports one company; migrate extra company rows before upgrading';
+		END IF;
+	END $$;
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_singleton ON companies ((true));
+	DO $$ BEGIN
+		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='companies'::regclass AND conname='companies_thread_retention_days_check') THEN
+			ALTER TABLE companies ADD CONSTRAINT companies_thread_retention_days_check CHECK (thread_retention_days BETWEEN 0 AND 36500);
+		END IF;
+	END $$;
 
 	CREATE TABLE IF NOT EXISTS users (
 		id VARCHAR(255) PRIMARY KEY,
@@ -114,8 +127,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	DROP INDEX IF EXISTS idx_contracts_name_owner_active;
 	
 	-- Create partial unique index on (name, company_id) for non-deleted contracts
-	CREATE UNIQUE INDEX IF NOT EXISTS idx_contracts_name_company_active 
-		ON contracts(name, company_id) 
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_contracts_name_active
+		ON contracts(name)
 		WHERE is_deleted = false;
 
 	CREATE TABLE IF NOT EXISTS contract_versions (
@@ -163,6 +176,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		completed_at TIMESTAMP,
 		closed_at TIMESTAMP,
+		terminal_archived_at TIMESTAMP,
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
 
@@ -172,6 +186,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP;
+	ALTER TABLE threads ADD COLUMN IF NOT EXISTS terminal_archived_at TIMESTAMP;
 	ALTER TABLE threads ADD COLUMN IF NOT EXISTS has_entity_refs BOOLEAN;
 
 	-- Migrate owner_id foreign key from users to service_accounts
@@ -200,22 +215,12 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		END IF;
 	END $$;
 
-	-- Security-first indexes: company_id ALWAYS comes first to enforce isolation
-	-- These replace the old indexes that didn't include company_id
-	CREATE INDEX IF NOT EXISTS idx_threads_company_created 
-		ON threads(company_id, created_at DESC);
-	
-	CREATE INDEX IF NOT EXISTS idx_threads_company_status_created 
-		ON threads(company_id, status, created_at DESC);
-	
-	CREATE INDEX IF NOT EXISTS idx_threads_company_owner 
-		ON threads(company_id, owner_id, created_at DESC);
-	
-	CREATE INDEX IF NOT EXISTS idx_threads_company_contract 
-		ON threads(company_id, contract_name, created_at DESC);
-	
-	CREATE INDEX IF NOT EXISTS idx_threads_company_contract_version 
-		ON threads(company_id, contract_name, contract_version, created_at DESC);
+	-- One company per Engine: index the actual lookup and sort keys.
+	CREATE INDEX IF NOT EXISTS idx_threads_created ON threads(created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_threads_status_created ON threads(status, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_threads_owner_created ON threads(owner_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_threads_contract_created ON threads(contract_name, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_threads_contract_version_created ON threads(contract_name, contract_version, created_at DESC);
 	
 	-- Partial index for non-active threads (completed/failed queries)
 	CREATE INDEX IF NOT EXISTS idx_threads_status_completed 
@@ -224,7 +229,14 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	-- Keep contract_id index for backward compatibility
 	CREATE INDEX IF NOT EXISTS idx_threads_contract_id ON threads(contract_id);
 	
-	CREATE INDEX IF NOT EXISTS idx_threads_company_id ON threads(company_id);
+
+	-- Retained after thread deletion so delayed archival events cannot restore
+	-- history that the company explicitly chose to remove.
+	CREATE TABLE IF NOT EXISTS thread_retention_tombstones (
+		thread_id VARCHAR(255) PRIMARY KEY,
+		company_id VARCHAR(255) NOT NULL,
+		deleted_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
 
 	CREATE TABLE IF NOT EXISTS thread_refs (
 		thread_id VARCHAR(255) NOT NULL,
@@ -258,7 +270,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		PRIMARY KEY (thread_id, tag)
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_thread_tags_company_tag ON thread_tags (company_id, tag);
+	CREATE INDEX IF NOT EXISTS idx_thread_tags_tag ON thread_tags (tag);
 	CREATE INDEX IF NOT EXISTS idx_thread_tags_tag         ON thread_tags (tag);
 
 	CREATE TABLE IF NOT EXISTS thread_activities (
@@ -391,7 +403,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 	END $$;
 
 	-- Basic indexes
-	CREATE INDEX IF NOT EXISTS idx_thread_access_thread_id ON thread_access(thread_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_access_user_id ON thread_access(user_id);
 	CREATE INDEX IF NOT EXISTS idx_thread_access_status ON thread_access(status);
 	
@@ -429,12 +440,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		INCLUDE (runtime_role, roles, status) 
 		WHERE status = 'active';
 
-	-- Index for thread_access lookups (used for runtime_role-based data filtering)
-	-- Note: Access control is company-wide (threads.company_id = user.company_id)
-	-- thread_access is used to determine what data users can SEE, not whether they have access
-	CREATE INDEX IF NOT EXISTS idx_thread_access_thread_user_status 
-		ON thread_access(thread_id, user_id, status);
-
+	-- Detailed validation history remains queryable indefinitely.
 	CREATE TABLE IF NOT EXISTS thread_validations (
 		validation_id VARCHAR(255) PRIMARY KEY,
 		thread_id VARCHAR(255) NOT NULL,
@@ -791,8 +797,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		END IF;
 	END $$;
 
-	CREATE INDEX IF NOT EXISTS idx_service_accounts_company ON service_accounts(company_id);
-	CREATE INDEX IF NOT EXISTS idx_service_accounts_company_id ON service_accounts(company_id);
 
 	-- API keys table (for service account authentication)
 	CREATE TABLE IF NOT EXISTS api_keys (
@@ -819,7 +823,6 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 
 	CREATE INDEX IF NOT EXISTS idx_api_keys_service_account ON api_keys(service_account_id);
 	CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
-	CREATE INDEX IF NOT EXISTS idx_api_keys_company ON api_keys(company_id);
 	CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 
 	-- User roles table (for RBAC)
@@ -854,7 +857,7 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		FOREIGN KEY (invited_by) REFERENCES users(id),
 		FOREIGN KEY (accepted_by_user_id) REFERENCES users(id)
 	);
-	CREATE INDEX IF NOT EXISTS idx_team_invitations_company_email ON team_invitations(company_id, email);
+	CREATE INDEX IF NOT EXISTS idx_team_invitations_email ON team_invitations(email);
 	CREATE INDEX IF NOT EXISTS idx_team_invitations_token ON team_invitations(token);
 	CREATE INDEX IF NOT EXISTS idx_team_invitations_status_expires ON team_invitations(status, expires_at);
 
@@ -976,11 +979,10 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		payload_limit_bytes      BIGINT,
 		created_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
 		updated_at               TIMESTAMP    NOT NULL DEFAULT NOW(),
-		UNIQUE(company_id, billing_cycle_start),
+		CONSTRAINT credit_accounts_billing_cycle_start_key UNIQUE(billing_cycle_start),
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_credit_accounts_company ON credit_accounts(company_id);
 	
 	CREATE TABLE IF NOT EXISTS billing_snapshots (
 		id                       VARCHAR(255) PRIMARY KEY,
@@ -997,8 +999,8 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_company
-		ON billing_snapshots(company_id, period_end DESC);
+	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_period_end
+		ON billing_snapshots(period_end DESC);
 
 	CREATE INDEX IF NOT EXISTS idx_billing_snapshots_external_invoice_id
 		ON billing_snapshots(external_invoice_id);
@@ -1012,11 +1014,10 @@ func (db *PostgresDB) InitSchema(ctx context.Context) error {
 		archived_at TIMESTAMP,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		UNIQUE(company_id, type),
+		CONSTRAINT entity_profile_type_type_key UNIQUE(type),
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_entity_profile_type_company ON entity_profile_type(company_id);
 
 	DO $$
 BEGIN
@@ -1040,20 +1041,6 @@ END $$;
 	SET slug = LOWER(REPLACE(TRIM(name), ' ', '-'))
 	WHERE slug IS NULL;
 
-	DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conname = 'uq_entity_profile_type_company_slug'
-    ) THEN
-        ALTER TABLE entity_profile_type
-            ADD CONSTRAINT uq_entity_profile_type_company_slug
-            UNIQUE(company_id, slug);
-    END IF;
-END $$;
-
-	CREATE INDEX IF NOT EXISTS idx_entity_profile_type_slug
-		ON entity_profile_type(company_id, slug);
 
 	CREATE TABLE IF NOT EXISTS entity_profile (
 		id VARCHAR(255) PRIMARY KEY,
@@ -1063,7 +1050,7 @@ END $$;
 		name VARCHAR(255),
 		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 		last_active_at TIMESTAMP NOT NULL DEFAULT NOW(),
-		UNIQUE(company_id, entity_profile_type_id, ref_key),
+		CONSTRAINT entity_profile_type_ref_key_key UNIQUE(entity_profile_type_id, ref_key),
 		FOREIGN KEY (entity_profile_type_id) REFERENCES entity_profile_type(id) ON DELETE CASCADE,
 		FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 	);
@@ -1122,8 +1109,50 @@ END $$;
 		END IF;
 	END $$;
 	`
-	_, err = conn.Exec(ctx, schema+shareddb.ProfileViewSchema)
-	return err
+	if _, err = conn.Exec(ctx, schema+shareddb.ProfileViewSchema); err != nil {
+		return err
+	}
+	// Add replacement uniqueness before removing the old company-scoped
+	// constraints. CONCURRENTLY keeps archival writes available during upgrades.
+	for _, statement := range []string{
+		`CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS credit_accounts_billing_cycle_start_key ON credit_accounts(billing_cycle_start)`,
+		`CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS entity_profile_type_type_key ON entity_profile_type(type)`,
+		`CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS entity_profile_type_slug_key ON entity_profile_type(slug)`,
+		`CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS entity_profile_type_ref_key_key ON entity_profile(entity_profile_type_id,ref_key)`,
+	} {
+		if _, err = conn.Exec(ctx, statement); err != nil {
+			return fmt.Errorf("create single-company unique index: %w", err)
+		}
+	}
+	for _, statement := range []string{
+		`ALTER TABLE credit_accounts DROP CONSTRAINT IF EXISTS credit_accounts_company_id_billing_cycle_start_key`,
+		`ALTER TABLE entity_profile_type DROP CONSTRAINT IF EXISTS entity_profile_type_company_id_type_key`,
+		`ALTER TABLE entity_profile_type DROP CONSTRAINT IF EXISTS uq_entity_profile_type_company_slug`,
+		`ALTER TABLE entity_profile DROP CONSTRAINT IF EXISTS entity_profile_company_id_entity_profile_type_id_ref_key_key`,
+	} {
+		if _, err = conn.Exec(ctx, statement); err != nil {
+			return fmt.Errorf("drop company-scoped unique constraint: %w", err)
+		}
+	}
+	// The unique (thread_id, user_id) index covers exact grants and thread-prefix
+	// lookups. Drop the older overlapping indexes online for existing databases.
+	// CONCURRENTLY requires its own statement outside the schema transaction.
+	for _, index := range []string{
+		"idx_thread_access_thread_id", "idx_thread_access_thread_user_status",
+		"idx_contracts_name_company_active", "idx_threads_company_created",
+		"idx_threads_company_status_created", "idx_threads_company_owner",
+		"idx_threads_company_contract", "idx_threads_company_contract_version",
+		"idx_threads_company_id", "idx_thread_tags_company_tag",
+		"idx_service_accounts_company", "idx_service_accounts_company_id",
+		"idx_api_keys_company", "idx_team_invitations_company_email",
+		"idx_credit_accounts_company", "idx_billing_snapshots_company",
+		"idx_entity_profile_type_company", "idx_entity_profile_type_slug",
+	} {
+		if _, err = conn.Exec(ctx, "DROP INDEX CONCURRENTLY IF EXISTS "+index); err != nil {
+			return fmt.Errorf("drop redundant access index %s: %w", index, err)
+		}
+	}
+	return nil
 }
 
 // InitDefaultMetrics inserts the core metrics templates if they don't already exist.

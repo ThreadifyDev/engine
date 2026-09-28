@@ -57,6 +57,9 @@ threadify-cli contracts create --file contract.feature
 ```
 
 The management CLI lives in the separate `ThreadifyDev/cli` repository (local checkout: `../threadify-cli`). See [CLI.md](docs/CLI.md)
+
+Thread history is retained indefinitely unless [thread retention](docs/THREAD_RETENTION.md) is enabled for the Engine's company.
+Each installation serves [one company](docs/SINGLE_COMPANY_ENGINE.md).
 for profiles, thread queries and automation with service-account keys.
 
 ## Repository structure

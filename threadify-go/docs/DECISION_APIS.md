@@ -81,8 +81,10 @@ steps:
 When `business_context` is declared, the Engine uses only its `required` and
 `optional` fields as contract facts. Optional fields can be omitted. Extra
 submitted context is retained as step metadata, but does not affect validation
-or validated content sent to the classifier. Steps without `business_context`
-retain their existing context behavior.
+or validated content sent to the classifier. A contract step with no context
+declaration has no context fields available to the Engine. Submitted fields for
+that step remain in `unregistered_context` audit metadata. Threads without a
+contract retain their existing context behavior.
 
 When `can` has no candidate `context`, it evaluates flow eligibility only.
 The final submitted context is checked again when the step is recorded.

@@ -94,7 +94,9 @@ func browserFixture(t *testing.T) (*BrowserService, *browserRegistryFixture) {
 		_, _ = admin.Exec(ctx, "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE")
 		admin.Close()
 	})
-	_, err = pool.Exec(ctx, `CREATE TABLE users(id varchar(255) PRIMARY KEY,company_id varchar(255),email varchar(255) UNIQUE NOT NULL,full_name varchar(255),email_verified bool DEFAULT false,onboarding_completed bool DEFAULT false,first_instrumentation_done bool DEFAULT false,last_login_at timestamp);
+	_, err = pool.Exec(ctx, `CREATE TABLE companies(id varchar(255) PRIMARY KEY,name varchar(255) NOT NULL,thread_retention_days int NOT NULL DEFAULT 0,updated_at timestamp NOT NULL DEFAULT NOW());
+	 INSERT INTO companies(id,name) VALUES('company','Test');
+	 CREATE TABLE users(id varchar(255) PRIMARY KEY,company_id varchar(255),email varchar(255) UNIQUE NOT NULL,full_name varchar(255),email_verified bool DEFAULT false,onboarding_completed bool DEFAULT false,first_instrumentation_done bool DEFAULT false,last_login_at timestamp);
  CREATE TABLE service_accounts(id varchar(255) PRIMARY KEY,company_id varchar(255),name text,is_active bool DEFAULT true);
  CREATE TABLE user_roles(principal_id varchar(255),principal_type varchar(50),role_name varchar(100),assigned_by varchar(255),PRIMARY KEY(principal_id,role_name));
  CREATE TABLE api_keys(id varchar(255) PRIMARY KEY,company_id varchar(255),user_id varchar(255),service_account_id varchar(255),key_hash varchar(255) UNIQUE,is_active bool DEFAULT true,revoked_at timestamp,expires_at timestamp);

@@ -83,6 +83,13 @@ atomic transitions and permission claims there, so a second Engine sees those
 changes before PostgreSQL archival completes. There is no new replica-local copy
 of that state. Shared NATS is also necessary for billing coordination and
 background work; separate default embedded brokers do not form one shared broker.
+External Valkey needs a persistent volume, AOF enabled, and `noeviction` too.
+The repository's compose Valkey configs use `appendfsync always` and reject
+truncated AOF logs. Evicting `thread:<id>:meta` leaves PostgreSQL's thread and
+steps visible while `waitFor` correctly returns `unavailable`; PostgreSQL
+archival cannot reconstruct an in-flight permission claim. A config change does
+not recover live state already lost; restore the matching Valkey data before
+resuming affected threads.
 
 ## Ownership and recovery
 

@@ -47,6 +47,9 @@ func ValidateUpdateProfileRequest(req *dto.UpdateProfileRequest) error {
 			// already added error
 		}
 	}
+	if req.ThreadRetentionDays != nil && (*req.ThreadRetentionDays < 0 || *req.ThreadRetentionDays > 36500) {
+		b.add("thread_retention_days", "Retention days must be between 0 and 36500")
+	}
 
 	return b.err()
 }

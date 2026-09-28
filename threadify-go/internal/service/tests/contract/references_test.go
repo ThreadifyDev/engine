@@ -31,7 +31,7 @@ func TestReferencesUseOneSnapshotAndBoundThread(t *testing.T) {
 		return map[string]string{"tracking": "T1", "carrier": "C1"}, nil
 	})
 	svc := service.NewContractValidationServiceFromParts(nil, nil, nil, zap.NewNop(), reader)
-	node := domain.GraphNode{ContentRules: []contractcontent.Rule{
+	node := domain.GraphNode{BusinessContext: &domain.BusinessContext{Required: []string{"tracking", "carrier"}}, ContentRules: []contractcontent.Rule{
 		{Field: "tracking", Operator: "equals", Reference: &contractcontent.Reference{Step: "shipment", Field: "tracking"}},
 		{Field: "carrier", Operator: "equals", Reference: &contractcontent.Reference{Step: "shipment", Field: "carrier"}},
 	}}
@@ -49,7 +49,7 @@ func TestReferencesDoNotSearchOlderSuccessForMissingField(t *testing.T) {
 	}{{"missing field", map[string]string{}, nil}, {"missing step", nil, errors.New("no successful step")}, {"storage down", nil, errors.New("unavailable")}} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := service.NewContractValidationServiceFromParts(nil, nil, nil, zap.NewNop(), referenceReader(func(context.Context, string, string) (map[string]string, error) { return tc.content, tc.err }))
-			node := domain.GraphNode{ContentRules: []contractcontent.Rule{{Field: "tracking", Operator: "equals", Reference: &contractcontent.Reference{Step: "shipment", Field: "tracking"}}}}
+			node := domain.GraphNode{BusinessContext: &domain.BusinessContext{Required: []string{"tracking"}}, ContentRules: []contractcontent.Rule{{Field: "tracking", Operator: "equals", Reference: &contractcontent.Reference{Step: "shipment", Field: "tracking"}}}}
 			require.Error(t, svc.ValidateStepContext(context.Background(), node, map[string]string{"tracking": "T1"}, "thread-a"))
 		})
 	}

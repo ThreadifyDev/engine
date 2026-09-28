@@ -70,7 +70,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	if req.Industry != "" || req.CompanySize != "" || req.UseCase != "" {
+	if req.Industry != "" || req.CompanySize != "" || req.UseCase != "" || req.ThreadRetentionDays != nil {
 		raw, _ := c.Get(sharedauth.CtxRoles)
 		roles, _ := raw.([]string)
 		admin := false
@@ -85,11 +85,12 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		}
 	}
 	user, err := h.userService.UpdateProfile(c.Request.Context(), userCtx.UserID, userCtx.CompanyID, &domain.UpdateProfileCmd{
-		FullName:    &req.FullName,
-		JobRole:     &req.JobRole,
-		Industry:    &req.Industry,
-		CompanySize: &req.CompanySize,
-		UseCase:     &req.UseCase,
+		FullName:            &req.FullName,
+		JobRole:             &req.JobRole,
+		Industry:            &req.Industry,
+		CompanySize:         &req.CompanySize,
+		UseCase:             &req.UseCase,
+		ThreadRetentionDays: req.ThreadRetentionDays,
 	})
 	if err != nil {
 		if de := serror.GetDomainError(err); de != nil {
@@ -177,11 +178,12 @@ func mapUserProfileToDTO(result *domain.UserProfile, minimal bool) gin.H {
 	return gin.H{
 		"user": user,
 		"company": gin.H{
-			"details_completed": detailsCompleted,
-			"name":              company.Name,
-			"industry":          stringPtrToString(company.Industry),
-			"company_size":      stringPtrToString(company.Size),
-			"use_case":          stringPtrToString(company.UseCase),
+			"details_completed":     detailsCompleted,
+			"name":                  company.Name,
+			"industry":              stringPtrToString(company.Industry),
+			"company_size":          stringPtrToString(company.Size),
+			"use_case":              stringPtrToString(company.UseCase),
+			"thread_retention_days": company.ThreadRetentionDays,
 		},
 	}
 }

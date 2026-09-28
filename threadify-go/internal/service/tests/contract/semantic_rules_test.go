@@ -29,7 +29,7 @@ func TestSemanticRuleUsesValidatedThreadContextAndFailsClosed(t *testing.T) {
 		return map[string]string{"customer_id": "customer-7"}, nil
 	})
 	validator := service.NewContractValidationServiceFromParts(nil, nil, nil, zap.NewNop(), reader)
-	node := domain.GraphNode{SemanticRules: []contractcontent.SemanticRule{{Field: "refund_note", Question: "Does this note describe a refund for the verified customer?", ContextSteps: []string{"identity_verified"}, MinProbability: 0.8}}}
+	node := domain.GraphNode{BusinessContext: &domain.BusinessContext{Required: []string{"refund_note"}}, SemanticRules: []contractcontent.SemanticRule{{Field: "refund_note", Question: "Does this note describe a refund for the verified customer?", ContextSteps: []string{"identity_verified"}, MinProbability: 0.8}}}
 	content := map[string]string{"refund_note": "Refund for customer-7"}
 	require.ErrorContains(t, validator.ValidateStepContext(context.Background(), node, content, "thread-1"), "classifier is unavailable")
 	classifier := &semanticStub{probability: 0.9}

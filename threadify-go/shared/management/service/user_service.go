@@ -106,6 +106,11 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID, companyID strin
 			return nil, fmt.Errorf("update company details: %w", err)
 		}
 	}
+	if req.ThreadRetentionDays != nil {
+		if err := s.companyRepo.UpdateRetention(ctx, companyID, *req.ThreadRetentionDays); err != nil {
+			return nil, fmt.Errorf("update company retention: %w", err)
+		}
+	}
 
 	updatedUser, err := s.userRepo.FindByID(ctx, user.ID)
 	if err != nil {

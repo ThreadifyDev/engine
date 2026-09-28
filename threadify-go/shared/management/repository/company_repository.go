@@ -37,12 +37,12 @@ func (r *companyRepository) CreateTx(ctx context.Context, tx domain.ExecContext,
 func (r *companyRepository) FindByID(ctx context.Context, id string) (*domain.Company, error) {
 	company := &domain.Company{}
 	const query = `
-        SELECT id, name, industry, size, use_case, created_at, updated_at
+		SELECT id, name, industry, size, use_case, thread_retention_days, created_at, updated_at
         FROM companies WHERE id = $1
     `
 	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&company.ID, &company.Name, &company.Industry, &company.Size,
-		&company.UseCase, &company.CreatedAt, &company.UpdatedAt,
+		&company.UseCase, &company.ThreadRetentionDays, &company.CreatedAt, &company.UpdatedAt,
 	)
 	if err != nil {
 		if err.Error() == "no rows in result set" {
@@ -51,6 +51,13 @@ func (r *companyRepository) FindByID(ctx context.Context, id string) (*domain.Co
 		return nil, fmt.Errorf("find company by id: %w", err)
 	}
 	return company, nil
+}
+func (r *companyRepository) UpdateRetention(ctx context.Context, id string, days int) error {
+	_, err := r.pool.Exec(ctx, `UPDATE companies SET thread_retention_days=$1,updated_at=NOW() WHERE id=$2`, days, id)
+	if err != nil {
+		return fmt.Errorf("update company retention: %w", err)
+	}
+	return nil
 }
 
 func (r *companyRepository) UpdateDetails(ctx context.Context, id string, industry, size, useCase *string) error {

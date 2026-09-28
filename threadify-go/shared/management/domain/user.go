@@ -31,14 +31,15 @@ func (u *User) GenerateArchivedEmail() string {
 }
 
 type Company struct {
-	ID                 string
-	Name               string
-	ExternalCustomerID string
-	Industry           *string
-	Size               *string
-	UseCase            *string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                  string
+	Name                string
+	ExternalCustomerID  string
+	Industry            *string
+	Size                *string
+	UseCase             *string
+	ThreadRetentionDays int
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 func (c *Company) HasDetails() bool {

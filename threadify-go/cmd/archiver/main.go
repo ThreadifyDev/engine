@@ -26,6 +26,7 @@ import (
 	appconfig "github.com/threadify/engine/internal/config"
 	"github.com/threadify/engine/internal/database"
 	postgresrepo "github.com/threadify/engine/internal/repository/postgres"
+	"github.com/threadify/engine/internal/retention"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -100,6 +101,10 @@ func run(configPath string, logger *zap.Logger) error {
 	}
 	registry.SetDefault(licensed)
 	defer licensed.Close()
+	companyID := licensed.CompanyID()
+	if companyID == "" {
+		return fmt.Errorf("thread retention requires a bound company")
+	}
 
 	metricsRepo := postgresrepo.NewMetricsRepository(db.Pool, valkeyClient, logger)
 
@@ -107,10 +112,13 @@ func run(configPath string, logger *zap.Logger) error {
 	if err != nil {
 		return fmt.Errorf("start persistence: %w", err)
 	}
+	cleaner := retention.NewCleaner(db.Pool, valkeyClient.Client, companyID, logger)
+	cleaner.Start()
 	// Cover startup failures as well as shutdown, checkpointing while NATS is open.
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cleanupCancel()
+		_ = cleaner.Stop(cleanupCtx)
 		_ = runtime.Close(cleanupCtx)
 		licensed.Close()
 		natsConn.Close()
@@ -145,6 +153,9 @@ func run(configPath string, logger *zap.Logger) error {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
+	if err := cleaner.Stop(shutdownCtx); err != nil {
+		logger.Warn("retention cleaner shutdown error", zap.Error(err))
+	}
 	persistenceErr := runtime.Close(shutdownCtx)
 	cancel()
 	licensed.Close()
@@ -183,7 +194,7 @@ func startNATSConsumers(
 		return nil, nil, fmt.Errorf("create jetstream: %w", err)
 	}
 
-	runtime, err = archiver.NewRuntime(js, db.Pool, metricsInvalidator, cfg, logger)
+	runtime, err = archiver.NewRuntime(js, db.Pool, metricsInvalidator, cfg, logger, true)
 	if err != nil {
 		nc.Close()
 		return nil, nil, fmt.Errorf("create persistence runtime: %w", err)

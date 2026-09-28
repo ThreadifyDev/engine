@@ -30,6 +30,7 @@ type CompanyRepository interface {
 	CreateTx(ctx context.Context, tx ExecContext, company *Company) error
 	FindByID(ctx context.Context, id string) (*Company, error)
 	UpdateDetails(ctx context.Context, id string, industry, size, useCase *string) error
+	UpdateRetention(ctx context.Context, id string, days int) error
 	Delete(ctx context.Context, id string) error
 	DeleteTx(ctx context.Context, tx ExecContext, id string) error
 }

@@ -40,6 +40,7 @@ import (
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
 	"github.com/threadify/engine/internal/repository/postgres"
 	"github.com/threadify/engine/internal/repository/valkey"
+	"github.com/threadify/engine/internal/retention"
 	"github.com/threadify/engine/internal/service"
 	"github.com/threadify/engine/internal/workerpool"
 	"threadify-go/shared/registry"
@@ -63,6 +64,7 @@ type infra struct {
 	registry      *registry.Runtime
 	broker        *broker.Runtime
 	persistence   *archiver.Runtime
+	retention     *retention.Cleaner
 	db            *database.PostgresDB
 	valkey        *database.ValkeyService
 	natsPool      *natsrepo.Pool
@@ -72,6 +74,11 @@ type infra struct {
 
 func (i *infra) close() {
 	i.cleanupOnce.Do(func() {
+		if i.retention != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_ = i.retention.Stop(ctx)
+			cancel()
+		}
 		i.registry.Close()
 		if i.persistence != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -241,7 +248,7 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 }
 
 func startPersistence(ctx context.Context, cfg *config.Config, inf *infra, metrics archiver.MetricsInvalidator, logger *zap.Logger) error {
-	runtime, err := archiver.NewRuntime(inf.natsPool.GetClient().JetStream(), inf.db.Pool, metrics, cfg, logger)
+	runtime, err := archiver.NewRuntime(inf.natsPool.GetClient().JetStream(), inf.db.Pool, metrics, cfg, logger, true)
 	if err != nil {
 		return fmt.Errorf("initialize persistence: %w", err)
 	}
@@ -249,6 +256,13 @@ func startPersistence(ctx context.Context, cfg *config.Config, inf *infra, metri
 	if err := runtime.Start(ctx); err != nil {
 		return fmt.Errorf("start persistence: %w", err)
 	}
+	companyID := inf.registry.CompanyID()
+	if companyID == "" {
+		return fmt.Errorf("thread retention requires a bound company")
+	}
+	cleaner := retention.NewCleaner(inf.db.Pool, inf.valkey.Client, companyID, logger)
+	inf.retention = cleaner
+	cleaner.Start()
 	return nil
 }
 
@@ -265,6 +279,9 @@ func (a *App) Close(ctx context.Context) error {
 		}
 		if a.hdlrs != nil && a.hdlrs.notifRouter != nil {
 			_ = a.hdlrs.notifRouter.Stop()
+		}
+		if a.infra.retention != nil {
+			a.closeErr = errors.Join(a.closeErr, a.infra.retention.Stop(ctx))
 		}
 		a.closeErr = errors.Join(a.closeErr, a.svcs.stopAll(ctx))
 		// Producers finish while the broker and persistence consumers are still live.

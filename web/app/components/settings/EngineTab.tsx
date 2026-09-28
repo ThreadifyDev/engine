@@ -5,14 +5,18 @@ import { api, type EngineSettings } from '~/lib/api';
 export function EngineTab() {
   const [settings, setSettings] = useState<EngineSettings | null>(null);
   const [url, setUrl] = useState('');
+  const [retentionDays, setRetentionDays] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  function show(result: EngineSettings) { setSettings(result); setUrl(result.public_url); }
+  const [retentionBusy, setRetentionBusy] = useState(false);
+  const [retentionError, setRetentionError] = useState('');
+  const [retentionNotice, setRetentionNotice] = useState('');
+  function show(result: EngineSettings) { setSettings(result); setUrl(result.public_url); setRetentionDays(result.thread_retention_days); }
   useEffect(() => {
     let mounted = true;
     api.getEngineSettings().then(result => { if (mounted) show(result); })
-      .catch(() => { if (mounted) setError('Could not load Engine settings.'); });
+      .catch(() => { if (mounted) { setError('Could not load Engine settings.'); setRetentionError('Could not load thread retention.'); } });
     return () => { mounted = false; };
   }, []);
   async function save(event: FormEvent) {
@@ -27,7 +31,24 @@ export function EngineTab() {
     catch { setError('Could not restore the config default.'); }
     finally { setBusy(false); }
   }
-  return <section className="max-w-3xl space-y-5 rounded-2xl border border-stone-200 bg-white p-6 text-sm leading-6 shadow-sm sm:p-8">
+  async function saveRetention(event: FormEvent) {
+    event.preventDefault(); setRetentionError(''); setRetentionNotice('');
+    if (!Number.isInteger(retentionDays) || retentionDays < 0 || retentionDays > 36500) {
+      setRetentionError('Enter a whole number of days from 0 to 36500.');
+      return;
+    }
+    setRetentionBusy(true);
+    try {
+      show(await api.saveEngineThreadRetention(retentionDays));
+      setRetentionNotice('Thread retention saved. The Engine will apply it within one minute.');
+    } catch {
+      setRetentionError('Could not save thread retention. Administrator access is required.');
+    } finally {
+      setRetentionBusy(false);
+    }
+  }
+  return <div className="max-w-3xl space-y-5">
+  <section className="space-y-5 rounded-2xl border border-stone-200 bg-white p-6 text-sm leading-6 shadow-sm sm:p-8">
     <h3 className="border-b border-stone-100 pb-4 text-lg font-semibold tracking-tight text-stone-900">Engine URL</h3>
     <p className="text-gray-600">Use one address to connect your SDK. Threadify handles writing and querying threads automatically, including any reverse-proxy path.</p>
     {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-red-800">{error}</p>}
@@ -61,5 +82,21 @@ export function EngineTab() {
         </details>
       </>}
     </>}
-  </section>;
+  </section>
+  <section className="space-y-4 rounded-2xl border border-stone-200 bg-white p-6 text-sm leading-6 shadow-sm sm:p-8">
+    <h3 className="border-b border-stone-100 pb-4 text-lg font-semibold tracking-tight text-stone-900">Thread retention</h3>
+    <p className="text-gray-600">Choose how long completed, cancelled, closed, and failed threads and their history remain available. Active threads are kept.</p>
+    {retentionError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-red-800">{retentionError}</p>}
+    {retentionNotice && <p role="status" className="rounded border border-green-200 bg-green-50 p-3 text-green-800">{retentionNotice}</p>}
+    {!settings ? <p>Loading retention setting…</p> : <form onSubmit={saveRetention} className="space-y-3">
+      <label htmlFor="thread-retention-days" className="block text-sm font-medium">Retain terminal threads for</label>
+      <div className="flex items-center gap-3">
+        <input id="thread-retention-days" type="number" min="0" max="36500" step="1" required value={retentionDays} disabled={!settings.can_manage || retentionBusy} onChange={e => setRetentionDays(Number(e.target.value))} className="w-32 rounded-lg border border-stone-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" />
+        <span>days</span>
+      </div>
+      <p className="text-[13px] text-gray-600">Set 0 to keep threads indefinitely. A positive value also removes threads already past the limit, including archived activities, validations, and cached thread data.</p>
+      {settings.can_manage && <button disabled={retentionBusy || retentionDays === settings.thread_retention_days} className="rounded-lg bg-stone-900 px-4 py-2.5 font-medium text-white hover:bg-stone-700 disabled:opacity-50">{retentionBusy ? 'Saving…' : 'Save retention'}</button>}
+    </form>}
+  </section>
+  </div>;
 }

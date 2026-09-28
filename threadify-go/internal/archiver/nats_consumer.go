@@ -35,6 +35,7 @@ type NATSConsumer struct {
 	stopOnce           sync.Once
 	stopChan           chan struct{}
 	cfg                *config.Config
+	retentionGuard     bool
 	logger             *zap.Logger
 }
 
@@ -306,6 +307,15 @@ func (c *NATSConsumer) processActivityLog(ctx context.Context, msgs []jetstream.
 	}
 
 	c.logDroppedMalformed("activity_log", failed)
+	var err error
+	events, err = c.excludeRetainedEvents(ctx, events)
+	if err != nil {
+		return err
+	}
+	allSubSteps, err = c.excludeRetainedSubSteps(ctx, allSubSteps)
+	if err != nil {
+		return err
+	}
 
 	if len(events) > 0 {
 		if err := c.writer.WriteActivityLog(ctx, events); err != nil {
@@ -329,6 +339,10 @@ func (c *NATSConsumer) processThreadMetadata(ctx context.Context, msgs []jetstre
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_metadata", msgs)
 	c.logDroppedMalformed("thread_metadata", failed)
+	events, err := c.excludeRetainedEvents(ctx, events)
+	if err != nil {
+		return err
+	}
 	profileIDs, err := c.writer.WriteThreadMetadata(ctx, events)
 	if err != nil {
 		return err
@@ -353,7 +367,11 @@ func (c *NATSConsumer) processThreadAccess(ctx context.Context, msgs []jetstream
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_access", msgs)
 	c.logDroppedMalformed("thread_access", failed)
-	err := c.writer.WriteThreadAccess(ctx, events)
+	events, err := c.excludeRetainedEvents(ctx, events)
+	if err != nil {
+		return err
+	}
+	err = c.writer.WriteThreadAccess(ctx, events)
 	if errors.Is(err, ErrThreadNotFound) {
 		c.logger.Debug("thread access arrived before thread metadata, will retry",
 			zap.Int("count", len(msgs)),
@@ -372,7 +390,11 @@ func (c *NATSConsumer) processThreadValidations(ctx context.Context, msgs []jets
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_validations", msgs)
 	c.logDroppedMalformed("thread_validations", failed)
-	err := c.writer.WriteThreadValidations(ctx, events)
+	events, err := c.excludeRetainedEvents(ctx, events)
+	if err != nil {
+		return err
+	}
+	err = c.writer.WriteThreadValidations(ctx, events)
 	c.logPerf("validations.thread", len(msgs), start)
 	return err
 }
@@ -384,7 +406,11 @@ func (c *NATSConsumer) processThreadNotifications(ctx context.Context, msgs []je
 	start := time.Now()
 	events, failed := c.parseMsgs("thread_notifications", msgs)
 	c.logDroppedMalformed("thread_notifications", failed)
-	err := c.writer.WriteThreadNotifications(ctx, events)
+	events, err := c.excludeRetainedEvents(ctx, events)
+	if err != nil {
+		return err
+	}
+	err = c.writer.WriteThreadNotifications(ctx, events)
 	c.logPerf("notifications.thread", len(msgs), start)
 	return err
 }

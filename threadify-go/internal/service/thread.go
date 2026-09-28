@@ -881,6 +881,12 @@ func (s *ThreadService) HandleJoinThread(ctx context.Context, req *domain.JoinTh
 	if err := s.GrantOrUpdateThreadAccess(threadID, ownerID, role, invitedBy, false, explicitScope); err != nil {
 		s.logger.Error("failed to grant access",
 			zap.String("user_id", ownerID), zap.String("thread_id", threadID), zap.Error(err))
+		if strings.Contains(err.Error(), "ROLE_ALREADY_ASSIGNED") {
+			return nil, fmt.Errorf("role %q is already assigned on this thread", role)
+		}
+		if strings.Contains(err.Error(), "invalid scope:") {
+			return nil, fmt.Errorf("requested access scope is not configured on this Engine")
+		}
 		return nil, fmt.Errorf("failed to grant access")
 	}
 

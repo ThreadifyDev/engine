@@ -31,7 +31,7 @@ const creditUpsertQuery = `
         $5,
         $4, NOW(), NOW()
     )
-    ON CONFLICT (company_id, billing_cycle_start) DO UPDATE SET
+    ON CONFLICT (billing_cycle_start) DO UPDATE SET
         credit_balance_millicents         = credit_accounts.credit_balance_millicents + EXCLUDED.credit_balance_millicents,
         credit_monthly_charged_millicents = credit_accounts.credit_monthly_charged_millicents + EXCLUDED.credit_monthly_charged_millicents,
         last_sync_event_id                = EXCLUDED.last_sync_event_id,
@@ -173,6 +173,15 @@ func partitionThreadEvents(events []StreamEvent) (insert, completion, ref []Stre
 	return
 }
 
+func isTerminalStatus(status string) bool {
+	switch status {
+	case "completed", "cancelled", "closed", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
 func (w *PostgresWriter) WriteThreadMetadata(ctx context.Context, events []StreamEvent) ([]string, error) {
 	if len(events) == 0 {
 		return nil, nil
@@ -224,7 +233,7 @@ func (w *PostgresWriter) writeNewThreads(ctx context.Context, events []StreamEve
 		9: "COALESCE($%d::timestamptz, NOW())",
 	}
 
-	const cols = 11
+	const cols = 12
 	rb := newRowBuilder(cols)
 	var skipped int
 
@@ -253,6 +262,10 @@ func (w *PostgresWriter) writeNewThreads(ctx context.Context, events []StreamEve
 		if ts == "" {
 			ts = e.Data["startedAt"]
 		}
+		var terminalArchivedAt interface{}
+		if isTerminalStatus(e.Data["status"]) {
+			terminalArchivedAt = time.Now().UTC()
+		}
 
 		rb.addRaw(tsOverride,
 			e.Data["threadId"],     // 1
@@ -266,6 +279,7 @@ func (w *PostgresWriter) writeNewThreads(ctx context.Context, events []StreamEve
 			nullableStr(ts),        // 9 (created_at)
 			nullableStr(ts),        // 10 (updated_at)
 			e.Data["label"],        // 11
+			terminalArchivedAt,     // 12
 		)
 	}
 
@@ -276,7 +290,7 @@ func (w *PostgresWriter) writeNewThreads(ctx context.Context, events []StreamEve
 
 	query := "INSERT INTO threads (" +
 		"id, company_id, contract_id, contract_name, contract_version, " +
-		"owner_id, error, status, created_at, updated_at, label" +
+		"owner_id, error, status, created_at, updated_at, label, terminal_archived_at" +
 		") VALUES " + rb.placeholders() +
 		" ON CONFLICT (id) DO UPDATE SET " +
 		"company_id = EXCLUDED.company_id, " +
@@ -285,9 +299,11 @@ func (w *PostgresWriter) writeNewThreads(ctx context.Context, events []StreamEve
 		"contract_version = EXCLUDED.contract_version, " +
 		"owner_id = COALESCE(EXCLUDED.owner_id, threads.owner_id), " +
 		"error = EXCLUDED.error, " +
-		"status = CASE WHEN threads.status IN ('completed', 'cancelled') THEN threads.status ELSE EXCLUDED.status END, " +
+		"status = CASE WHEN threads.status IN ('completed', 'cancelled', 'closed', 'failed') THEN threads.status ELSE EXCLUDED.status END, " +
 		"updated_at = COALESCE(EXCLUDED.updated_at, NOW()), " +
-		"label = EXCLUDED.label"
+		"label = EXCLUDED.label, " +
+		"terminal_archived_at = CASE WHEN EXCLUDED.status IN ('completed','cancelled','closed','failed') " +
+		"AND threads.status NOT IN ('completed','cancelled','closed','failed') THEN NOW() ELSE threads.terminal_archived_at END"
 
 	if err := w.batchExec(ctx, "batch upsert threads", query, rb.Values); err != nil {
 		w.logger.Error("batch upsert threads failed",
@@ -369,10 +385,11 @@ func (w *PostgresWriter) batchUpdateThreadStatus(ctx context.Context, events []S
 		status       = v.status,
 		completed_at = v.completed_at::timestamptz,
 		updated_at   = v.completed_at::timestamptz,
+		terminal_archived_at = NOW(),
 		company_id   = COALESCE(v.company_id, threads.company_id)
 	FROM (VALUES ` + rb.placeholders() + `) AS v(thread_id, status, completed_at, company_id)
 	WHERE threads.id::text = v.thread_id
-	  AND threads.status NOT IN ('completed', 'cancelled')`
+	  AND threads.status NOT IN ('completed', 'cancelled', 'closed', 'failed')`
 
 	if err := w.batchExec(ctx, "batch update thread status", query, rb.Values); err != nil {
 		return err
@@ -567,7 +584,7 @@ func (w *PostgresWriter) WriteThreadRefs(ctx context.Context, events []StreamEve
         FROM eligible c
         WHERE c.existing_id IS NOT NULL OR ` + fmt.Sprint(profileLimit) + ` = -1
            OR c.new_number <= ` + fmt.Sprint(profileLimit) + ` - (SELECT COUNT(*) FROM entity_profile p WHERE p.company_id=c.company_id)
-        ON CONFLICT (company_id, entity_profile_type_id, ref_key)
+        ON CONFLICT (entity_profile_type_id, ref_key)
         DO UPDATE SET last_active_at = NOW()
         RETURNING id, company_id, entity_profile_type_id, ref_key
     )

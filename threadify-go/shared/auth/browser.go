@@ -73,7 +73,7 @@ func NewBrowserService(ctx context.Context, pool *pgxpool.Pool, r BrowserRegistr
 	}
 	_, err = tx.Exec(ctx, `ALTER TABLE users ADD COLUMN IF NOT EXISTS status varchar(16) NOT NULL DEFAULT 'active' CHECK(status IN ('invited','active','suspended','archived'));
  CREATE TABLE IF NOT EXISTS threadify_user_audit(id bigserial PRIMARY KEY,company_id text NOT NULL,actor_id text NOT NULL,user_id text NOT NULL,action text NOT NULL,created_at timestamptz NOT NULL);
- CREATE TABLE IF NOT EXISTS threadify_engine_settings(company_id text NOT NULL,installation_id text NOT NULL,public_url text NOT NULL,updated_by text NOT NULL,updated_at timestamptz NOT NULL,PRIMARY KEY(company_id,installation_id));
+ CREATE TABLE IF NOT EXISTS threadify_engine_settings(company_id text NOT NULL,installation_id text NOT NULL,public_url text NOT NULL,updated_by text NOT NULL,updated_at timestamptz NOT NULL,PRIMARY KEY(installation_id));
  CREATE TABLE IF NOT EXISTS threadify_browser_sessions(
  token_hash text PRIMARY KEY, company_id text NOT NULL, installation_id text NOT NULL,
  principal_id text NOT NULL, principal_type text NOT NULL CHECK(principal_type IN ('user','service_account')),
@@ -93,8 +93,21 @@ func NewBrowserService(ctx context.Context, pool *pgxpool.Pool, r BrowserRegistr
  company_id text NOT NULL, installation_id text NOT NULL, expires_at timestamptz NOT NULL, consumed_at timestamptz);
  CREATE TABLE IF NOT EXISTS threadify_managed_identities(
  company_id text NOT NULL, issuer text NOT NULL, subject text NOT NULL, user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- PRIMARY KEY(company_id,issuer,subject), UNIQUE(user_id));
+ PRIMARY KEY(issuer,subject), UNIQUE(user_id));
  CREATE TABLE IF NOT EXISTS threadify_browser_rate_limits(bucket text PRIMARY KEY, window_start timestamptz NOT NULL, count int NOT NULL);`)
+	if err != nil {
+		return nil, err
+	}
+	_, err = tx.Exec(ctx, `DO $$ BEGIN
+		IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='threadify_engine_settings_pkey' AND pg_get_constraintdef(oid) LIKE '%company_id%') THEN
+			ALTER TABLE threadify_engine_settings DROP CONSTRAINT threadify_engine_settings_pkey;
+			ALTER TABLE threadify_engine_settings ADD PRIMARY KEY (installation_id);
+		END IF;
+		IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='threadify_managed_identities_pkey' AND pg_get_constraintdef(oid) LIKE '%company_id%') THEN
+			ALTER TABLE threadify_managed_identities DROP CONSTRAINT threadify_managed_identities_pkey;
+			ALTER TABLE threadify_managed_identities ADD PRIMARY KEY (issuer,subject);
+		END IF;
+	END $$;`)
 	if err != nil {
 		return nil, err
 	}

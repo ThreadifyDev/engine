@@ -45,7 +45,7 @@ type runtimeStream struct {
 	healthy                atomic.Bool
 }
 
-func NewRuntime(js JetStreamPublisher, db DBExecer, metrics MetricsInvalidator, cfg *config.Config, logger *zap.Logger) (*Runtime, error) {
+func NewRuntime(js JetStreamPublisher, db DBExecer, metrics MetricsInvalidator, cfg *config.Config, logger *zap.Logger, retainedGuard ...bool) (*Runtime, error) {
 	if js == nil || db == nil || cfg == nil {
 		return nil, errors.New("archiver requires JetStream, PostgreSQL, and configuration")
 	}
@@ -68,10 +68,16 @@ func NewRuntime(js JetStreamPublisher, db DBExecer, metrics MetricsInvalidator, 
 	if err != nil {
 		return nil, err
 	}
+	// A company can enable retention at any time, and tombstones outlive the
+	// policy, so production writers always enable this guard.
+	if len(retainedGuard) > 0 && retainedGuard[0] {
+		general.retentionGuard = true
+	}
 	steps, err := NewStepStateConsumer(js, db, size, stepInterval, "step-state-archivers", logger)
 	if err != nil {
 		return nil, err
 	}
+	steps.SetRetentionEnabled(general.retentionGuard)
 	r := &Runtime{js: js, cfg: cfg, logger: logger, batchSize: size, stop: make(chan struct{}), done: make(chan struct{}), metadataDone: make(chan struct{})}
 	for _, s := range []struct {
 		name, subject string

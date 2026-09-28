@@ -181,10 +181,10 @@ for the agent and `waitFor` sequence.
 Each content comparison requires the submitted field to exist in the step's
 `context` map, whose values remain strings. Dotted field names are literal keys,
 not nested paths. Content comparisons register their fields as required context.
-Optional fields may be omitted. For steps with a context declaration, extra
-submitted fields are accepted and kept in `unregistered_context` metadata, but
-are not used as contract facts. Steps without a context declaration retain the
-existing behavior. The right side of an equality
+Optional fields may be omitted. Extra submitted fields are accepted and kept in
+`unregistered_context` audit metadata, but are not used as contract facts or
+copied into validated context snapshots. A contract step with no context
+declaration has no fields available to the Engine. The right side of an equality
 can reference another step as described below. Expression execution and
 content-based branch selection are not implemented.
 

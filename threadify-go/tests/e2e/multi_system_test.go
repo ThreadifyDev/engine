@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,6 +49,23 @@ func runMultiSystemJoin(t *testing.T, contractBased bool) {
 	pool, err := pgxpool.New(ctx, v.GetString("postgres.url"))
 	require.NoError(t, err)
 	defer pool.Close()
+	if contractBased {
+		t.Run("single_company_schema", func(t *testing.T) {
+			var companyIndexes int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM pg_indexes
+				WHERE schemaname=current_schema() AND indexdef ~* '\mcompany_id\M'`).Scan(&companyIndexes))
+			require.Zero(t, companyIndexes)
+			_, err := pool.Exec(ctx, `INSERT INTO companies(id,name) VALUES('second-company-rejected','Second')`)
+			require.Error(t, err)
+		})
+		t.Run("access_indexes_consolidated", func(t *testing.T) {
+			var redundant int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM pg_indexes
+				WHERE schemaname=current_schema() AND tablename='thread_access'
+				AND indexname IN ('idx_thread_access_thread_id','idx_thread_access_thread_user_status')`).Scan(&redundant))
+			require.Zero(t, redundant)
+		})
+	}
 	company := os.Getenv("THREADIFY_E2E_COMPANY_ID")
 	if company == "" {
 		company = v.GetString("registry.company_id")
@@ -172,11 +190,11 @@ func runMultiSystemJoin(t *testing.T, contractBased bool) {
 			t.FailNow()
 		}
 	}
-	sequentialName, parallelName := "", ""
+	sequentialName, parallelName, contextName := "", "", ""
 	contractIDs := map[string]string{}
 	if contractBased {
 		prefix := "multi_system_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-		sequentialName, parallelName = prefix+"_sequential", prefix+"_parallel"
+		sequentialName, parallelName, contextName = prefix+"_sequential", prefix+"_parallel", prefix+"_context"
 		createContract := func(name, source string) {
 			result := request(t, provisioner, "/v1/contracts", "text/plain", []byte(source))
 			contractIDs[name] = result["contract"].(map[string]any)["id"].(string)
@@ -215,6 +233,16 @@ Rule: Dispatch order
   And step "dispatch_requested" must have succeeded
   And this step is terminal
 `, sequentialName, moduleName))
+		createContract(contextName, fmt.Sprintf(`Feature: %s
+Version: 1
+
+Rule: Record shipment
+  When step "order_shipped" is submitted
+  Then owner must be "carrier"
+  And content "tracking_number" must be present
+  And content "carrier_code" is optional
+  And this step is an entry point
+`, contextName))
 		var parallel strings.Builder
 		fmt.Fprintf(&parallel, `Feature: %s
 Version: 1
@@ -350,6 +378,18 @@ Rule: Dispatch order
 			t.Logf("%s thread %s: 4 steps, 2 systems, completed, hash verified", mode, id)
 		})
 	}
+	if contractBased {
+		t.Run("role_conflict_reports_cause", func(t *testing.T) {
+			owner, firstParticipant, secondParticipant := connect(t, systems[0]), connect(t, provisioner), connect(t, systems[1])
+			start := send(t, owner, map[string]any{"action": "startThread", "contractName": sequentialName, "role": "orders"})
+			require.Equal(t, "success", start["status"], start)
+			id := start["threadId"].(string)
+			require.Equal(t, "success", send(t, firstParticipant, map[string]any{"action": "joinThread", "threadId": id, "role": "warehouse"})["status"])
+			conflict := send(t, secondParticipant, map[string]any{"action": "joinThread", "threadId": id, "role": "warehouse"})
+			require.Equal(t, "error", conflict["status"], conflict)
+			require.Contains(t, conflict["details"], "already assigned", conflict)
+		})
+	}
 	t.Run("concurrent_contributions", func(t *testing.T) {
 		a, b := connect(t, systems[0]), connect(t, systems[1])
 		start := send(t, a, map[string]any{"action": "startThread", "contractName": parallelName, "role": "orders", "label": "Multi-system E2E: concurrent contributions"})
@@ -400,6 +440,105 @@ Rule: Dispatch order
 		evidence["threads"].(map[string]string)["concurrent_contributions"] = id
 		t.Logf("concurrent thread %s: 10 steps, 2 systems, completed, hash verified", id)
 	})
+	if contractBased {
+		t.Run("successful_context_stores_only_declared_fields", func(t *testing.T) {
+			actor := connect(t, provisioner)
+			start := send(t, actor, map[string]any{"action": "startThread", "contractName": contextName, "role": "carrier"})
+			require.Equal(t, "success", start["status"], start)
+			id := start["threadId"].(string)
+			fullContext := map[string]string{"tracking_number": "TN-1", "carrier_code": "UPS", "otel.trace_id": "trace-1", "debug_blob": strings.Repeat("x", 128)}
+			payload := event(id, "order_shipped")
+			payload["context"] = fullContext
+			require.Equal(t, "success", send(t, actor, payload)["status"])
+			expected := map[string]string{"tracking_number": "TN-1", "carrier_code": "UPS"}
+			poll(t, "SELECT count(*) FROM thread_successful_contexts WHERE thread_id=$1 AND step_name='order_shipped'", 1, id)
+			var archived []byte
+			require.NoError(t, pool.QueryRow(ctx, "SELECT context FROM thread_successful_contexts WHERE thread_id=$1 AND step_name='order_shipped'", id).Scan(&archived))
+			var archivedContext map[string]string
+			require.NoError(t, json.Unmarshal(archived, &archivedContext))
+			require.Equal(t, expected, archivedContext)
+			options, err := redis.ParseURL(v.GetString("redis.url"))
+			require.NoError(t, err)
+			cache := redis.NewClient(options)
+			defer cache.Close()
+			raw, err := cache.HGet(ctx, "thread:"+id+":successful_contexts", "order_shipped").Result()
+			require.NoError(t, err)
+			var snapshot struct {
+				Context string `json:"context"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(raw), &snapshot))
+			var hotContext map[string]string
+			require.NoError(t, json.Unmarshal([]byte(snapshot.Context), &hotContext))
+			require.Equal(t, expected, hotContext)
+			poll(t, "SELECT count(*) FROM thread_activities WHERE thread_id=$1 AND activity_type='step_recorded'", 1, id)
+			var auditContextRaw string
+			var auditMetadata []byte
+			require.NoError(t, pool.QueryRow(ctx, "SELECT payload->>'context',metadata FROM thread_activities WHERE thread_id=$1 AND activity_type='step_recorded'", id).Scan(&auditContextRaw, &auditMetadata))
+			var auditContext map[string]string
+			require.NoError(t, json.Unmarshal([]byte(auditContextRaw), &auditContext))
+			require.Equal(t, expected, auditContext)
+			var metadata struct {
+				UnregisteredContext map[string]string `json:"unregistered_context"`
+			}
+			require.NoError(t, json.Unmarshal(auditMetadata, &metadata))
+			require.Equal(t, map[string]string{"otel.trace_id": "trace-1", "debug_blob": fullContext["debug_blob"]}, metadata.UnregisteredContext)
+		})
+		t.Run("undeclared_context_stays_out_of_projections", func(t *testing.T) {
+			actor := connect(t, systems[0])
+			start := send(t, actor, map[string]any{"action": "startThread", "contractName": sequentialName, "role": "orders"})
+			require.Equal(t, "success", start["status"], start)
+			id := start["threadId"].(string)
+			payload := event(id, "order_received")
+			provided := map[string]string{"scenario": "multi-system-join", "otel.trace_id": "trace-2"}
+			payload["context"] = provided
+			require.Equal(t, "success", send(t, actor, payload)["status"])
+			poll(t, "SELECT count(*) FROM thread_successful_contexts WHERE thread_id=$1 AND step_name='order_received'", 1, id)
+			var successContext []byte
+			require.NoError(t, pool.QueryRow(ctx, "SELECT context FROM thread_successful_contexts WHERE thread_id=$1 AND step_name='order_received'", id).Scan(&successContext))
+			require.JSONEq(t, `{}`, string(successContext))
+			poll(t, "SELECT count(*) FROM thread_step_states WHERE thread_id=$1 AND step_name='order_received'", 1, id)
+			var latestContext []byte
+			require.NoError(t, pool.QueryRow(ctx, "SELECT latest_context FROM thread_step_states WHERE thread_id=$1 AND step_name='order_received'", id).Scan(&latestContext))
+			require.JSONEq(t, `{}`, string(latestContext))
+			options, err := redis.ParseURL(v.GetString("redis.url"))
+			require.NoError(t, err)
+			cache := redis.NewClient(options)
+			defer cache.Close()
+			raw, err := cache.HGet(ctx, "thread:"+id+":successful_contexts", "order_received").Result()
+			require.NoError(t, err)
+			var snapshot struct {
+				Context string `json:"context"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(raw), &snapshot))
+			require.JSONEq(t, `{}`, snapshot.Context)
+			poll(t, "SELECT count(*) FROM thread_activities WHERE thread_id=$1 AND activity_type='step_recorded'", 1, id)
+			var metadata []byte
+			require.NoError(t, pool.QueryRow(ctx, "SELECT metadata FROM thread_activities WHERE thread_id=$1 AND activity_type='step_recorded'", id).Scan(&metadata))
+			var audit struct {
+				UnregisteredContext map[string]string `json:"unregistered_context"`
+			}
+			require.NoError(t, json.Unmarshal(metadata, &audit))
+			require.Equal(t, provided, audit.UnregisteredContext)
+		})
+		t.Run("missing_live_state_fails_closed", func(t *testing.T) {
+			owner, participant := connect(t, systems[0]), connect(t, systems[1])
+			start := send(t, owner, map[string]any{"action": "startThread", "contractName": sequentialName, "role": "orders"})
+			require.Equal(t, "success", start["status"], start)
+			id := start["threadId"].(string)
+			require.Equal(t, "success", send(t, owner, event(id, "order_received"))["status"])
+			poll(t, "SELECT count(*) FROM thread_step_states WHERE thread_id=$1 AND step_name='order_received' AND status='success'", 1, id)
+			options, err := redis.ParseURL(v.GetString("redis.url"))
+			require.NoError(t, err)
+			cache := redis.NewClient(options)
+			defer cache.Close()
+			require.NoError(t, cache.Del(ctx, "thread:"+id+":meta").Err())
+			joined := send(t, participant, map[string]any{"action": "joinThread", "threadId": id, "role": "warehouse"})
+			require.Equal(t, "success", joined["status"], joined)
+			decision := send(t, participant, map[string]any{"action": "waitFor", "threadId": id, "stepName": "inventory_reserved", "invocationId": uuid.NewString()})
+			require.Equal(t, "unavailable", decision["decision"], decision)
+			require.Equal(t, "Live thread state is unavailable", decision["message"])
+		})
+	}
 	if !t.Failed() {
 		data, err := json.MarshalIndent(evidence, "", "  ")
 		require.NoError(t, err)

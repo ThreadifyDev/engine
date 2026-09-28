@@ -10,16 +10,18 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 	natsrepo "github.com/threadify/engine/internal/repository/nats"
+	"github.com/threadify/engine/internal/retention"
 	"go.uber.org/zap"
 )
 
 type StepStateConsumer struct {
-	js           JetStreamPublisher
-	db           DBExecer
-	batchSize    int
-	flushTimeout time.Duration
-	consumerID   string
-	logger       *zap.Logger
+	js               JetStreamPublisher
+	db               DBExecer
+	batchSize        int
+	flushTimeout     time.Duration
+	consumerID       string
+	logger           *zap.Logger
+	retentionEnabled bool
 
 	mu     sync.Mutex
 	buffer []pendingStepState
@@ -71,6 +73,10 @@ func NewStepStateConsumer(
 		buffer:       make([]pendingStepState, 0, batchSize),
 		stopChan:     make(chan struct{}),
 	}, nil
+}
+
+func (c *StepStateConsumer) SetRetentionEnabled(enabled bool) {
+	c.retentionEnabled = enabled
 }
 
 func (c *StepStateConsumer) Start(ctx context.Context) error {
@@ -203,6 +209,26 @@ func (c *StepStateConsumer) processMessages(ctx context.Context, msgs []jetstrea
 func (c *StepStateConsumer) writeBatch(ctx context.Context, events []stepStateEvent) error {
 	if len(events) == 0 {
 		return nil
+	}
+	if c.retentionEnabled {
+		ids := make([]string, 0, len(events))
+		for _, event := range events {
+			ids = append(ids, event.ThreadID)
+		}
+		deleted, err := retention.DeletedIDs(ctx, c.db, ids)
+		if err != nil {
+			return err
+		}
+		kept := events[:0]
+		for _, event := range events {
+			if !deleted[event.ThreadID] {
+				kept = append(kept, event)
+			}
+		}
+		events = kept
+		if len(events) == 0 {
+			return nil
+		}
 	}
 
 	// Persist successful attempts before mutable state deduplication can discard

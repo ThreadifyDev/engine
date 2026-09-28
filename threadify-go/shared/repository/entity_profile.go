@@ -38,7 +38,7 @@ func (r *EntityProfileRepo) CreateProfile(ctx context.Context, profile *domain.E
 
 	query := `
 		INSERT INTO entity_profile (id, company_id, entity_profile_type_id, name, ref_key)
-		VALUES ($1, $2, $3, $4, $5) ON CONFLICT (company_id, entity_profile_type_id, ref_key) DO UPDATE SET
+		VALUES ($1, $2, $3, $4, $5) ON CONFLICT (entity_profile_type_id, ref_key) DO UPDATE SET
 			name = EXCLUDED.name,
 			last_active_at = NOW()
 	`

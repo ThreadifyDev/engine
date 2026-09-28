@@ -129,11 +129,12 @@ type ApplyEntityProfileTypeResult struct {
 }
 
 type UpdateProfileCmd struct {
-	FullName    *string
-	JobRole     *string
-	Industry    *string
-	CompanySize *string
-	UseCase     *string
+	FullName            *string
+	JobRole             *string
+	Industry            *string
+	CompanySize         *string
+	UseCase             *string
+	ThreadRetentionDays *int
 }
 
 type UserProfile struct {

@@ -40,6 +40,7 @@ test('all dashboard clients use Engine management routes even with an old Web AP
     await api.getEngineSettings();
     await api.saveEnginePublicURL('https://threadify.example.test');
     await api.resetEnginePublicURL();
+    await api.saveEngineThreadRetention(30);
     assert.deepEqual(calls.map(call => call.url), [
       'http://127.0.0.1:8083/graphql',
       'http://127.0.0.1:8083/v1/contracts?search=support',
@@ -53,6 +54,7 @@ test('all dashboard clients use Engine management routes even with an old Web AP
       'http://127.0.0.1:8083/v1/engine/settings',
       'http://127.0.0.1:8083/v1/engine/settings',
       'http://127.0.0.1:8083/v1/engine/settings',
+      'http://127.0.0.1:8083/v1/engine/settings/retention',
     ]);
     for (const call of calls) {
       assert.equal(call.headers.Authorization, undefined);
@@ -68,6 +70,8 @@ test('all dashboard clients use Engine management routes even with an old Web AP
     assert.equal(calls[10].method, 'PUT');
     assert.deepEqual(JSON.parse(calls[10].body), { public_url: 'https://threadify.example.test' });
     assert.equal(calls[11].method, 'DELETE');
+    assert.equal(calls[12].method, 'PUT');
+    assert.deepEqual(JSON.parse(calls[12].body), { thread_retention_days: 30 });
     // Changing runtime configuration must affect existing client instances.
     window.__ENV__.ENGINE_URL = 'https://engine.example.test';
     await api.getContract('contract-1');
