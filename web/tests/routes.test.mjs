@@ -30,6 +30,7 @@ test('deep links preserve thread, contract version and decoded entity identifier
     ['/u/profiles/E2E%20Customers/customer_123?tab=delivery-health', '/u/profiles/:type/:refKey', {type: 'E2E Customers', refKey: 'customer_123'}],
     ['/u/profile-views/Customer%20Accounts?ref=ACME%2F42', '/u/profile-views/:type', {type: 'Customer Accounts'}],
     ['/u/settings?tab=engine', '/u/settings', {}],
+    ['/u/developer?tab=api-keys', '/u/developer', {}],
     ['/cli-login?request_id=cli-123', '/cli-login', {}],
   ]) {
     const match = matchRoutes(pages, url)?.at(-1);
@@ -37,6 +38,7 @@ test('deep links preserve thread, contract version and decoded entity identifier
     assert.deepEqual(match.params, params);
   }
   assert.equal(matchRoutes(pages, '/u/unknown'), null);
+  assert.equal(matchRoutes(pages, '/u/api-keys'), null);
 });
 
 test('old authentication and assistant bookmarks redirect locally', () => {
