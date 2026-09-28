@@ -47,6 +47,7 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 	response, err := h.apiKeyService.CreateAPIKey(c.Request.Context(), userID, companyID, &domain.CreateAPIKeyCmd{
 		Name:                 req.Name,
 		ExpiresIn:            req.ExpiresIn,
+		ExpiresAt:            req.ExpiresAt,
 		ServiceAccountID:     req.ServiceAccountID,
 		CreateServiceAccount: req.CreateServiceAccount,
 		ServiceAccountRole:   req.ServiceAccountRole,

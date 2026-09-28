@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type SignupCmd struct {
 	CompanyName     string
 	Email           string
@@ -48,6 +50,7 @@ type AuthSession struct {
 type CreateAPIKeyCmd struct {
 	Name                 string
 	ExpiresIn            *int
+	ExpiresAt            *time.Time
 	ServiceAccountID     *string
 	CreateServiceAccount bool
 	ServiceAccountRole   *string
