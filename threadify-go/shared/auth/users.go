@@ -278,7 +278,7 @@ func (s *BrowserService) AuthenticateAPIKey(ctx context.Context, key string) (*T
 		return nil, ErrBrowserAuth
 	}
 	var id, kind string
-	err := s.pool.QueryRow(ctx, `SELECT COALESCE(service_account_id,user_id),CASE WHEN service_account_id IS NOT NULL THEN 'service_account' ELSE 'user' END FROM api_keys WHERE key_hash=$1 AND company_id=$2 AND is_active AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>$3)`, browserHash(key), s.registry.CompanyID(), s.now().UTC()).Scan(&id, &kind)
+	err := s.pool.QueryRow(ctx, `SELECT COALESCE(service_account_id,user_id),CASE WHEN service_account_id IS NOT NULL THEN 'service_account' ELSE 'user' END FROM api_keys WHERE key_hash=$1 AND company_id=$2 AND is_active AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>($3::timestamptz AT TIME ZONE current_setting('TimeZone')))`, browserHash(key), s.registry.CompanyID(), s.now().UTC()).Scan(&id, &kind)
 	if err != nil {
 		return nil, ErrBrowserAuth
 	}

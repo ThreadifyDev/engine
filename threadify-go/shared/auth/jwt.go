@@ -31,6 +31,8 @@ type TokenClaims struct {
 	Email         string
 	EmailVerified bool
 	Roles         []string
+	OAuthAccess   bool
+	OAuthScopes   []string
 	ExpiresAt     time.Time
 }
 

@@ -23,7 +23,7 @@ for name in list(env):
     if name.startswith("OTEL_"):
         del env[name]
 env.update({
-    "THREADIFY_MCP_URL": url + "/sse",
+    "THREADIFY_MCP_URL": url + "/mcp",
     "THREADIFY_API_KEY": key,
     "THREADIFY_SMOKE_THREAD_ID": thread_id,
     "THREADIFY_LIVE_MODEL_TEST": "0",

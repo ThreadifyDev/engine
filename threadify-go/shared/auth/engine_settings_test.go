@@ -28,7 +28,7 @@ func TestEnginePublicURLPersistenceAndScope(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "ui", setting.Source)
 	require.Equal(t, "https://public.example.test/threadify/v1/traces", setting.Endpoints["otel"])
-	require.Equal(t, "https://public.example.test/threadify/sse", setting.Endpoints["mcp"])
+	require.Equal(t, "https://public.example.test/threadify/mcp", setting.Endpoints["mcp"])
 	other := *owner
 	other.CompanyID = "other"
 	_, err = s.engineSettings(ctx, &other, configured)

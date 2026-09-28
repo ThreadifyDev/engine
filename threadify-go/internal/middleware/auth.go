@@ -1,7 +1,14 @@
 package middleware
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
+
+	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/parser"
 	"threadify-go/shared/registry"
 
 	sharedauth "threadify-go/shared/auth"
@@ -59,6 +66,37 @@ func AuthMiddleware(authSvc domain.AuthService, mode AuthMode) gin.HandlerFunc {
 					}
 				}
 
+				if claims.OAuthAccess {
+					path := c.FullPath()
+					permission := ""
+					switch {
+					case c.Request.Method == http.MethodGet && path == "/v1/contracts":
+						permission = "contract.read.*"
+					case c.Request.Method == http.MethodGet && path == "/v1/contracts/:id":
+						permission = "contract.read." + c.Param("id")
+					case path == "/mcp" || path == "/mcp/" || path == "/sse" || path == "/sse/":
+						if hasOAuthScope(claims, "query.execution.read") {
+							permission = "query.execution.read"
+						}
+					case c.Request.Method == http.MethodPost && path == "/graphql":
+						if hasOAuthScope(claims, "query.execution.read") {
+							permission = "query.execution.read"
+						}
+					}
+					if permission == "" {
+						abort(c, "OAuth scope does not permit this route")
+						return
+					}
+					if !sharedauth.OAuthCanUse(c.Request.Context(), claims, permission) {
+						abort(c, "OAuth scope denied")
+						return
+					}
+					if path == "/graphql" && !oauthGraphQLQueriesOnly(c.Request) {
+						abort(c, "OAuth GraphQL access permits queries only")
+						return
+					}
+				}
+
 				if err := registry.Default().CheckCompany(claims.CompanyID); err != nil {
 					abort(c, err.Error())
 					return
@@ -75,7 +113,45 @@ func AuthMiddleware(authSvc domain.AuthService, mode AuthMode) gin.HandlerFunc {
 	}
 }
 
+func hasOAuthScope(claims *sharedauth.TokenClaims, required string) bool {
+	for _, scope := range claims.OAuthScopes {
+		if scope == required {
+			return true
+		}
+	}
+	return false
+}
+
+// OAuth GraphQL access is limited to query operations, including when a document
+// contains several named operations. Restore the body for the GraphQL handler.
+func oauthGraphQLQueriesOnly(r *http.Request) bool {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20+1))
+	if err != nil || len(body) > 1<<20 {
+		return false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	var input struct {
+		Query string `json:"query"`
+	}
+	if json.Unmarshal(body, &input) != nil || strings.TrimSpace(input.Query) == "" {
+		return false
+	}
+	document, err := parser.ParseQuery(&ast.Source{Input: input.Query})
+	if err != nil || len(document.Operations) == 0 {
+		return false
+	}
+	for _, operation := range document.Operations {
+		if operation.Operation != ast.Query {
+			return false
+		}
+	}
+	return true
+}
+
 func abort(c *gin.Context, msg string) {
+	if resource := c.GetString("oauth_resource_metadata"); resource != "" {
+		c.Header("WWW-Authenticate", `Bearer resource_metadata="`+resource+`", scope="query.execution.read"`)
+	}
 	c.JSON(http.StatusUnauthorized, gin.H{"error": msg})
 	c.Abort()
 }

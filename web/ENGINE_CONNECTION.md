@@ -47,6 +47,6 @@ the current browser session or change the origin used by the embedded dashboard.
 The UI has no built-in AI assistant. Old `/u/assistant` links redirect to the
 dashboard. Use [`examples/threadify-mcp-agent`](../examples/threadify-mcp-agent/README.md)
 for conversational investigation through the engine's Streamable HTTP MCP
-endpoint at `/sse`. Model settings and sessions belong to that external agent;
+endpoint at `/mcp`. Model settings and sessions belong to that external agent;
 the self-host engine config has no AI settings. Legacy chat code in the separate
 Web API is not part of the engine binary or this UI flow.

@@ -12,7 +12,7 @@ supports it and uses a newer project format. Upgrade the CLI and its matching
 runtime together; check `harnest add mcp --help` before creating a connection.
 
 ```sh
-export THREADIFY_MCP_URL=http://127.0.0.1:8086/sse
+export THREADIFY_MCP_URL=http://127.0.0.1:8086/mcp
 export THREADIFY_API_KEY='<service-account-api-key-with-read-permissions>'
 export OPENAI_BASE_URL=http://127.0.0.1:11434/v1
 export OPENAI_MODEL='<your-installed-model>'
@@ -25,9 +25,10 @@ harnest serve examples/threadify-mcp-agent --host 127.0.0.1 --port 8122
 ```
 
 Harnest serves its own chat playground. The connection defaults to the installed
-local Engine at `http://127.0.0.1:8086/sse`. Despite the `/sse` name, this endpoint uses
-**Streamable HTTP**. It accepts `X-API-Key`, not the browser's local bearer JWT.
-The key stays in the agent process environment, never in prompts or chat.
+local Engine at `http://127.0.0.1:8086/mcp` over **Streamable HTTP**. It accepts
+`X-API-Key` or an OAuth bearer token with `query.execution.read`. The API key in
+this example stays in the agent process environment, never in prompts or chat.
+Existing `/sse` URLs remain available as a compatibility alias.
 
 The model endpoint is OpenAI-compatible; the example URL above is Ollama's
 OpenAI-compatible endpoint. Select your own available model. A remote model
@@ -49,7 +50,7 @@ The example was scaffolded with these real CLI commands:
 harnest init my-threadify-agent --minimal
 harnest add mcp threadify \
   --project my-threadify-agent \
-  --url http://127.0.0.1:8086/sse \
+  --url http://127.0.0.1:8086/mcp \
   --transport streamable-http \
   --token-env THREADIFY_API_KEY \
   --token-header X-API-Key \

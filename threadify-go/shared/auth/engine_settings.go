@@ -38,7 +38,7 @@ func (s *BrowserService) engineSettings(ctx context.Context, actor *TokenClaims,
 	if result.PublicURL != "" {
 		base := result.PublicURL
 		ws := strings.Replace(strings.Replace(base, "https://", "wss://", 1), "http://", "ws://", 1)
-		result.Endpoints = map[string]string{"http": base, "websocket": ws + "/threads", "graphql": base + "/graphql", "otel": base + "/v1/traces", "mcp": base + "/sse"}
+		result.Endpoints = map[string]string{"http": base, "websocket": ws + "/threads", "graphql": base + "/graphql", "otel": base + "/v1/traces", "mcp": base + "/mcp"}
 	}
 	return result, nil
 }
