@@ -47,7 +47,7 @@ export function EngineTab() {
       setRetentionBusy(false);
     }
   }
-  return <div className="max-w-3xl space-y-5">
+  return <div className="w-full space-y-5">
   <section className="space-y-5 rounded-2xl border border-stone-200 bg-white p-6 text-sm leading-6 shadow-sm sm:p-8">
     <h3 className="border-b border-stone-100 pb-4 text-lg font-semibold tracking-tight text-stone-900">Engine URL</h3>
     <p className="text-gray-600">Use one address to connect your SDK. Threadify handles writing and querying threads automatically, including any reverse-proxy path.</p>

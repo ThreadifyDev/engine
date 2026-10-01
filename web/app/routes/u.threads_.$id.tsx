@@ -311,12 +311,13 @@ export default function ThreadDetailPage() {
           )}
           
           {/* Tabs */}
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <TabBar label="Thread view" value={activeTab} onChange={setActiveTab} panelId="thread-panel" className="sm:flex-1"
+          <div className="relative mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-xl border border-stone-200 bg-white shadow-sm" />
+            <TabBar label="Thread view" value={activeTab} onChange={setActiveTab} panelId="thread-panel" surface={false} className="relative w-full p-1.5 sm:flex-1"
               items={[{value:'timeline',label:'Timeline'}]} />
 
             {/* Action Buttons */}
-            <div className="flex flex-wrap gap-2">
+            <div className="relative flex flex-wrap gap-2">
               <div className="relative group flex-1 sm:flex-none">
                 <button
                   onClick={() => {
@@ -333,7 +334,7 @@ export default function ThreadDetailPage() {
                   className={`w-full min-w-0 justify-center px-3 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 sm:w-auto sm:px-4 ${
                     thread.contractName
                       ? 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-                      : 'text-gray-400 bg-gray-50 cursor-not-allowed'
+                      : 'text-gray-400 cursor-not-allowed'
                   }`}
                   title={!thread.contractName ? 'Thread is not attached to a contract' : ''}
                 >

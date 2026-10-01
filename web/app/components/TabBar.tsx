@@ -3,13 +3,14 @@ import type { KeyboardEvent, ReactNode } from 'react';
 type TabItem<T extends string> = { value: T; label: ReactNode };
 
 /** Keyboard accessible content navigation shared by every tabbed view. */
-export function TabBar<T extends string>({ label, value, items, onChange, panelId, className = '' }: {
+export function TabBar<T extends string>({ label, value, items, onChange, panelId, className = '', surface = true }: {
   label: string;
   value: T;
   items: TabItem<T>[];
   onChange: (value: T) => void;
   panelId: string;
   className?: string;
+  surface?: boolean;
 }) {
   function navigate(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     let next = index;
@@ -23,7 +24,7 @@ export function TabBar<T extends string>({ label, value, items, onChange, panelI
     const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
     tabs?.[next]?.focus();
   }
-  return <div role="tablist" aria-label={label} className={`flex w-full min-w-0 items-center gap-1 overflow-x-auto rounded-xl border border-stone-200 bg-white p-1.5 shadow-sm ${className}`}>
+  return <div role="tablist" aria-label={label} className={`flex min-w-0 items-center gap-1 ${surface ? 'w-full overflow-x-auto rounded-xl border border-stone-200 bg-white p-1.5 shadow-sm' : ''} ${className}`}>
     {items.map((item, index) => <button
       key={item.value}
       type="button"

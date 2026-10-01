@@ -266,7 +266,7 @@ function RegistryAllowances({ billingInfo }: { billingInfo: GetCurrentPlanRespon
     ['Entity profiles', formatLimit(limits?.entity_profile_limit)],
   ];
   return (
-    <section className="max-w-3xl rounded-2xl border border-stone-200 bg-white p-8 shadow-sm">
+    <section className="w-full rounded-2xl border border-stone-200 bg-white p-8 shadow-sm">
       <h3 className="text-xl font-semibold text-gray-900">Threadify plan</h3>
       <p className="mt-2 text-sm text-gray-600">Your plan is managed in Fused Registry. These are your current allowances.</p>
       <dl className="mt-6 divide-y divide-gray-100">

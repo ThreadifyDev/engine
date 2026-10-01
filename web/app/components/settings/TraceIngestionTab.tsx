@@ -44,7 +44,7 @@ export function TraceIngestionTab() {
     finally { setBusy(false); }
   }
 
-  return <section className="max-w-3xl space-y-6 text-stone-900" aria-labelledby="trace-ingestion-title">
+  return <section className="w-full space-y-6 text-stone-900" aria-labelledby="trace-ingestion-title">
     <header className="flex items-start justify-between gap-4">
       <div>
         <h3 id="trace-ingestion-title" className="text-xl font-semibold tracking-tight">Trace ingestion</h3>
