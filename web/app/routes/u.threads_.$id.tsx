@@ -14,7 +14,6 @@ import {
   Hash,
   Code,
   ChevronRight,
-  RefreshCw,
   Users,
   Filter,
   ChevronDown,
@@ -301,14 +300,7 @@ export default function ThreadDetailPage() {
     <AppLayout>
       <div className="min-h-screen min-w-0 w-full overflow-x-hidden bg-gray-50 p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto">
-          <ThreadHeader thread={thread} />
-          {isLive && (
-            <div role="status" className="mt-3 flex items-center gap-2 text-xs text-blue-700">
-              <span className={`h-2 w-2 rounded-full ${liveConnected ? 'bg-blue-500' : 'bg-amber-500'}`} />
-              {liveConnected ? 'Live' : 'Connecting to live updates'}
-              {isRefetching && <RefreshCw className="h-3 w-3 animate-spin" aria-label="Refreshing" />}
-            </div>
-          )}
+          <ThreadHeader thread={thread} liveConnected={liveConnected} isRefetching={isRefetching} />
           
           {/* Tabs */}
           <div className="relative mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -2,14 +2,29 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+	"github.com/threadify/engine/internal/domain"
+	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 	"go.uber.org/zap"
 )
+
+func TestEndThreadDoesNotAcknowledgeFailedStatusWrite(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := enginemocks.NewMockThreadRepository(ctrl)
+	repo.EXPECT().Get(gomock.Any(), "thread-1").Return(&domain.Thread{ID: "thread-1", Status: domain.ThreadStatusActive}, nil)
+	repo.EXPECT().UpdateThreadStatus(gomock.Any(), "thread-1", ThreadStatusCompleted, gomock.Any()).Return(errors.New("cache unavailable"))
+	svc := &ThreadService{repo: repo, logger: zap.NewNop()}
+
+	err := svc.EndThread(context.Background(), "thread-1", "actor", "sdk", ThreadStatusCompleted, "done", time.Now())
+	require.ErrorContains(t, err, "cache unavailable")
+}
 
 type lifecycleStopper struct{ calls atomic.Int32 }
 

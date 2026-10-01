@@ -1001,9 +1001,7 @@ func (s *ThreadService) EndThread(
 	// 1. Update Valkey status SYNCHRONOUSLY using atomic Lua script.
 	// This prevents race conditions with double-ending or concurrent terminal step completion.
 	if err := s.repo.UpdateThreadStatus(ctx, threadID, status, recordedAt); err != nil {
-		s.logger.Warn("failed to update thread status in Valkey",
-			zap.String("thread_id", threadID), zap.Error(err))
-		// Continue with archival even if Valkey update fails
+		return fmt.Errorf("failed to update thread status: %w", err)
 	}
 
 	// 2. Archive thread metadata.

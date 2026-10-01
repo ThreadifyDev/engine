@@ -30,7 +30,7 @@ func (r *ActorRepository) ResolveActors(ctx context.Context, ids []string) ([]*d
 	// - LEFT JOIN uses foreign key indexes
 	// - ANY($1) is more efficient than IN clause for arrays
 	query := `
-		SELECT u.id, u.email, 'user' as type, c.name as company_name
+		SELECT u.id, COALESCE(NULLIF(BTRIM(u.full_name), ''), u.email), 'user' as type, c.name as company_name
 		FROM users u
 		LEFT JOIN companies c ON u.company_id = c.id
 		WHERE u.id = ANY($1)

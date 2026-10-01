@@ -95,4 +95,21 @@ func TestTerminalLifecycleLua(t *testing.T) {
 		require.NotContains(t, validate(), "thread_already_terminal")
 		require.Contains(t, cli("HGET", step, "status"), "success")
 	})
+	t.Run("stale writeback cannot revive completed thread", func(t *testing.T) {
+		cli("FLUSHDB")
+		cli("HSET", meta, "status", "active")
+		cli("EVAL", checkAndUpdateThreadStatusScript, "2", meta, key, "completed", "2026-09-22T00:00:00Z", "3600")
+		stale := `{"status":"active","id":"test"}`
+		require.Contains(t, cli("EVAL", writeBackThreadScript, "2", key, meta, stale, "3600"), "0")
+		require.Contains(t, cli("HGET", meta, "status"), "completed")
+		require.Equal(t, "null\n", cli("GET", key))
+	})
+	t.Run("writeback fills an empty active cache", func(t *testing.T) {
+		cli("FLUSHDB")
+		cli("HSET", meta, "status", "active")
+		snapshot := `{"status":"active","id":"test"}`
+		require.Contains(t, cli("EVAL", writeBackThreadScript, "2", key, meta, snapshot, "3600"), "1")
+		require.Contains(t, cli("GET", key), `\"status\":\"active\"`)
+		require.Contains(t, cli("HGET", meta, "status"), "active")
+	})
 }

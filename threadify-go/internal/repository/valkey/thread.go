@@ -2,6 +2,7 @@ package valkey
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,9 @@ import (
 )
 
 var ErrThreadTerminal = errors.New("thread already terminal")
+
+//go:embed lua/write_back_thread.lua
+var writeBackThreadScript string
 
 // ThreadRepository handles thread storage in Valkey (Redis)
 type ThreadRepository struct {
@@ -62,7 +66,7 @@ func (r *ThreadRepository) SetWriteBackPool(pool *workerpool.Pool) {
 	r.writeBackPool = pool
 }
 
-// Save stores a thread in Valkey
+// Save writes a cold PostgreSQL snapshot into Valkey if no newer cache state exists.
 func (r *ThreadRepository) Save(ctx context.Context, thread *domain.Thread) error {
 	key := r.getThreadKey(thread.ID)
 	metaKey := r.getThreadMetaKey(thread.ID)
@@ -73,25 +77,9 @@ func (r *ThreadRepository) Save(ctx context.Context, thread *domain.Thread) erro
 		return fmt.Errorf("failed to serialize thread: %w", err)
 	}
 
-	// Use pipeline for atomic write
-	pipe := r.valkey.Pipeline()
-
-	// Store base data as JSON
-	pipe.Set(ctx, key, string(data), time.Duration(r.ttl)*time.Second)
-
-	// Store metadata in hash for atomic Lua updates
-	metadata := map[string]interface{}{
-		"status": string(thread.Status),
-	}
-	if thread.CompletedAt != nil {
-		metadata["completedAt"] = thread.CompletedAt.Format(time.RFC3339Nano)
-	}
-	pipe.HSet(ctx, metaKey, metadata)
-	pipe.Expire(ctx, metaKey, time.Duration(r.ttl)*time.Second)
-
-	_, err = pipe.Exec(ctx)
+	_, err = r.valkey.Eval(ctx, writeBackThreadScript, []string{key, metaKey}, string(data), r.ttl)
 	if err != nil {
-		return fmt.Errorf("failed to save thread: %w", err)
+		return fmt.Errorf("failed to write back thread: %w", err)
 	}
 
 	return nil

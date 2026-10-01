@@ -16,6 +16,7 @@ import (
 	"github.com/threadify/engine/tests/internal/enginetest"
 	"github.com/threadify/engine/tests/internal/testenv"
 	"go.uber.org/zap"
+	"threadify-go/shared/testutil/registryfixture"
 )
 
 var (
@@ -26,6 +27,11 @@ var (
 	logger    *zap.Logger
 	httpc     *enginetest.HTTPClient
 )
+
+type registryTestMain struct{ cleanup []func() }
+
+func (*registryTestMain) Helper()            {}
+func (t *registryTestMain) Cleanup(f func()) { t.cleanup = append(t.cleanup, f) }
 
 func requireDockerForIntegration() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("THREADIFY_REQUIRE_DOCKER"))) {
@@ -64,6 +70,8 @@ func TestMain(m *testing.M) {
 	}
 
 	supabase = apihelper.StartFakeSupabase()
+	registryFixture := &registryTestMain{}
+	registryServer := registryfixture.New(registryFixture, "8bf9099d-2ff9-4d88-a2eb-acb114679909")
 
 	cfg, err := enginehelper.GenerateTestConfig(
 		env.Postgres.ConnectionString,
@@ -74,6 +82,9 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+	cfg.Registry.URL = registryServer.URL
+	cfg.Registry.LicenseKey = registryfixture.License
+	cfg.Registry.CompanyID = "8bf9099d-2ff9-4d88-a2eb-acb114679909"
 
 	engineApp, err = enginehelper.StartApp(testCtx, cfg, logger)
 	if err != nil {
@@ -88,6 +99,9 @@ func TestMain(m *testing.M) {
 	}
 	if supabase != nil {
 		supabase.Close()
+	}
+	for _, cleanup := range registryFixture.cleanup {
+		cleanup()
 	}
 	if env != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

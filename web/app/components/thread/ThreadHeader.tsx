@@ -10,10 +10,11 @@ import {
   Loader2,
   AlertTriangle,
   ExternalLink,
+  RefreshCw,
 } from 'lucide-react';
 import { graphqlClient, type Thread } from '~/lib/graphql';
 
-export function ThreadHeader({ thread }: { thread: Thread }) {
+export function ThreadHeader({ thread, liveConnected, isRefetching }: { thread: Thread; liveConnected: boolean; isRefetching: boolean }) {
   const [copied, setCopied] = useState(false);
   const [copiedRef, setCopiedRef] = useState<string | null>(null);
   const steps = thread.steps || [];
@@ -91,6 +92,17 @@ export function ThreadHeader({ thread }: { thread: Thread }) {
         <span className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${config.color}`}>
           {config.label}
         </span>
+        {thread.status === 'active' && (
+          <span
+            role="status"
+            aria-label={liveConnected ? 'Live updates connected' : 'Connecting to live updates'}
+            className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-blue-700"
+          >
+            <span aria-hidden="true" className={`h-2 w-2 rounded-full ${liveConnected ? 'bg-blue-500' : 'bg-amber-500'}`} />
+            {liveConnected ? 'Live' : 'Connecting…'}
+            {isRefetching && <RefreshCw aria-label="Refreshing" className="h-3 w-3 animate-spin" />}
+          </span>
+        )}
         
         {/* Hash Chain Verification Badge */}
         {steps.length > 0 && thread.status !== 'active' && (

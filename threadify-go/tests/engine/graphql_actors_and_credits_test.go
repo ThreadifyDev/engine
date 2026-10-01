@@ -41,6 +41,24 @@ func TestGraphQL_ResolveActors_SingleActor(t *testing.T) {
 	require.Contains(t, actorObj, "companyName")
 }
 
+func TestGraphQL_ResolveActors_PrefersUserFullName(t *testing.T) {
+	user := setupSingleCompanyTestUser(t)
+	_, err := env.Postgres.Pool.Exec(testCtx, `UPDATE users SET full_name=$1 WHERE id=$2`, "Loan Demo Owner", user.ID)
+	require.NoError(t, err)
+
+	_, gqlResp := doGraphQL(t, "", user.ApiKey, graphQLRequest{
+		Query:     "query($ids: [String!]!) { resolveActors(ids: $ids) { id name type } }",
+		Variables: map[string]interface{}{"ids": []string{user.ID}},
+	})
+	require.Empty(t, gqlResp.Errors)
+	actors, ok := gqlResp.Data["resolveActors"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, actors, 1)
+	actor, ok := actors[0].(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, "Loan Demo Owner", actor["name"])
+}
+
 func TestGraphQL_ResolveActors_MultipleActors(t *testing.T) {
 	user := setupTestUser(t)
 
