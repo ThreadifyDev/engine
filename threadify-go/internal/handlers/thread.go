@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	sharedauth "threadify-go/shared/auth"
 	"threadify-go/shared/registry"
 	"time"
 
@@ -26,19 +27,20 @@ import (
 )
 
 const (
-	ActionConnect           = "connect"
-	ActionStartThread       = "startThread"
-	ActionRecordThreadEvent = "recordThreadEvent"
-	ActionAddRefs           = "addRefs"
-	ActionCloseConnection   = "closeConnection"
-	ActionInviteParty       = "inviteParty"
-	ActionJoinThread        = "joinThread"
-	ActionAckNotification   = "ack_notification"
-	ActionSubscribe         = "subscribe"
-	ActionUnsubscribe       = "unsubscribe"
-	ActionCloseThread       = "closeThread"
-	ActionThreadEnd         = "threadEnd"
-	ActionHeartbeat         = "heartbeat"
+	ActionConnect             = "connect"
+	ActionStartThread         = "startThread"
+	ActionRecordThreadEvent   = "recordThreadEvent"
+	ActionRecordBrowserAction = "recordBrowserAction"
+	ActionAddRefs             = "addRefs"
+	ActionCloseConnection     = "closeConnection"
+	ActionInviteParty         = "inviteParty"
+	ActionJoinThread          = "joinThread"
+	ActionAckNotification     = "ack_notification"
+	ActionSubscribe           = "subscribe"
+	ActionUnsubscribe         = "unsubscribe"
+	ActionCloseThread         = "closeThread"
+	ActionThreadEnd           = "threadEnd"
+	ActionHeartbeat           = "heartbeat"
 )
 
 const (
@@ -78,14 +80,16 @@ type WebSocketHandler struct {
 }
 
 type WSSession struct {
-	conn      domain.WSConnection
-	sessionID string
-	ownerID   string
-	companyID string
-	threadIDs []string
-	ctx       context.Context
-	mu        sync.Mutex
-	sendMu    sync.Mutex
+	conn          domain.WSConnection
+	sessionID     string
+	ownerID       string
+	companyID     string
+	browserToken  string
+	browserOrigin string
+	threadIDs     []string
+	ctx           context.Context
+	mu            sync.Mutex
+	sendMu        sync.Mutex
 }
 
 type NotificationACKMessage struct {
@@ -198,7 +202,7 @@ func NewWebSocketHandler(
 	logger *zap.Logger,
 ) *WebSocketHandler {
 	upgrader = websocket.Upgrader{
-		CheckOrigin:       func(r *http.Request) bool { return true },
+		CheckOrigin:       sharedauth.BrowserOriginAllowed,
 		HandshakeTimeout:  time.Duration(websocketConfig.HandshakeTimeoutSeconds) * time.Second,
 		ReadBufferSize:    websocketConfig.ReadBufferSize,
 		WriteBufferSize:   websocketConfig.WriteBufferSize,
@@ -309,9 +313,10 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 
 	sessionCtx, cancelSession := context.WithCancel(c.Request.Context())
 	session := &WSSession{
-		conn:      conn,
-		sessionID: uuid.New().String(),
-		ctx:       sessionCtx,
+		conn:          conn,
+		sessionID:     uuid.New().String(),
+		ctx:           sessionCtx,
+		browserOrigin: c.Request.Header.Get("Origin"),
 	}
 
 	waits := newSocketWaits(h)
@@ -374,6 +379,41 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		}
 
 		action, _ := msg["action"].(string)
+		if session.browserToken != "" {
+			if action == "renewBrowserToken" {
+				token, _ := msg["browserToken"].(string)
+				capability, authErr := sharedauth.VerifyBrowserCapability(session.ctx, token, session.browserOrigin)
+				if authErr != nil || capability.OwnerID != session.ownerID || capability.CompanyID != session.companyID {
+					if err := session.SendMessage(correlatedResponse(h.newErrorResponse(action, "Browser grant denied", ""), msg)); err != nil {
+						break
+					}
+				} else {
+					session.browserToken = token
+					if err := session.SendMessage(correlatedResponse(map[string]any{"action": action, "status": StatusSuccess}, msg)); err != nil {
+						break
+					}
+				}
+				continue
+			}
+			if action == ActionConnect {
+				if err := session.SendMessage(h.newErrorResponse(action, "Already connected", "")); err != nil {
+					break
+				}
+				continue
+			}
+			capability, authErr := sharedauth.VerifyBrowserCapability(session.ctx, session.browserToken, session.browserOrigin)
+			threadID, _ := msg["threadId"].(string)
+			threadKey, _ := msg["threadKey"].(string)
+			session.mu.Lock()
+			created := slices.Clone(session.threadIDs)
+			session.mu.Unlock()
+			if authErr != nil || !capability.Allows(action, threadID, threadKey, created) {
+				if err := session.SendMessage(correlatedResponse(h.newErrorResponse(action, "Browser grant denied or expired", ""), msg)); err != nil {
+					break
+				}
+				continue
+			}
+		}
 		if action == "cancelWait" {
 			target, _ := msg["targetRequestId"].(string)
 			waits.cancel(target)
@@ -413,7 +453,9 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 
 	stopWaits()
 	if session.ownerID != "" {
-		h.sessions.Delete(session.ownerID)
+		if session.browserToken == "" {
+			h.sessions.Delete(session.ownerID)
+		}
 		h.threadService.HandleClose(session.ownerID)
 		h.unsubscribeFromNotifications(session)
 
@@ -487,20 +529,43 @@ func (h *WebSocketHandler) handleMessageContext(action string, msg map[string]in
 			return h.newErrorResponse(ActionConnect, "Invalid request format", err.Error())
 		}
 
-		resp := h.threadService.HandleConnect(ctx, &domain.ConnectCmd{
-			Action:           req.Action,
-			ApiKey:           req.ApiKey,
-			ServiceName:      req.ServiceName,
-			SubscribedEvents: req.SubscribedEvents,
-			MaxInFlight:      req.MaxInFlight,
-		})
+		var resp *domain.ConnectResponse
+		if req.BrowserToken != "" {
+			if req.ApiKey != "" || session.browserOrigin == "" {
+				return h.newErrorResponse(ActionConnect, "Browser grant denied", "")
+			}
+			capability, err := sharedauth.VerifyBrowserCapability(ctx, req.BrowserToken, session.browserOrigin)
+			if err != nil {
+				return h.newErrorResponse(ActionConnect, "Browser grant denied", "")
+			}
+			connector, ok := h.threadService.(interface {
+				HandleBrowserConnect(context.Context, string, string, string) *domain.ConnectResponse
+			})
+			if !ok {
+				return h.newErrorResponse(ActionConnect, "Browser connections unavailable", "")
+			}
+			resp = connector.HandleBrowserConnect(ctx, capability.OwnerID, capability.CompanyID, req.ServiceName)
+			if resp.Status == StatusSuccess {
+				session.browserToken = req.BrowserToken
+			}
+		} else {
+			resp = h.threadService.HandleConnect(ctx, &domain.ConnectCmd{
+				Action:           req.Action,
+				ApiKey:           req.ApiKey,
+				ServiceName:      req.ServiceName,
+				SubscribedEvents: req.SubscribedEvents,
+				MaxInFlight:      req.MaxInFlight,
+			})
+		}
 
 		if resp.Status == StatusSuccess {
 			session.mu.Lock()
 			session.ownerID = resp.OwnerID
 			session.companyID = resp.CompanyID
 			session.mu.Unlock()
-			h.sessions.Store(resp.OwnerID, session)
+			if session.browserToken == "" {
+				h.sessions.Store(resp.OwnerID, session)
+			}
 
 			checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			_, meterErr := h.planService.GetCurrentLimits(checkCtx, resp.CompanyID)
@@ -509,7 +574,7 @@ func (h *WebSocketHandler) handleMessageContext(action string, msg map[string]in
 				h.logger.Error("connect: failed to verify credit account", zap.Error(meterErr))
 			}
 
-			if h.notificationRouter != nil {
+			if h.notificationRouter != nil && session.browserToken == "" {
 				h.handleSubscribe(session, "global", req.SubscribedEvents)
 				maxInFlight := req.MaxInFlight
 				if maxInFlight < 1 || maxInFlight > h.websocketConfig.MaxInFlightMax {
@@ -594,6 +659,23 @@ func (h *WebSocketHandler) handleMessageContext(action string, msg map[string]in
 			SubSteps:          subSteps,
 		}, session.ownerID, session.companyID)
 		return dtoRecordEventResponseFromDomain(resp)
+
+	case ActionRecordBrowserAction:
+		var req dto.BrowserActionRequest
+		if err := json.Unmarshal(msgBytes, &req); err != nil {
+			return h.newErrorResponse(action, "Invalid request format", "")
+		}
+		recorder, ok := h.threadService.(interface {
+			RecordBrowserAction(context.Context, *dto.BrowserActionRequest, string, string) (*dto.BrowserActionResponse, error)
+		})
+		if !ok {
+			return h.newErrorResponse(action, "Browser action recording unavailable", "")
+		}
+		result, err := recorder.RecordBrowserAction(ctx, &req, session.ownerID, session.companyID)
+		if err != nil {
+			return h.newErrorResponse(action, err.Error(), "")
+		}
+		return map[string]any{"action": action, "status": StatusSuccess, "classification": result.Classification, "mappedStep": result.MappedStep, "stepId": result.StepID, "message": result.Message}
 
 	case ActionAddRefs:
 		var req dto.AddRefsRequest

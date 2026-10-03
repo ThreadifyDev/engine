@@ -230,8 +230,13 @@ func New(ctx context.Context, cfg *config.Config, logger *zap.Logger) (_ *App, r
 	sharedauth.SetBrowserService(browser)
 	ingestionRules := valkey.NewIngestionRules(inf.valkey)
 	hdlrs.otlpTrace.WithIngestionRules(ingestionRules)
+	actionMappings := valkey.NewBrowserActionMappings(inf.valkey)
+	svcs.thread.SetBrowserActionMappings(actionMappings)
+	svcs.contract.SetActionMappings(actionMappings)
 	agent := newAgentConnection(cfg, logger)
-	router := browser.IngestionRulesHandler(ingestionRules, browser.EngineSettingsHandler(cfg.Server.PublicURL, browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger, agent))))
+	router := browser.ActionMappingsHandler(actionMappings, svcs.thread.ValidateActionMapping,
+		browser.IngestionRulesHandler(ingestionRules, browser.EngineSettingsHandler(cfg.Server.PublicURL,
+			browser.UserManagement(buildRouter(cfg, inf, svcs, repos, hdlrs, logger, agent)))))
 	appHandler, err := browser.OAuthServer(ctx, rbacLoader, cfg.Server.PublicURL, dashboard.Wrap(browser.Wrap(licensed.WrapEngine(router))))
 	if err != nil {
 		return nil, fmt.Errorf("initialize OAuth server: %w", err)
@@ -600,6 +605,7 @@ func initHandlers(
 			return nil, err
 		}
 		h.graphqlResolver.SetDecisionClassifier(classifier)
+		svcs.thread.SetBrowserActionClassifier(classifier)
 		svcs.contract.SetCompositionReviewer(classifier)
 	}
 

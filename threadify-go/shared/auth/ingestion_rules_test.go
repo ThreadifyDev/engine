@@ -30,13 +30,13 @@ func (s *testIngestionStore) Save(_ context.Context, _ string, revision string, 
 		return ingestion.Settings{}, ingestion.ErrConflict
 	}
 	s.saves++
-	s.settings = ingestion.Settings{Filters: filters, Revision: "next"}
+	s.settings = ingestion.Settings{Filters: filters, Mode: ingestion.ModeInclude, Revision: "next"}
 	return s.settings, nil
 }
 func TestIngestionRulesHTTPAuthorizationAndPreview(t *testing.T) {
 	s, _ := browserFixture(t)
 	owner, token := userTestOwner(t, s)
-	store := &testIngestionStore{settings: ingestion.Settings{Filters: []string{}}}
+	store := &testIngestionStore{settings: ingestion.Settings{Filters: []string{"*"}, Mode: ingestion.ModeInclude}}
 	handler := s.Wrap(s.IngestionRulesHandler(store, http.NotFoundHandler()))
 	call := func(method, path, body string, session, csrf bool, key string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, "http://127.0.0.1:8083"+path, strings.NewReader(body))
@@ -66,7 +66,7 @@ func TestIngestionRulesHTTPAuthorizationAndPreview(t *testing.T) {
 	}
 	preview := call("POST", path+"/preview", `{"filters":["internal.*"],"span_names":["internal.cache","refund"]}`, true, true, "")
 	require.Equal(t, 200, preview.Code)
-	require.Contains(t, preview.Body.String(), `"dropped":1`)
+	require.Contains(t, preview.Body.String(), `"kept":1`)
 	require.Zero(t, store.saves)
 	saved := call("PUT", path, `{"filters":["internal.*"],"revision":""}`, true, true, "")
 	require.Equal(t, 200, saved.Code, saved.Body.String())

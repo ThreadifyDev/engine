@@ -6940,7 +6940,9 @@ func (ec *executionContext) _Query_can(ctx context.Context, field graphql.Collec
 		ec.fieldContext_Query_can,
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().Can(ctx, fc.Args["threadId"].(string), fc.Args["action"].(*string), fc.Args["goal"].(*string), fc.Args["context"].(scalars.JSON))
+			// JSON is an interface-backed scalar: omitted optional values are nil,
+			// which cannot be asserted to an interface type.
+			return ec.Resolvers.Query().Can(ctx, fc.Args["threadId"].(string), fc.Args["action"].(*string), fc.Args["goal"].(*string), fc.Args["context"])
 		},
 		nil,
 		ec.marshalNCanDecision2ᚖgithubᚗcomᚋthreadifyᚋengineᚋinternalᚋdomainᚐCanDecision,

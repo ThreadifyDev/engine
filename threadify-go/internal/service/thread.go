@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"threadify-go/shared/actionmapping"
 	"threadify-go/shared/rbac"
 
 	shderrors "threadify-go/shared/errors"
@@ -49,6 +50,8 @@ type ThreadService struct {
 	cacheManager          domain.CacheManager
 	connectionMgr         domain.ConnectionManager
 	contractValidator     domain.ContractGraphValidator
+	browserClassifier     DecisionClassifier
+	browserActionMappings actionmapping.Store
 	authService           *AuthService
 	accessService         *ThreadAccessService
 	validationService     *ValidationService
@@ -208,8 +211,21 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 	if err != nil {
 		return &domain.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "authentication failed"}
 	}
+	return s.connectAuthenticated(ctx, userInfo.OwnerID, userInfo.CompanyID, req.ApiKey, req.ServiceName)
+}
 
-	meter, err := s.planService.CheckBalancePositive(ctx, userInfo.CompanyID)
+// HandleBrowserConnect registers a service principal whose short-lived grant
+// has already been verified by the WebSocket handler. No service key is stored.
+func (s *ThreadService) HandleBrowserConnect(ctx context.Context, ownerID, companyID, serviceName string) *domain.ConnectResponse {
+	if ownerID == "" || companyID == "" {
+		return &domain.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "authentication failed"}
+	}
+	return s.connectAuthenticated(ctx, ownerID, companyID, "", serviceName)
+}
+
+func (s *ThreadService) connectAuthenticated(ctx context.Context, ownerID, companyID, apiKey, serviceName string) *domain.ConnectResponse {
+
+	meter, err := s.planService.CheckBalancePositive(ctx, companyID)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNoAccount):
@@ -225,7 +241,7 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 				Message: "Insufficient credits. Please top up your account to continue.",
 			}
 		default:
-			s.logger.Error("failed to verify limits during connect", zap.Error(err), zap.String("company_id", userInfo.CompanyID))
+			s.logger.Error("failed to verify limits during connect", zap.Error(err), zap.String("company_id", companyID))
 			return &domain.ConnectResponse{
 				Action:  ActionConnect,
 				Status:  StepStatusError,
@@ -242,7 +258,7 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 		}
 	}
 
-	if err := s.connectionMgr.ConnectWithOwnerAndCompany(userInfo.OwnerID, req.ApiKey, req.ServiceName, userInfo.CompanyID); err != nil {
+	if err := s.connectionMgr.ConnectWithOwnerAndCompany(ownerID, apiKey, serviceName, companyID); err != nil {
 		return &domain.ConnectResponse{Action: ActionConnect, Status: StepStatusError, Message: "failed to establish connection"}
 	}
 
@@ -250,8 +266,8 @@ func (s *ThreadService) HandleConnect(ctx context.Context, req *domain.ConnectCm
 		Action:    ActionConnect,
 		Status:    StepStatusSuccess,
 		Message:   "Connected successfully",
-		OwnerID:   userInfo.OwnerID,
-		CompanyID: userInfo.CompanyID,
+		OwnerID:   ownerID,
+		CompanyID: companyID,
 	}
 }
 

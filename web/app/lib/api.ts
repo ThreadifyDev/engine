@@ -327,6 +327,18 @@ class ApiClient {
     return this.request('/engine/ingestion-rules/preview', { method: 'POST', body: JSON.stringify({ filters, span_names }) });
   }
 
+  getBrowserActionMappings(): Promise<BrowserActionMappings> {
+    return this.request('/engine/browser-action-mappings');
+  }
+
+  getObservedBrowserActions(): Promise<{ actions: ObservedBrowserAction[] }> {
+    return this.request('/engine/browser-action-mappings/observed');
+  }
+
+  saveBrowserActionMappings(rules: BrowserActionMappingRule[], revision: string): Promise<BrowserActionMappings> {
+    return this.request('/engine/browser-action-mappings', { method: 'PUT', body: JSON.stringify({ rules, revision }) });
+  }
+
   getEngineSettings(): Promise<EngineSettings> {
     return this.request('/engine/settings');
   }
@@ -803,11 +815,30 @@ export interface EngineUser {
 
 export interface IngestionRules {
   filters: string[];
+  mode: 'include' | 'exclude_legacy';
   revision: string;
   updated_at?: string;
   evaluated_spans: number;
   dropped_spans: number;
   can_manage: boolean;
+}
+export interface BrowserActionMappingRule {
+  action: string;
+  contract: string;
+  version: number;
+  step: string;
+}
+export interface BrowserActionMappings {
+  rules: BrowserActionMappingRule[];
+  revision: string;
+  updated_at?: string;
+  can_manage: boolean;
+}
+export interface ObservedBrowserAction {
+  name: string;
+  contract: string;
+  version: number;
+  count: number;
 }
 export interface IngestionPreview {
   spans: { name: string; drop: boolean; pattern?: string }[];

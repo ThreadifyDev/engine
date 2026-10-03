@@ -5,6 +5,7 @@ import "github.com/threadify/engine/internal/domain"
 type ConnectRequest struct {
 	Action           string   `json:"action"`
 	ApiKey           string   `json:"apiKey"`
+	BrowserToken     string   `json:"browserToken,omitempty"`
 	ServiceName      string   `json:"serviceName,omitempty"`
 	SubscribedEvents []string `json:"subscribedEvents"`
 	MaxInFlight      int      `json:"maxInFlight,omitempty"` // Client-specified max unACKed notifications
@@ -71,6 +72,23 @@ type RecordEventResponse struct {
 	ThreadID    string             `json:"threadId,omitempty"`
 	StepID      string             `json:"stepId,omitempty"`
 	IsDuplicate bool               `json:"isDuplicate,omitempty"`
+}
+
+type BrowserActionRequest struct {
+	Action    string            `json:"action"`
+	EventID   string            `json:"eventId,omitempty"`
+	ThreadID  string            `json:"threadId"`
+	Name      string            `json:"name"`
+	EventType string            `json:"eventType"`
+	Path      string            `json:"path,omitempty"`
+	Context   map[string]string `json:"context,omitempty"`
+}
+
+type BrowserActionResponse struct {
+	Classification string `json:"classification"`
+	MappedStep     string `json:"mappedStep,omitempty"`
+	StepID         string `json:"stepId,omitempty"`
+	Message        string `json:"message,omitempty"`
 }
 
 type AddRefsRequest struct {

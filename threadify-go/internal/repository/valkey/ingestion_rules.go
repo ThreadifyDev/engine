@@ -26,8 +26,14 @@ func (s *IngestionRules) Load(ctx context.Context, company string) (ingestion.Se
 	if err != nil {
 		return ingestion.Settings{}, err
 	}
-	result := ingestion.Settings{Filters: []string{}, Revision: values["revision"]}
+	result := ingestion.Settings{Filters: []string{"*"}, Mode: ingestion.ModeInclude, Revision: values["revision"]}
 	if raw, ok := values["filters"]; ok {
+		result.Mode = values["mode"]
+		if result.Mode == "" {
+			result.Mode = ingestion.ModeExcludeLegacy
+		} else if result.Mode != ingestion.ModeInclude {
+			return result, fmt.Errorf("invalid stored ingestion mode")
+		}
 		if err = json.Unmarshal([]byte(raw), &result.Filters); err != nil {
 			return result, err
 		}
@@ -63,7 +69,7 @@ func (s *IngestionRules) Load(ctx context.Context, company string) (ingestion.Se
 const saveIngestionRules = `
 local revision = redis.call('HGET', KEYS[1], 'revision') or ''
 if revision ~= ARGV[1] then return {0, 0, 0} end
-redis.call('HSET', KEYS[1], 'revision', ARGV[2], 'filters', ARGV[3], 'updated_at', ARGV[4])
+redis.call('HSET', KEYS[1], 'revision', ARGV[2], 'filters', ARGV[3], 'updated_at', ARGV[4], 'mode', 'include')
 return {1, tonumber(redis.call('HGET', KEYS[1], 'evaluated') or '0'), tonumber(redis.call('HGET', KEYS[1], 'dropped') or '0')}
 `
 
@@ -90,7 +96,7 @@ func (s *IngestionRules) Save(ctx context.Context, company, revision string, fil
 		return ingestion.Settings{}, ingestion.ErrConflict
 	}
 	// Return this write's revision, even if another administrator saves immediately afterward.
-	return ingestion.Settings{Filters: normalized, Revision: next, UpdatedAt: &now, EvaluatedSpans: saved[1], DroppedSpans: saved[2]}, nil
+	return ingestion.Settings{Filters: normalized, Mode: ingestion.ModeInclude, Revision: next, UpdatedAt: &now, EvaluatedSpans: saved[1], DroppedSpans: saved[2]}, nil
 }
 
 // Counters describe evaluated delivery attempts, including retries, rather than unique archived spans.

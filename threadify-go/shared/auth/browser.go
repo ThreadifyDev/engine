@@ -98,6 +98,15 @@ func NewBrowserService(ctx context.Context, pool *pgxpool.Pool, r BrowserRegistr
 	if err != nil {
 		return nil, err
 	}
+	_, err = tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS threadify_browser_capabilities(
+ token_hash text PRIMARY KEY, company_id text NOT NULL, installation_id text NOT NULL,
+ principal_id text NOT NULL, source_key_id text NOT NULL, origin text NOT NULL,
+ actions text[] NOT NULL, thread_ids text[] NOT NULL, thread_keys text[] NOT NULL DEFAULT '{}', expires_at timestamptz NOT NULL);
+ ALTER TABLE threadify_browser_capabilities ADD COLUMN IF NOT EXISTS thread_keys text[] NOT NULL DEFAULT '{}';
+ CREATE INDEX IF NOT EXISTS threadify_browser_capabilities_expiry ON threadify_browser_capabilities(expires_at);`)
+	if err != nil {
+		return nil, err
+	}
 	_, err = tx.Exec(ctx, `DO $$ BEGIN
 		IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='threadify_engine_settings_pkey' AND pg_get_constraintdef(oid) LIKE '%company_id%') THEN
 			ALTER TABLE threadify_engine_settings DROP CONSTRAINT threadify_engine_settings_pkey;

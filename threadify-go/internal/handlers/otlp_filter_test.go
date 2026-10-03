@@ -24,12 +24,13 @@ import (
 
 type filterFixture struct {
 	filters            []string
+	mode               string
 	err                error
 	evaluated, dropped int
 }
 
 func (f *filterFixture) Load(context.Context, string) (ingestion.Settings, error) {
-	return ingestion.Settings{Filters: f.filters}, f.err
+	return ingestion.Settings{Filters: f.filters, Mode: f.mode}, f.err
 }
 func (f *filterFixture) Save(context.Context, string, string, []string) (ingestion.Settings, error) {
 	panic("not used")
@@ -50,13 +51,15 @@ func TestOTLPFilteringPrecedesIngestion(t *testing.T) {
 	for _, tc := range []struct {
 		name                      string
 		filters                   []string
+		mode                      string
 		loadErr                   error
 		wantStatus, kept, dropped int
 	}{
-		{"partial", []string{"healthcheck", "internal.*"}, nil, 200, 1, 2},
-		{"all", []string{"*"}, nil, 200, 0, 3},
-		{"disabled", nil, nil, 200, 3, 0},
-		{"storage unavailable", nil, errors.New("offline"), 503, 0, 0},
+		{"partial", []string{"healthcheck", "internal.*"}, ingestion.ModeInclude, nil, 200, 2, 1},
+		{"all", []string{"*"}, ingestion.ModeInclude, nil, 200, 3, 0},
+		{"empty", nil, ingestion.ModeInclude, nil, 200, 0, 3},
+		{"legacy", []string{"healthcheck", "internal.*"}, ingestion.ModeExcludeLegacy, nil, 200, 1, 2},
+		{"storage unavailable", nil, ingestion.ModeInclude, errors.New("offline"), 503, 0, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
@@ -70,7 +73,7 @@ func TestOTLPFilteringPrecedesIngestion(t *testing.T) {
 				require.Equal(t, tc.kept, countOTLPSpans(batch))
 				return &collecttracepb.ExportTraceServiceResponse{}, nil
 			}}
-			store := &filterFixture{filters: tc.filters, err: tc.loadErr}
+			store := &filterFixture{filters: tc.filters, mode: tc.mode, err: tc.loadErr}
 			handler := NewOTLPTraceHandler(ingester, auth, plan, zap.NewNop()).WithIngestionRules(store)
 			router := gin.New()
 			router.POST("/v1/traces", handler.HandleTraces)
@@ -107,12 +110,11 @@ func TestOTLPFiltersOriginalNamesAndPreservesRetainedSpans(t *testing.T) {
 	spans[1].ParentSpanId = []byte{1, 2, 3}
 	spans[1].Events = []*tracepb.Span_Event{{Name: "receipt"}}
 	expected := proto.Clone(spans[1])
-	require.Equal(t, 1, filterOTLPSpans(batch, []string{"internal.*"}))
-	require.Len(t, batch.ResourceSpans[0].ScopeSpans[0].Spans, 2)
+	require.Equal(t, 2, filterOTLPSpans(batch, ingestion.ModeInclude, []string{"refund"}))
+	require.Len(t, batch.ResourceSpans[0].ScopeSpans[0].Spans, 1)
 	require.True(t, proto.Equal(expected, batch.ResourceSpans[0].ScopeSpans[0].Spans[0]))
-	require.Equal(t, 1, filterOTLPSpans(batch, []string{"refund"}))
-	require.Equal(t, "Refund", batch.ResourceSpans[0].ScopeSpans[0].Spans[0].Name)
-	require.Equal(t, 1, filterOTLPSpans(batch, []string{"*"}))
+	require.Equal(t, 0, filterOTLPSpans(batch, ingestion.ModeInclude, []string{"*"}))
+	require.Equal(t, 1, filterOTLPSpans(batch, ingestion.ModeInclude, nil))
 	require.Empty(t, batch.ResourceSpans)
 }
 func TestOTLPFilterDoesNotRunBeforeAuthentication(t *testing.T) {

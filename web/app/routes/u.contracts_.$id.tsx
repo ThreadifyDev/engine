@@ -35,6 +35,7 @@ export default function ContractDetail() {
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState('');
   const [updateErrorDetails, setUpdateErrorDetails] = useState<Array<{ field: string; message: string }>>([]);
+  const [publishNotice, setPublishNotice] = useState('');
 
   useEffect(() => {
     if (!api.isAuthenticated()) navigate('/login');
@@ -80,8 +81,14 @@ export default function ContractDetail() {
     setUpdateError('');
     setUpdateErrorDetails([]);
     try {
-      await api.updateContract(id, { source: updateSource });
+      const response = await api.updateContract(id, { source: updateSource });
       await queryClient.invalidateQueries({ queryKey: ['contract', id, 'versions'] });
+      const links = response?.actionLinks as { copied?: number; skipped?: number; warning?: string } | undefined;
+      setPublishNotice([
+        links?.copied ? `${links.copied} action ${links.copied === 1 ? 'link' : 'links'} copied to the new version.` : '',
+        links?.skipped ? `${links.skipped} ${links.skipped === 1 ? 'link was' : 'links were'} skipped because the target step no longer exists.` : '',
+        links?.warning ?? '',
+      ].filter(Boolean).join(' '));
       closeUpdate();
     } catch (cause) {
       if (cause instanceof ValidationError) {
@@ -115,6 +122,7 @@ export default function ContractDetail() {
             </div>
           ) : (
             <>
+              {publishNotice && <div role="status" className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{publishNotice}</div>}
               <header className="mb-8 flex flex-wrap items-start justify-between gap-5">
                 <div className="min-w-0">
                   <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Contract overview</p>
@@ -190,6 +198,7 @@ export default function ContractDetail() {
                 <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">New version</p>
                 <h2 id="update-contract-title" className="text-lg font-semibold text-stone-900">Update {contract?.name}</h2>
                 <p className="mt-1 text-xs text-stone-500">Review the source for v{latestVersion + 1}, then publish it.</p>
+                <p className="mt-1 text-xs text-stone-500">Action links to steps that remain in this version will be copied.</p>
               </div>
               <button type="button" onClick={closeUpdate} disabled={updating} aria-label="Close update dialog" className="rounded-lg p-2 text-stone-500 hover:bg-stone-100"><X className="h-4 w-4" /></button>
             </div>

@@ -168,20 +168,21 @@ func TestStandaloneWorkflows(t *testing.T) {
 			require.NoError(t, e)
 			return string(body)
 		}
-		saved, err := cli("set", update(initial["revision"].(string), []string{"health*"}))
+		saved, err := cli("set", update(initial["revision"].(string), []string{"refund"}))
 		require.NoError(t, err)
 		t.Cleanup(func() {
 			current, e := cli("get", "")
 			if e == nil {
-				_, e = cli("set", update(current["revision"].(string), []string{}))
+				_, e = cli("set", update(current["revision"].(string), []string{"*"}))
 			}
 			require.NoError(t, e)
 		})
 		_, err = cli("set", update(initial["revision"].(string), []string{}))
 		require.Error(t, err)
-		preview, err := cli("preview", `{"filters":["health*"],"span_names":["healthcheck","refund"]}`)
+		preview, err := cli("preview", `{"filters":["refund"],"span_names":["healthcheck","refund"]}`)
 		require.NoError(t, err)
 		require.EqualValues(t, 1, preview["dropped"])
+		require.EqualValues(t, 1, preview["kept"])
 		code, data := request(t, "GET", "/v1/engine/ingestion-rules", "", nil, true)
 		require.Equal(t, 200, code, string(data))
 		require.Contains(t, string(data), saved["revision"].(string))
@@ -225,9 +226,9 @@ func TestStandaloneWorkflows(t *testing.T) {
 		reply = send(t, ws, map[string]any{"action": "recordThreadEvent", "threadId": id, "stepName": "healthcheck", "status": "success", "type": "managed", "actor": "e2e-client", "context": map[string]string{"source": "filter-bypass-test"}, "startedAt": time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano), "finishedAt": time.Now().UTC().Format(time.RFC3339Nano)})
 		require.Equal(t, "success", reply["status"], reply)
 		poll(t, "SELECT count(*) FROM thread_step_states WHERE thread_id=$1 AND step_name='healthcheck'", 1, id)
-		_, err = cli("set", update(stats["revision"].(string), []string{}))
+		_, err = cli("set", update(stats["revision"].(string), []string{"*"}))
 		require.NoError(t, err)
-		export(drop) // Disabled rules allow the previously excluded trace.
+		export(drop) // The wildcard allows the previously excluded trace.
 		poll(t, "SELECT count(*) FROM thread_refs r JOIN threads t ON t.id=r.thread_id WHERE t.company_id=$1 AND r.ref_key='otel_trace_id' AND ref_value=$2", 1, company, hex.EncodeToString(drop.TraceId))
 		checks[t.Name()] = true
 	})

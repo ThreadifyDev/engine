@@ -29,6 +29,10 @@ func (s *BrowserService) Wrap(next http.Handler) http.Handler {
 				return
 			}
 		}
+		if r.URL.Path == "/v1/browser-tokens" {
+			s.handleBrowserCapability(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/auth/") {
 			s.handleAuth(w, r)
 			return

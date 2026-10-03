@@ -99,8 +99,20 @@ attributes are added to step context. Explicit `threadify.context.*` values take
 precedence over ordinary attributes that resolve to the same context key.
 
 SDK exporter options such as `filters` and the exporter-level `refs` mapping do
-not apply to direct OTLP ingestion. Filter spans in the OpenTelemetry Collector,
-and use `threadify.ref.*` attributes for direct ref mapping.
+not apply to direct OTLP ingestion. Use `threadify.ref.*` attributes for direct
+ref mapping.
+
+## Trace ingestion keep list
+
+The Engine's Trace ingestion setting controls which OTLP span names are ingested.
+It defaults to `*`, which keeps every span. Set exact names or prefix patterns
+such as `checkout.*` to keep only matching spans. An empty list keeps no spans.
+Matching is case-sensitive and uses the original span name. Excluded spans are
+acknowledged so exporters do not retry them. Direct SDK events are unaffected.
+
+Previously saved exclusion rules retain their original behavior until an
+administrator saves a new keep list. The settings UI starts that replacement
+at `*` to avoid accidentally dropping spans during the switch.
 
 ## Collector example
 

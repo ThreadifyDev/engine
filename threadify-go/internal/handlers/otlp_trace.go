@@ -140,7 +140,7 @@ func (h *OTLPTraceHandler) HandleTraces(c *gin.Context) {
 			return
 		}
 		evaluated := countOTLPSpans(req)
-		dropped := filterOTLPSpans(req, rules.Filters)
+		dropped := filterOTLPSpans(req, rules.Mode, rules.Filters)
 		c.Header("X-Threadify-Filtered-Spans", strconv.Itoa(dropped))
 		if evaluated > 0 {
 			if err := h.rules.Record(c.Request.Context(), userInfo.CompanyID, evaluated, dropped); err != nil {
@@ -221,7 +221,7 @@ func (h *OTLPTraceHandler) writeProto(c *gin.Context, httpStatus int, message pr
 }
 
 // filterOTLPSpans preserves retained span data and removes empty envelopes.
-func filterOTLPSpans(req *collecttracepb.ExportTraceServiceRequest, filters []string) int {
+func filterOTLPSpans(req *collecttracepb.ExportTraceServiceRequest, mode string, filters []string) int {
 	dropped := 0
 	resources := req.ResourceSpans[:0]
 	for _, resource := range req.ResourceSpans {
@@ -235,7 +235,7 @@ func filterOTLPSpans(req *collecttracepb.ExportTraceServiceRequest, filters []st
 			}
 			spans := scope.Spans[:0]
 			for _, span := range scope.Spans {
-				if span != nil && ingestion.Match(filters, span.Name) != "" {
+				if span != nil && ingestion.ShouldDrop(mode, filters, span.Name) {
 					dropped++
 					continue
 				}

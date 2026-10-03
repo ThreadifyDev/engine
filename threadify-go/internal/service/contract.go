@@ -12,6 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"threadify-go/shared/actionmapping"
 	shderrors "threadify-go/shared/errors"
 
 	"github.com/google/uuid"
@@ -30,12 +31,14 @@ type ContractService struct {
 	planSvc             domain.PlanService
 	validator           domain.ContractValidator
 	compositionReviewer CompositionReviewer
+	actionMappings      actionmapping.Store
 	logger              *zap.Logger
 }
 
 type ContractResponse struct {
-	Contract        *dto.Contract        `json:"contract"`
-	ContractVersion *dto.ContractVersion `json:"contractVersion"`
+	Contract        *dto.Contract         `json:"contract"`
+	ContractVersion *dto.ContractVersion  `json:"contractVersion"`
+	ActionLinks     *ActionLinkCopyResult `json:"actionLinks,omitempty"`
 }
 
 type ContractWithOwnershipResponse struct {
@@ -314,6 +317,7 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, compan
 	if err := s.repo.CreateVersion(ctx, newVersion); err != nil {
 		return 500, map[string]string{"message": "Failed to create new version"}
 	}
+	actionLinks := s.copyActionLinks(ctx, companyID, updatedContract.Name, existingContract.LatestVersion, nextVersion, graphJSON)
 
 	if err := s.planSvc.ChargeContractVersion(ctx, existingContract.CompanyID); err != nil {
 		s.logger.Error("charge contract version failed after creation", zap.String("company_id", existingContract.CompanyID), zap.Error(err))
@@ -327,6 +331,7 @@ func (s *ContractService) UpdateContract(ctx context.Context, contractID, compan
 	return 200, ContractResponse{
 		Contract:        mapper.ToContractDTO(updatedContract),
 		ContractVersion: versionDTO,
+		ActionLinks:     actionLinks,
 	}
 }
 

@@ -35,7 +35,9 @@ func (c *ConnectionService) ConnectWithOwnerAndCompany(ownerID, apiKey, serviceN
 
 	if existing, exists := c.clients[ownerID]; exists {
 		existing.ConnectedAt = time.Now()
-		existing.ApiKey = apiKey
+		if apiKey != "" {
+			existing.ApiKey = apiKey
+		}
 		existing.ServiceName = serviceName
 		existing.CompanyID = companyID
 	} else {

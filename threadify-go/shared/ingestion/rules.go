@@ -15,9 +15,12 @@ var ErrConflict = errors.New("ingestion rules changed; reload before saving")
 
 const MaxFilters = 100
 const MaxPatternBytes = 256
+const ModeInclude = "include"
+const ModeExcludeLegacy = "exclude_legacy"
 
 type Settings struct {
 	Filters        []string   `json:"filters"`
+	Mode           string     `json:"mode"`
 	Revision       string     `json:"revision"`
 	UpdatedAt      *time.Time `json:"updated_at,omitempty"`
 	EvaluatedSpans int64      `json:"evaluated_spans"`
@@ -67,6 +70,13 @@ func Match(filters []string, name string) string {
 	return ""
 }
 
+// ShouldDrop keeps saved exclusion policies working until an administrator
+// explicitly replaces them with an inclusion policy.
+func ShouldDrop(mode string, filters []string, name string) bool {
+	matched := Match(filters, name) != ""
+	return mode == ModeExcludeLegacy && matched || mode != ModeExcludeLegacy && !matched
+}
+
 type PreviewSpan struct {
 	Name    string `json:"name"`
 	Drop    bool   `json:"drop"`
@@ -92,8 +102,8 @@ func Preview(filters, names []string) (PreviewResult, error) {
 			return PreviewResult{}, errors.New("preview span names must be valid UTF-8 and at most 4096 bytes")
 		}
 		pattern := Match(normalized, name)
-		result.Spans = append(result.Spans, PreviewSpan{Name: name, Drop: pattern != "", Pattern: pattern})
-		if pattern != "" {
+		result.Spans = append(result.Spans, PreviewSpan{Name: name, Drop: pattern == "", Pattern: pattern})
+		if pattern == "" {
 			result.Dropped++
 		} else {
 			result.Kept++
