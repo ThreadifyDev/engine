@@ -1,22 +1,27 @@
 # Threadify
 
-### Know what happened to every customer request.
+### Execution intelligence for work across services and AI agents.
 
-Threadify turns activity across your services, partners, and agents into a shared
-execution history. Follow an order from payment to delivery, validate each step
-against a contract, and see where a customer's experience breaks down.
+Threadify follows workflows across your services, partners, and AI agents in a
+shared execution history. It checks recorded steps against your contracts and
+gives people and systems the evidence to decide what happens next. Your systems
+still do the work; Threadify acts as a shared referee.
 
 [Website](https://threadify.dev) · [Documentation](https://docs.threadify.dev) · [Get a license](https://threadify.dev/signup)
 
 ## What you can do
 
-- **Follow the whole journey.** Bring steps from multiple systems into one thread.
-- **Define successful delivery.** Use contracts to validate required steps, order, and timing.
-- **Understand each customer.** Entity profiles connect their threads into a delivery history.
-- **React while work happens.** Subscribe to events and use permission waits to coordinate services.
-- **Give agents the full context.** Let support agents inspect threads through Threadify MCP.
-- **Use your existing telemetry.** Send OpenTelemetry traces or instrument with JavaScript, Python, and Go SDKs.
+- **Follow the work.** Bring steps from multiple systems into one shared thread.
+- **Check the rules.** Use contracts to validate required steps, their details, order, and timing.
+- **Decide what happens next.** Subscribe to violations or have your application wait for permission before a sensitive step.
+- **Learn from execution.** Entity profiles connect past threads so you can spot recurring failures and delays.
+- **Give agents the history.** Let agents inspect authorized threads through Threadify MCP.
+- **Use your existing telemetry.** Send OpenTelemetry traces or instrument services and browser apps with JavaScript, Python, and Go SDKs.
 - **Verify the record.** Check activity integrity with hash-chain verification.
+
+The JavaScript SDK runs in Node.js services and browser apps. Browser apps use
+short-lived, scoped grants issued by their backend; Engine API keys stay on the
+server. See the [browser SDK guide](docs/browser-sdk.md).
 
 Self-host with embedded NATS, database writers, and bundled Valkey on Linux/macOS.
 Bring PostgreSQL and keep your execution data in your infrastructure. Windows
@@ -89,6 +94,7 @@ or send OTLP/HTTP traces to `/v1/traces` with a Threadify API key.
 | Start with | Guide |
 | --- | --- |
 | Trace an order across services | [JavaScript SDK](https://github.com/ThreadifyDev/node-sdk) · [Python SDK](https://github.com/ThreadifyDev/python-sdk) · [Go SDK](https://github.com/ThreadifyDev/go-sdk) |
+| Capture actions in a browser | [Browser SDK](docs/browser-sdk.md) |
 | Send existing traces | [OpenTelemetry](docs/OTLP_INGESTION.md) |
 | Create contracts and entity profiles | [Threadify CLI](https://github.com/ThreadifyDev/cli#readme) |
 | Give an agent access to your threads | [Harnest + Threadify MCP example](examples/threadify-mcp-agent/README.md) |
