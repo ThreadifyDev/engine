@@ -286,6 +286,9 @@ Rule: Dispatch order
 	verify := func(t *testing.T, id string, n int) {
 		t.Helper()
 		poll(t, "SELECT count(*) FROM thread_step_states WHERE thread_id=$1 AND status='success'", n, id)
+		// Step states and activity logs are archived from separate NATS streams.
+		// Wait for the durable hash-chain rows before querying integrity.
+		poll(t, "SELECT count(*) FROM thread_activities WHERE thread_id=$1 AND activity_type='step_recorded'", n, id)
 		for _, s := range systems {
 			poll(t, "SELECT count(*) FROM thread_step_states WHERE thread_id=$1 AND actor=$2 AND actor_service=$3", n/2, id, s.ID, s.Name)
 		}
