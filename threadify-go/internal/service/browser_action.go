@@ -73,67 +73,40 @@ func (s *ThreadService) RecordBrowserAction(ctx context.Context, req *dto.Browse
 	classification, matchedStep, parentStep := "free_form", "", ""
 	result := &dto.BrowserActionResponse{}
 	if thread.ContractName != "" {
-		classification = "substep"
-		version := 0
-		if thread.ContractVersion != nil {
-			version = *thread.ContractVersion
-		} else {
-			contract, err := s.contractValidator.GetContractByNameAndCompany(ctx, thread.ContractName, companyID)
-			if err != nil || contract == nil {
-				return nil, errors.New("contract unavailable")
-			}
-			version = contract.LatestVersion
-		}
-		graph, err := s.contractValidator.GetContractGraph(ctx, thread.ContractName, version, companyID)
+		match, err := s.matchContractInput(ctx, thread, req.Name)
 		if err != nil {
-			return nil, errors.New("contract unavailable")
+			return nil, err
 		}
-		if s.browserActionMappings != nil {
-			settings, err := s.browserActionMappings.Load(ctx, companyID)
-			if err != nil {
-				return nil, errors.New("action mappings unavailable")
+		classification = match.classification
+		switch classification {
+		case "mapped_step":
+			now := time.Now().UTC().Format(time.RFC3339Nano)
+			id := req.EventID
+			if id == "" {
+				id = uuid.NewString()
 			}
-			if rule, ok := actionmapping.Match(settings.Rules, thread.ContractName, version, req.Name); ok {
-				if node, exists := graph.Graph.Nodes[rule.Step]; exists && node.Type != "parallel_group" {
-					now := time.Now().UTC().Format(time.RFC3339Nano)
-					id := req.EventID
-					if id == "" {
-						id = uuid.NewString()
-					}
-					contextValues := req.Context
-					if contextValues == nil {
-						contextValues = map[string]string{}
-					}
-					step := s.HandleRecordEvent(ctx, &domain.RecordEventCmd{
-						Action: "recordThreadEvent", ThreadID: req.ThreadID, StepName: rule.Step,
-						Type: "browser_action", StartedAt: now, FinishedAt: now,
-						Context: contextValues, Status: "success", ServiceName: "browser_auto_capture",
-						IdempotencyKey: "browser-action:" + id,
-					}, ownerID, companyID)
-					result.MappedStep = rule.Step
-					if step.Status == StepStatusSuccess {
-						classification, matchedStep, result.StepID = "mapped_step", rule.Step, step.StepID
-					} else {
-						classification, result.Message = "mapping_rejected", step.Message
-					}
-				} else {
-					classification, result.Message = "mapping_rejected", "mapped step is not in this thread's contract version"
-				}
+			contextValues := req.Context
+			if contextValues == nil {
+				contextValues = map[string]string{}
 			}
-		}
-		if classification == "substep" {
-			if node, ok := graph.Graph.Nodes[req.Name]; ok && node.Type != "parallel_group" {
-				matchedStep = req.Name
-			} else if s.browserClassifier != nil {
-				if candidate, err := s.browserClassifier.MatchAction(ctx, req.Name, contractActions(graph)); err == nil {
-					if node, ok := graph.Graph.Nodes[candidate]; ok && node.Type != "parallel_group" {
-						matchedStep = candidate
-					}
-				}
+			step := s.HandleRecordEvent(ctx, &domain.RecordEventCmd{
+				Action: "recordThreadEvent", ThreadID: req.ThreadID, StepName: match.step,
+				Type: "browser_action", StartedAt: now, FinishedAt: now,
+				Context: contextValues, Status: "success", ServiceName: "browser_auto_capture",
+				IdempotencyKey: "browser-action:" + id,
+			}, ownerID, companyID)
+			result.MappedStep = match.step
+			if step.Status == StepStatusSuccess || step.IsDuplicate {
+				matchedStep, result.StepID = match.step, step.StepID
+			} else {
+				classification, result.Message = "mapping_rejected", step.Message
 			}
-			if matchedStep != "" {
-				classification = "step_candidate"
-			} else if completed, err := s.repo.GetCompletedSteps(ctx, req.ThreadID); err == nil && len(completed) > 0 {
+		case "mapping_rejected":
+			result.MappedStep, result.Message = match.step, match.message
+		case "step_candidate":
+			matchedStep = match.step
+		case "substep":
+			if completed, err := s.repo.GetCompletedSteps(ctx, req.ThreadID); err == nil && len(completed) > 0 {
 				parentStep, _, _ = strings.Cut(completed[len(completed)-1], ":")
 			}
 		}

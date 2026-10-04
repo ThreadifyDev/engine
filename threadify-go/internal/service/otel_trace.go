@@ -72,6 +72,7 @@ func (s *OTelTraceService) Ingest(
 	req *collecttracepb.ExportTraceServiceRequest,
 	ownerID, companyID string,
 ) (*collecttracepb.ExportTraceServiceResponse, error) {
+	defer s.recordFilterCounts(ctx, companyID)
 	groups, rejected, messages := groupOTelSpans(req)
 	completions := make(map[string]otelCompletion)
 
@@ -181,13 +182,26 @@ func (s *OTelTraceService) ingestTrace(
 	if threadKey != "" {
 		threadDescriptor.resourceAttrs["threadify.thread_key"] = &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: threadKey}}
 	}
+	traceStartedAt := spans[0].span.GetStartTimeUnixNano()
+	retained, err := s.filterGeneralTrace(ctx, ownerID, companyID, traceID, threadKey, threadDescriptor, spans)
+	if err != nil {
+		var permanent *permanentOTelError
+		if errors.As(err, &permanent) {
+			return int64(len(spans)), []string{fmt.Sprintf("trace %s: %v", traceID, err)}, nil
+		}
+		return 0, nil, err
+	}
+	if len(retained) == 0 {
+		return 0, nil, nil
+	}
+	spans = retained
 	threadID, err := s.resolveThread(
 		ctx,
 		ownerID,
 		companyID,
 		traceID,
 		threadDescriptor,
-		spans[0].span.GetStartTimeUnixNano(),
+		traceStartedAt,
 	)
 	if err != nil {
 		var permanent *permanentOTelError
@@ -528,6 +542,8 @@ func (s *OTelTraceService) recordSpan(
 		ThreadifyMetadata: map[string]interface{}{
 			"message": span.GetStatus().GetMessage(),
 			"otel": map[string]interface{}{
+				"span_name":           span.GetName(),
+				"explicit_step_name":  attributeString(keyValueMap(span.GetAttributes()), "threadify.step_name") != "",
 				"trace_state":         span.GetTraceState(),
 				"span_kind":           span.GetKind().String(),
 				"status_description":  span.GetStatus().GetMessage(),
@@ -583,6 +599,7 @@ func isPermanentOTelRecordFailure(message string) bool {
 		"Step '",
 		"Thread must start with one of the entry points",
 		"Step validation failed",
+		"mapped step is not in this thread's contract version",
 	}
 	for _, prefix := range permanentPrefixes {
 		if strings.HasPrefix(message, prefix) {

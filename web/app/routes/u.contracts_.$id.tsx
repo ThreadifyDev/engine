@@ -198,7 +198,7 @@ export default function ContractDetail() {
                 <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">New version</p>
                 <h2 id="update-contract-title" className="text-lg font-semibold text-stone-900">Update {contract?.name}</h2>
                 <p className="mt-1 text-xs text-stone-500">Review the source for v{latestVersion + 1}, then publish it.</p>
-                <p className="mt-1 text-xs text-stone-500">Action links to steps that remain in this version will be copied.</p>
+                <p className="mt-1 text-xs text-stone-500">Input mappings to retained steps will be copied.</p>
               </div>
               <button type="button" onClick={closeUpdate} disabled={updating} aria-label="Close update dialog" className="rounded-lg p-2 text-stone-500 hover:bg-stone-100"><X className="h-4 w-4" /></button>
             </div>

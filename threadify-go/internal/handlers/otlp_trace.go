@@ -130,31 +130,19 @@ func (h *OTLPTraceHandler) HandleTraces(c *gin.Context) {
 		return
 	}
 
-	// Filter original span names before the ingester resolves identities or creates threads.
+	// The ingester determines whether each trace belongs to a contract before
+	// applying the general-thread keep list.
+	var policy *service.OTelIngestionPolicy
 	if h.rules != nil {
-		rules, err := h.rules.Load(c.Request.Context(), userInfo.CompanyID)
-		if err != nil {
-			h.logger.Error("load OTLP ingestion rules", zap.Error(err))
-			c.Header("Retry-After", "1")
-			h.writeStatus(c, http.StatusServiceUnavailable, codes.Unavailable, "trace ingestion rules unavailable")
-			return
-		}
-		evaluated := countOTLPSpans(req)
-		dropped := filterOTLPSpans(req, rules.Mode, rules.Filters)
-		c.Header("X-Threadify-Filtered-Spans", strconv.Itoa(dropped))
-		if evaluated > 0 {
-			if err := h.rules.Record(c.Request.Context(), userInfo.CompanyID, evaluated, dropped); err != nil {
-				h.logger.Warn("record OTLP filter counts", zap.Error(err))
-			}
-		}
-		// Intentional exclusions are successful exports, not rejected spans that exporters should retry.
-		if evaluated == dropped {
-			h.writeProto(c, http.StatusOK, &collecttracepb.ExportTraceServiceResponse{})
-			return
-		}
+		ctx, requestPolicy := service.WithOTelIngestionRules(c.Request.Context(), h.rules)
+		policy = requestPolicy
+		c.Request = c.Request.WithContext(ctx)
 	}
 
 	resp, err := h.ingester.Ingest(c.Request.Context(), req, userInfo.OwnerID, userInfo.CompanyID)
+	if policy != nil {
+		c.Header("X-Threadify-Filtered-Spans", strconv.Itoa(policy.Dropped))
+	}
 	if err != nil {
 		h.logger.Error("OTLP trace ingestion failed", zap.String("company_id", userInfo.CompanyID), zap.Error(err))
 		c.Header("Retry-After", "1")
@@ -218,39 +206,4 @@ func (h *OTLPTraceHandler) writeProto(c *gin.Context, httpStatus int, message pr
 		return
 	}
 	c.Data(httpStatus, otlpProtobufContentType, payload)
-}
-
-// filterOTLPSpans preserves retained span data and removes empty envelopes.
-func filterOTLPSpans(req *collecttracepb.ExportTraceServiceRequest, mode string, filters []string) int {
-	dropped := 0
-	resources := req.ResourceSpans[:0]
-	for _, resource := range req.ResourceSpans {
-		if resource == nil {
-			continue
-		}
-		scopes := resource.ScopeSpans[:0]
-		for _, scope := range resource.ScopeSpans {
-			if scope == nil {
-				continue
-			}
-			spans := scope.Spans[:0]
-			for _, span := range scope.Spans {
-				if span != nil && ingestion.ShouldDrop(mode, filters, span.Name) {
-					dropped++
-					continue
-				}
-				spans = append(spans, span)
-			}
-			scope.Spans = spans
-			if len(spans) > 0 {
-				scopes = append(scopes, scope)
-			}
-		}
-		resource.ScopeSpans = scopes
-		if len(scopes) > 0 {
-			resources = append(resources, resource)
-		}
-	}
-	req.ResourceSpans = resources
-	return dropped
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/threadify/engine/internal/domain"
 	enginemocks "github.com/threadify/engine/internal/service/mocks/engine"
 	collecttracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
-	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
@@ -47,75 +46,36 @@ func filterBatch(names ...string) *collecttracepb.ExportTraceServiceRequest {
 	}
 	return &collecttracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{ScopeSpans: []*tracepb.ScopeSpans{{Spans: spans}}}}}
 }
-func TestOTLPFilteringPrecedesIngestion(t *testing.T) {
-	for _, tc := range []struct {
-		name                      string
-		filters                   []string
-		mode                      string
-		loadErr                   error
-		wantStatus, kept, dropped int
-	}{
-		{"partial", []string{"healthcheck", "internal.*"}, ingestion.ModeInclude, nil, 200, 2, 1},
-		{"all", []string{"*"}, ingestion.ModeInclude, nil, 200, 3, 0},
-		{"empty", nil, ingestion.ModeInclude, nil, 200, 0, 3},
-		{"legacy", []string{"healthcheck", "internal.*"}, ingestion.ModeExcludeLegacy, nil, 200, 1, 2},
-		{"storage unavailable", nil, ingestion.ModeInclude, errors.New("offline"), 503, 0, 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			auth := enginemocks.NewMockAuthService(ctrl)
-			plan := enginemocks.NewMockPlanService(ctrl)
-			auth.EXPECT().ValidateApiKey("key").Return(&domain.UserInfo{OwnerID: "owner", CompanyID: "company"}, nil)
-			plan.EXPECT().CheckBalancePositive(gomock.Any(), "company").Return(&shareddomain.CreditAccount{}, nil)
-			calls := 0
-			ingester := &fakeOTelTraceIngester{fn: func(_ context.Context, batch *collecttracepb.ExportTraceServiceRequest, owner, company string) (*collecttracepb.ExportTraceServiceResponse, error) {
-				calls++
-				require.Equal(t, tc.kept, countOTLPSpans(batch))
-				return &collecttracepb.ExportTraceServiceResponse{}, nil
-			}}
-			store := &filterFixture{filters: tc.filters, mode: tc.mode, err: tc.loadErr}
-			handler := NewOTLPTraceHandler(ingester, auth, plan, zap.NewNop()).WithIngestionRules(store)
-			router := gin.New()
-			router.POST("/v1/traces", handler.HandleTraces)
-			body, err := proto.Marshal(filterBatch("healthcheck", "internal.cache", "refund"))
-			require.NoError(t, err)
-			req := httptest.NewRequest("POST", "/v1/traces", bytes.NewReader(body))
-			req.Header.Set("X-API-Key", "key")
-			req.Header.Set("Content-Type", otlpProtobufContentType)
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
-			require.Equal(t, tc.wantStatus, w.Code)
-			if tc.kept == 0 {
-				require.Zero(t, calls)
-			} else {
-				require.Equal(t, 1, calls)
-			}
-			require.Equal(t, tc.dropped, store.dropped)
-			if tc.wantStatus == 200 {
-				require.Equal(t, 3, store.evaluated)
-				response := &collecttracepb.ExportTraceServiceResponse{}
-				require.NoError(t, proto.Unmarshal(w.Body.Bytes(), response))
-				require.Nil(t, response.PartialSuccess)
-			} else {
-				require.Equal(t, "1", w.Header().Get("Retry-After"))
-				require.Zero(t, store.evaluated)
-			}
-		})
-	}
-}
-func TestOTLPFiltersOriginalNamesAndPreservesRetainedSpans(t *testing.T) {
-	batch := filterBatch("internal.parent", "refund", "Refund")
-	spans := batch.ResourceSpans[0].ScopeSpans[0].Spans
-	spans[1].Attributes = []*commonpb.KeyValue{{Key: "threadify.step_name", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "internal.mapped"}}}}
-	spans[1].ParentSpanId = []byte{1, 2, 3}
-	spans[1].Events = []*tracepb.Span_Event{{Name: "receipt"}}
-	expected := proto.Clone(spans[1])
-	require.Equal(t, 2, filterOTLPSpans(batch, ingestion.ModeInclude, []string{"refund"}))
-	require.Len(t, batch.ResourceSpans[0].ScopeSpans[0].Spans, 1)
-	require.True(t, proto.Equal(expected, batch.ResourceSpans[0].ScopeSpans[0].Spans[0]))
-	require.Equal(t, 0, filterOTLPSpans(batch, ingestion.ModeInclude, []string{"*"}))
-	require.Equal(t, 1, filterOTLPSpans(batch, ingestion.ModeInclude, nil))
-	require.Empty(t, batch.ResourceSpans)
+
+// Filtering needs resolved thread context, so the HTTP boundary must pass the
+// original batch through even when the general-thread store is unavailable.
+func TestOTLPFilteringDelegatesToIngester(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	auth := enginemocks.NewMockAuthService(ctrl)
+	plan := enginemocks.NewMockPlanService(ctrl)
+	auth.EXPECT().ValidateApiKey("key").Return(&domain.UserInfo{OwnerID: "owner", CompanyID: "company"}, nil)
+	plan.EXPECT().CheckBalancePositive(gomock.Any(), "company").Return(&shareddomain.CreditAccount{}, nil)
+	calls := 0
+	ingester := &fakeOTelTraceIngester{fn: func(ctx context.Context, batch *collecttracepb.ExportTraceServiceRequest, owner, company string) (*collecttracepb.ExportTraceServiceResponse, error) {
+		calls++
+		require.Equal(t, 3, countOTLPSpans(batch))
+		return &collecttracepb.ExportTraceServiceResponse{}, nil
+	}}
+	store := &filterFixture{err: errors.New("offline")}
+	handler := NewOTLPTraceHandler(ingester, auth, plan, zap.NewNop()).WithIngestionRules(store)
+	router := gin.New()
+	router.POST("/v1/traces", handler.HandleTraces)
+	body, err := proto.Marshal(filterBatch("healthcheck", "internal.cache", "refund"))
+	require.NoError(t, err)
+	req := httptest.NewRequest("POST", "/v1/traces", bytes.NewReader(body))
+	req.Header.Set("X-API-Key", "key")
+	req.Header.Set("Content-Type", otlpProtobufContentType)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, 200, w.Code)
+	require.Equal(t, 1, calls)
+	require.Equal(t, "0", w.Header().Get("X-Threadify-Filtered-Spans"))
+	require.Zero(t, store.evaluated)
 }
 func TestOTLPFilterDoesNotRunBeforeAuthentication(t *testing.T) {
 	handler := NewOTLPTraceHandler(&fakeOTelTraceIngester{}, nil, nil, zap.NewNop()).WithIngestionRules(&filterFixture{err: errors.New("should not reach policy")})

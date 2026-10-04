@@ -49,7 +49,9 @@ as a step candidate; otherwise it records a substep under the latest completed
 step when one exists. Free-form threads use the `free_form` classification.
 The browser SDK can map a click directly to `recordThreadEvent`.
 
-Administrators can open **Action links** from the relevant contract version page.
+Administrators can open **Input config** from the relevant contract version page.
+These mappings apply to OTel spans and auto-captured browser actions. Direct
+Threadify SDK events bypass them.
 Enter one `action=contract_step` pair per line, or use
 `action_a,action_b=contract_step` to map several actions to the same step.
 Each action becomes one rule with a captured action

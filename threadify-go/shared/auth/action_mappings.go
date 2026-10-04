@@ -10,7 +10,7 @@ import (
 
 type ActionMappingValidator func(context.Context, string, actionmapping.Rule) error
 
-// ActionMappingsHandler manages future browser action mappings for this Engine.
+// ActionMappingsHandler manages OTel span and auto-captured browser action mappings for this Engine.
 func (s *BrowserService) ActionMappingsHandler(store actionmapping.Store, validate ActionMappingValidator, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -40,7 +40,7 @@ func (s *BrowserService) ActionMappingsHandler(store actionmapping.Store, valida
 				SELECT a.payload->>'name' AS name, COALESCE(t.contract_name,'') AS contract,
 					COALESCE(t.contract_version,0) AS version, a.recorded_at
 				FROM thread_activities a JOIN threads t ON t.id=a.thread_id
-				WHERE a.activity_type='browser_action' AND t.company_id=$1
+				WHERE a.activity_type IN ('browser_action', 'trace_input') AND t.company_id=$1
 				ORDER BY a.recorded_at DESC LIMIT 2000
 			)
 			SELECT name,contract,version,COUNT(*) FROM recent WHERE name IS NOT NULL AND name<>''

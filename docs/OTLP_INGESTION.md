@@ -102,9 +102,22 @@ SDK exporter options such as `filters` and the exporter-level `refs` mapping do
 not apply to direct OTLP ingestion. Use `threadify.ref.*` attributes for direct
 ref mapping.
 
+## Contract input config
+
+Contract version **Input config** maps OTel span names and auto-captured browser
+actions to contract steps. Exact mappings win over prefix mappings; the longest
+prefix wins. Mapped spans use normal contract validation and retain their trace
+timestamps, context, status, and idempotency key. Explicit `threadify.step_name`
+and unmapped spans already named for a contract step still use the normal step path.
+Unmapped names use Jev, when configured, to suggest a step; candidates and unmatched
+inputs are stored as activity evidence without completing steps. Direct Threadify
+SDK events bypass input mappings and continue through normal contract validation.
+
 ## Trace ingestion keep list
 
-The Engine's Trace ingestion setting controls which OTLP span names are ingested.
+The Engine's Trace ingestion setting controls OTLP span names for general threads
+without contracts. Contract threads bypass this keep list and use the input
+mappings for their pinned contract version.
 It defaults to `*`, which keeps every span. Set exact names or prefix patterns
 such as `checkout.*` to keep only matching spans. An empty list keeps no spans.
 Matching is case-sensitive and uses the original span name. Excluded spans are

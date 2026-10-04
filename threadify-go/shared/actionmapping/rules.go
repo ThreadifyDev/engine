@@ -1,4 +1,4 @@
-// Package actionmapping defines Engine-managed browser action to contract step rules.
+// Package actionmapping defines Engine-managed captured input to contract step rules.
 package actionmapping
 
 import (

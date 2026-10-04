@@ -90,19 +90,19 @@ export function BrowserActionMappings({ contractName, version, steps }: Props) {
 
   return <section aria-labelledby="browser-mappings-title" className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm shadow-stone-200/40">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 px-5 py-4 sm:px-6">
-      <div><h3 id="browser-mappings-title" className="text-sm font-semibold text-stone-900">Captured actions</h3>
-        <p className="mt-1 text-xs text-stone-500">Link actions to steps in version {version}.</p></div>
+      <div><h3 id="browser-mappings-title" className="text-sm font-semibold text-stone-900">Input mappings</h3>
+        <p className="mt-1 text-xs text-stone-500">OTel spans and auto-captured browser actions. Direct SDK events bypass these mappings.</p></div>
       <div className="flex items-center gap-2">
-        <span className="rounded-md bg-stone-100 px-2 py-1 text-xs font-medium text-stone-600">{current.length} {current.length === 1 ? 'action' : 'actions'} mapped</span>
-        <button type="button" onClick={reload} disabled={busy} aria-label="Reload action links" className="rounded-lg border border-stone-200 bg-white p-2 text-stone-600 hover:bg-stone-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700 disabled:opacity-40"><RefreshCw size={15} aria-hidden="true" /></button>
+        <span className="rounded-md bg-stone-100 px-2 py-1 text-xs font-medium text-stone-600">{current.length} {current.length === 1 ? 'input' : 'inputs'} mapped</span>
+        <button type="button" onClick={reload} disabled={busy} aria-label="Reload input mappings" className="rounded-lg border border-stone-200 bg-white p-2 text-stone-600 hover:bg-stone-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700 disabled:opacity-40"><RefreshCw size={15} aria-hidden="true" /></button>
       </div>
     </div>
     {error && <div role="alert" className="mx-5 mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:mx-6">{error}</div>}
-    {!saved && !error && <p role="status" className="px-5 py-10 text-sm text-stone-500 sm:px-6">Loading action links…</p>}
+    {!saved && !error && <p role="status" className="px-5 py-10 text-sm text-stone-500 sm:px-6">Loading input mappings…</p>}
     {saved && <>
       <div className="space-y-4 p-5 sm:p-6">
-        <div><label htmlFor="browser-action-mappings" className="text-sm font-medium text-stone-800">Action = contract step</label>
-          <p id="browser-mappings-hint" className="mt-1 text-xs leading-5 text-stone-500">One step per line. Separate actions with commas: <code className="font-mono text-stone-700">checkout_clicked,checkout_confirmed=browser_checkout</code>. Only future actions on threads using this version are affected.</p></div>
+        <div><label htmlFor="browser-action-mappings" className="text-sm font-medium text-stone-800">Input name = contract step</label>
+          <p id="browser-mappings-hint" className="mt-1 text-xs leading-5 text-stone-500">Exact names or a trailing *. Separate names with commas: <code className="font-mono text-stone-700">checkout_clicked,checkout_confirmed=browser_checkout</code>. Applies to version {version}.</p></div>
         <textarea id="browser-action-mappings" aria-describedby="browser-mappings-hint" value={value} onChange={event => { setValue(event.target.value); setError(''); setMessage(''); }} disabled={busy || !canEdit} rows={8} spellCheck={false} autoCapitalize="none" placeholder={'checkout_clicked,checkout_confirmed=browser_checkout\nreview_delivery_options=delivery_reviewed'} className="block min-h-52 w-full resize-y rounded-lg border border-stone-200 bg-[#fbfbfa] p-4 font-mono text-sm leading-7 text-stone-900 placeholder:text-stone-400 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60" />
         {steps.length > 0 && <p className="text-xs leading-5 text-stone-500">Steps in this version: <span className="font-mono text-stone-700">{steps.join(', ')}</span></p>}
         {canEdit && recent.length > 0 && <div className="flex flex-wrap items-center gap-2 border-t border-stone-100 pt-4">
@@ -111,7 +111,7 @@ export function BrowserActionMappings({ contractName, version, steps }: Props) {
         </div>}
       </div>
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 bg-stone-50/60 px-5 py-4 sm:px-6">
-        <p role="status" className="flex items-center gap-1.5 text-xs text-stone-500">{message ? <><Check size={14} className="text-emerald-600" aria-hidden="true" />{message}</> : !canEdit ? 'Only administrators can edit action links.' : dirty ? 'Unsaved changes' : 'Up to date'}</p>
+        <p role="status" className="flex items-center gap-1.5 text-xs text-stone-500">{message ? <><Check size={14} className="text-emerald-600" aria-hidden="true" />{message}</> : !canEdit ? 'Only administrators can edit input mappings.' : dirty ? 'Unsaved changes' : 'Up to date'}</p>
         {canEdit && <div className="flex items-center gap-3">
           {dirty && <button type="button" onClick={() => { setValue(format(current)); setError(''); setMessage(''); }} disabled={busy} className="rounded px-2 py-2 text-sm text-stone-500 hover:text-stone-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700 disabled:opacity-40">Discard</button>}
           <button type="button" onClick={save} disabled={busy || !dirty} className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:opacity-40">Save changes</button>

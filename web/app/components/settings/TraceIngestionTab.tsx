@@ -49,7 +49,7 @@ export function TraceIngestionTab() {
     <header className="flex items-start justify-between gap-4">
       <div>
         <h3 id="trace-ingestion-title" className="text-xl font-semibold tracking-tight">Trace ingestion</h3>
-        <p className="mt-1.5 text-sm text-gray-500">Choose which trace spans Threadify keeps.</p>
+        <p className="mt-1.5 text-sm text-gray-500">OTel spans for general threads only.</p>
       </div>
       <button type="button" onClick={reload} disabled={busy} aria-label="Reload saved rules and counts" title="Reload saved rules and counts" className={`${secondaryButton} !p-2`}>
         <RefreshCw size={16} aria-hidden="true" className={busy ? 'animate-spin' : ''} />
@@ -101,12 +101,12 @@ export function TraceIngestionTab() {
         </footer>
       </div>
       <div className="space-y-3 text-xs text-gray-500">
-        <p>Applies to OTLP traces. Direct SDK events are unchanged.</p>
+        <p>Contract threads use their input config. Direct SDK events bypass these filters.</p>
         <details className="group">
           <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded text-gray-500 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 [&::-webkit-details-marker]:hidden"><Info size={13} aria-hidden="true" />How filtering works<ChevronDown size={13} aria-hidden="true" className="transition-transform group-open:rotate-180" /></summary>
           <ul className="mt-3 list-disc space-y-2 pl-5 leading-5">
             <li>Rules match original span names, case-sensitively. The default <code>*</code> keeps every span. Clearing all rules keeps none.</li>
-            <li>Each span is filtered independently. Keep steps and completion signals your contracts need.</li>
+            <li>Each span is filtered independently.</li>
             <li>Changes apply to the next batches on every replica. Filtering does not redact fields or reduce received bandwidth usage.</li>
             <li>Counts include export retries. Previews do not change counts or save rules.</li>
           </ul>

@@ -486,10 +486,14 @@ func (s *ThreadService) HandleRecordEvent(ctx context.Context, req *domain.Recor
 // RecordEventForIngestion reuses the normal step write path for requests
 // already authenticated at the HTTP boundary.
 func (s *ThreadService) RecordEventForIngestion(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string) *domain.RecordEventResponse {
-	return s.recordEvent(ctx, req, ownerID, companyID, false)
+	return s.recordEventWithInput(ctx, req, ownerID, companyID, false, req != nil && req.Type == "otel_span")
 }
 
 func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string, requireConnection bool) *domain.RecordEventResponse {
+	return s.recordEventWithInput(ctx, req, ownerID, companyID, requireConnection, false)
+}
+
+func (s *ThreadService) recordEventWithInput(ctx context.Context, req *domain.RecordEventCmd, ownerID, companyID string, requireConnection, classifyInput bool) *domain.RecordEventResponse {
 	errResp := func(msg string) *domain.RecordEventResponse {
 		return &domain.RecordEventResponse{Action: ActionRecordThreadEvent, Status: StepStatusError, Message: msg}
 	}
@@ -540,6 +544,12 @@ func (s *ThreadService) recordEvent(ctx context.Context, req *domain.RecordEvent
 	}
 	if err := validateThreadKeyRefs(thread, req.Refs); err != nil {
 		return errResp(err.Error())
+	}
+
+	// Captured trace inputs share authentication, payload limits, authorization,
+	// and terminal-thread checks with direct events before classification.
+	if classifyInput && thread.ContractName != "" {
+		return s.recordTraceInput(ctx, req, thread, ownerID, companyID, len(reqBytes))
 	}
 
 	var graph *domain.ContractGraph
