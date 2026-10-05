@@ -319,12 +319,12 @@ class ApiClient {
     return this.request('/engine/ingestion-rules');
   }
 
-  saveIngestionRules(filters: string[], revision: string): Promise<IngestionRules> {
-    return this.request('/engine/ingestion-rules', { method: 'PUT', body: JSON.stringify({ filters, revision }) });
+  saveIngestionRules(filters: string[], revision: string, exclude?: string[]): Promise<IngestionRules> {
+    return this.request('/engine/ingestion-rules', { method: 'PUT', body: JSON.stringify({ filters, revision, exclude }) });
   }
 
-  previewIngestionRules(filters: string[], span_names: string[]): Promise<IngestionPreview> {
-    return this.request('/engine/ingestion-rules/preview', { method: 'POST', body: JSON.stringify({ filters, span_names }) });
+  previewIngestionRules(filters: string[], spanNames: string[], exclude: string[] = []): Promise<IngestionPreview> {
+    return this.request('/engine/ingestion-rules/preview', { method: 'POST', body: JSON.stringify({ filters, span_names: spanNames, exclude }) });
   }
 
   getBrowserActionMappings(): Promise<BrowserActionMappings> {
@@ -814,6 +814,7 @@ export interface EngineUser {
 }
 
 export interface IngestionRules {
+  exclude?: string[];
   filters: string[];
   mode: 'include' | 'exclude_legacy';
   revision: string;
@@ -841,7 +842,7 @@ export interface ObservedBrowserAction {
   count: number;
 }
 export interface IngestionPreview {
-  spans: { name: string; drop: boolean; pattern?: string }[];
+  spans: { name: string; drop: boolean; pattern?: string; drop_pattern?: string }[];
   dropped: number;
   kept: number;
 }

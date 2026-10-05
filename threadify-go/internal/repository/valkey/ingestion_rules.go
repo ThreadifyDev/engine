@@ -26,7 +26,7 @@ func (s *IngestionRules) Load(ctx context.Context, company string) (ingestion.Se
 	if err != nil {
 		return ingestion.Settings{}, err
 	}
-	result := ingestion.Settings{Filters: []string{"*"}, Mode: ingestion.ModeInclude, Revision: values["revision"]}
+	result := ingestion.Settings{Filters: []string{"*"}, Exclude: []string{}, Mode: ingestion.ModeInclude, Revision: values["revision"]}
 	if raw, ok := values["filters"]; ok {
 		result.Mode = values["mode"]
 		if result.Mode == "" {
@@ -47,6 +47,18 @@ func (s *IngestionRules) Load(ctx context.Context, company string) (ingestion.Se
 		}
 	} else if result.Revision != "" {
 		return result, fmt.Errorf("missing stored ingestion filters")
+	}
+	if raw, ok := values["exclude"]; ok {
+		if err := json.Unmarshal([]byte(raw), &result.Exclude); err != nil {
+			return result, err
+		}
+		if result.Exclude == nil {
+			return result, fmt.Errorf("invalid stored ingestion exclusions")
+		}
+		result.Exclude, err = ingestion.Normalize(result.Exclude)
+		if err != nil {
+			return result, err
+		}
 	}
 	if raw := values["updated_at"]; raw != "" {
 		t, e := time.Parse(time.RFC3339Nano, raw)
@@ -69,13 +81,29 @@ func (s *IngestionRules) Load(ctx context.Context, company string) (ingestion.Se
 const saveIngestionRules = `
 local revision = redis.call('HGET', KEYS[1], 'revision') or ''
 if revision ~= ARGV[1] then return {0, 0, 0} end
-redis.call('HSET', KEYS[1], 'revision', ARGV[2], 'filters', ARGV[3], 'updated_at', ARGV[4], 'mode', 'include')
+redis.call('HSET', KEYS[1], 'revision', ARGV[2], 'filters', ARGV[3], 'updated_at', ARGV[4], 'mode', 'include', 'exclude', ARGV[5])
 return {1, tonumber(redis.call('HGET', KEYS[1], 'evaluated') or '0'), tonumber(redis.call('HGET', KEYS[1], 'dropped') or '0')}
 `
 
 // Compare-and-set prevents a stale UI tab or CLI file from overwriting another admin's changes.
-func (s *IngestionRules) Save(ctx context.Context, company, revision string, filters []string) (ingestion.Settings, error) {
+func (s *IngestionRules) Save(ctx context.Context, company, revision string, filters, exclusions []string) (ingestion.Settings, error) {
 	normalized, err := ingestion.Normalize(filters)
+	if err != nil {
+		return ingestion.Settings{}, err
+	}
+	// Older clients omit exclusions. Preserve them under the same revision check.
+	if exclusions == nil {
+		current, err := s.Load(ctx, company)
+		if err != nil {
+			return ingestion.Settings{}, err
+		}
+		exclusions = current.Exclude
+	}
+	exclusions, err = ingestion.Normalize(exclusions)
+	if err != nil {
+		return ingestion.Settings{}, err
+	}
+	exclusionPayload, err := json.Marshal(exclusions)
 	if err != nil {
 		return ingestion.Settings{}, err
 	}
@@ -85,7 +113,7 @@ func (s *IngestionRules) Save(ctx context.Context, company, revision string, fil
 	}
 	next := uuid.NewString()
 	now := time.Now().UTC()
-	saved, err := s.client.Eval(ctx, saveIngestionRules, []string{ingestionRulesKey(company)}, revision, next, string(payload), now.Format(time.RFC3339Nano)).Int64Slice()
+	saved, err := s.client.Eval(ctx, saveIngestionRules, []string{ingestionRulesKey(company)}, revision, next, string(payload), now.Format(time.RFC3339Nano), string(exclusionPayload)).Int64Slice()
 	if err != nil {
 		return ingestion.Settings{}, err
 	}
@@ -96,7 +124,7 @@ func (s *IngestionRules) Save(ctx context.Context, company, revision string, fil
 		return ingestion.Settings{}, ingestion.ErrConflict
 	}
 	// Return this write's revision, even if another administrator saves immediately afterward.
-	return ingestion.Settings{Filters: normalized, Mode: ingestion.ModeInclude, Revision: next, UpdatedAt: &now, EvaluatedSpans: saved[1], DroppedSpans: saved[2]}, nil
+	return ingestion.Settings{Filters: normalized, Exclude: exclusions, Mode: ingestion.ModeInclude, Revision: next, UpdatedAt: &now, EvaluatedSpans: saved[1], DroppedSpans: saved[2]}, nil
 }
 
 // Counters describe evaluated delivery attempts, including retries, rather than unique archived spans.

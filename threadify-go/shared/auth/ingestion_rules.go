@@ -33,12 +33,13 @@ func (s *BrowserService) IngestionRulesHandler(store ingestion.Store, next http.
 			var body struct {
 				Filters   *[]string `json:"filters"`
 				SpanNames []string  `json:"span_names"`
+				Exclude   []string  `json:"exclude"`
 			}
 			if !decodeIngestionBody(w, r, &body) || body.Filters == nil {
 				browserError(w, 400, "filters_required")
 				return
 			}
-			result, err := ingestion.Preview(*body.Filters, body.SpanNames)
+			result, err := ingestion.PreviewRules(*body.Filters, body.Exclude, body.SpanNames)
 			if err != nil {
 				browserError(w, 400, err.Error())
 				return
@@ -52,6 +53,7 @@ func (s *BrowserService) IngestionRulesHandler(store ingestion.Store, next http.
 			var body struct {
 				Filters  *[]string `json:"filters"`
 				Revision *string   `json:"revision"`
+				Exclude  []string  `json:"exclude"`
 			}
 			if !decodeIngestionBody(w, r, &body) || body.Filters == nil || body.Revision == nil {
 				browserError(w, 400, "filters_and_revision_required")
@@ -61,6 +63,13 @@ func (s *BrowserService) IngestionRulesHandler(store ingestion.Store, next http.
 			if err != nil {
 				browserError(w, 400, err.Error())
 				return
+			}
+			if body.Exclude != nil {
+				body.Exclude, err = ingestion.Normalize(body.Exclude)
+				if err != nil {
+					browserError(w, 400, err.Error())
+					return
+				}
 			}
 			// Serialize with membership changes and recheck administrator status before saving.
 			tx, err := s.pool.Begin(r.Context())
@@ -76,7 +85,7 @@ func (s *BrowserService) IngestionRulesHandler(store ingestion.Store, next http.
 				s.userError(w, err)
 				return
 			}
-			result, err := store.Save(r.Context(), actor.CompanyID, *body.Revision, filters)
+			result, err := store.Save(r.Context(), actor.CompanyID, *body.Revision, filters, body.Exclude)
 			if errors.Is(err, ingestion.ErrConflict) {
 				browserError(w, 409, err.Error())
 				return

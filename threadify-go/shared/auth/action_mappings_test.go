@@ -63,11 +63,16 @@ func TestActionMappingsHTTPAuthorizationAndValidation(t *testing.T) {
 	require.Equal(t, 403, call("PUT", `{"rules":[],"revision":""}`, true, false).Code)
 	require.Equal(t, 400, call("PUT", `{"rules":[{"action":"a","contract":"order","step":"checkout"}],"revision":""}`, true, true).Code)
 	require.Equal(t, 400, call("PUT", `{"rules":[{"action":"a","contract":"order","version":1,"step":"unknown"}],"revision":""}`, true, true).Code)
+	for _, pattern := range []string{"regex:", "regex:[", "regex:(?=checkout)"} {
+		body := `{"rules":[{"action":"` + pattern + `","contract":"order","version":1,"step":"checkout"}],"revision":""}`
+		require.Equal(t, 400, call("PUT", body, true, true).Code)
+	}
 	require.Zero(t, store.saves)
-	saved := call("PUT", `{"rules":[{"action":"checkout_*","contract":"order","version":1,"step":"checkout"}],"revision":""}`, true, true)
+	saved := call("PUT", `{"rules":[{"action":"regex:(?i)^checkout.{1,3}=confirmed$","contract":"order","version":1,"step":"checkout"}],"revision":""}`, true, true)
 	require.Equal(t, 200, saved.Code, saved.Body.String())
 	require.Equal(t, 2, validated)
 	require.Equal(t, 1, store.saves)
+	require.Equal(t, "regex:(?i)^checkout.{1,3}=confirmed$", store.settings.Rules[0].Action)
 	require.Equal(t, 409, call("PUT", `{"rules":[],"revision":""}`, true, true).Code)
 	require.Equal(t, 405, call("DELETE", "", true, true).Code)
 }

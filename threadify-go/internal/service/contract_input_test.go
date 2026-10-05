@@ -40,6 +40,7 @@ func TestContractInputMatching(t *testing.T) {
 		exact                                     bool
 		classifierErr                             error
 	}{
+		{name: "regex mapping", input: "CHECKOUT.CONFIRM", classification: "mapped_step", step: "confirm"},
 		{name: "exact mapping", input: "checkout.confirm", classification: "mapped_step", step: "confirm"},
 		{name: "longest prefix", input: "checkout.review.open", classification: "mapped_step", step: "review"},
 		{name: "prefix", input: "checkout.open", classification: "mapped_step", step: "checkout"},
@@ -60,6 +61,7 @@ func TestContractInputMatching(t *testing.T) {
 			}}}, nil)
 			classifier := &inputClassifier{result: tc.choice, err: tc.classifierErr}
 			svc := &ThreadService{contractValidator: validator, browserClassifier: classifier, browserActionMappings: &actionLinkStore{settings: actionmapping.Settings{Rules: []actionmapping.Rule{
+				{Contract: "orders", Version: 1, Action: "regex:(?i)^checkout", Step: "confirm"},
 				{Contract: "orders", Version: 1, Action: "checkout.*", Step: "checkout"},
 				{Contract: "orders", Version: 1, Action: "checkout.confirm", Step: "confirm"},
 				{Contract: "orders", Version: 1, Action: "checkout.review.*", Step: "review"},
@@ -159,7 +161,7 @@ func TestOTelJevCandidateRecordsEvidenceWithoutCompletingStep(t *testing.T) {
 
 	// An authored mapping uses the normal step path with the original span key.
 	threadService.browserActionMappings = &actionLinkStore{settings: actionmapping.Settings{Rules: []actionmapping.Rule{
-		{Contract: "orders", Version: 1, Action: "confirm my order", Step: "confirm"},
+		{Contract: "orders", Version: 1, Action: "regex:(?i)^CONFIRM MY ORDER$", Step: "confirm"},
 	}}}
 	span.SpanId[0]++
 	span.Attributes = nil

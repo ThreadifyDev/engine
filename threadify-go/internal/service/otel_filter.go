@@ -16,7 +16,7 @@ type otelIngestionPolicyKey struct{}
 // contract inputs are governed by the thread's contract version instead.
 type OTelIngestionPolicy struct {
 	store     ingestion.Store
-	settings  *ingestion.Settings
+	matcher   *ingestion.Matcher
 	evaluated int
 	Dropped   int
 }
@@ -61,17 +61,20 @@ func (s *OTelTraceService) filterGeneralTrace(ctx context.Context, owner, compan
 		return spans, nil
 	}
 
-	if policy.settings == nil {
+	if policy.matcher == nil {
 		settings, err := policy.store.Load(ctx, company)
 		if err != nil {
 			return nil, fmt.Errorf("trace ingestion rules unavailable: %w", err)
 		}
-		policy.settings = &settings
+		policy.matcher, err = ingestion.Compile(settings)
+		if err != nil {
+			return nil, fmt.Errorf("invalid trace ingestion rules: %w", err)
+		}
 	}
 	kept := make([]otelSpanEnvelope, 0, len(spans))
 	for _, span := range spans {
 		policy.evaluated++
-		if ingestion.ShouldDrop(policy.settings.Mode, policy.settings.Filters, span.span.GetName()) {
+		if policy.matcher.Evaluate(span.span.GetName()).Drop {
 			policy.Dropped++
 		} else {
 			kept = append(kept, span)

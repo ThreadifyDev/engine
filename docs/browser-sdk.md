@@ -55,15 +55,30 @@ Threadify SDK events bypass them.
 Enter one `action=contract_step` pair per line, or use
 `action_a,action_b=contract_step` to map several actions to the same step.
 Each action becomes one rule with a captured action
-name (exact or one trailing `*` prefix), a contract name, a version, and a step
+name (exact, one trailing `*` prefix, or `regex:` expression), a contract name, a version, and a step
 name. The Engine validates the contract version and step when saving. On future
 captured actions, a matching rule records the step on
 the same thread through the normal step path, including context, access, and
 contract validation. The thread's pinned contract version is checked again at
 record time. Exact action names win over prefixes; the longest prefix wins
-among wildcard rules. A failed mapping remains in the activity log with
+among wildcard rules. Regex is considered next, with the first matching regex
+in authored order winning. A failed mapping remains in the activity log with
 `mapping_rejected` and a reason. Existing activities are not turned into
 completed steps when a rule is added. Grant only the actions a page needs.
+
+Regex mappings use the same Go/RE2 syntax as general trace filtering, including
+`(?i)` for case-insensitive matching. Use one regex mapping per line:
+
+```text
+regex:(?i)^POST /checkout=order_placed
+regex:(?i)^checkout_(clicked|confirmed)$=order_placed
+```
+
+The final `=` separates the target step. Commas and earlier `=` characters belong
+to the expression, so repetitions such as `{1,3}` and literal query values work.
+Regex searches anywhere unless anchored with `^` or `$`. Invalid regex,
+lookarounds, and backreferences are rejected. Mapping names remain limited to
+128 UTF-8 bytes. Plain comma-separated action lists keep their existing syntax.
 
 When a new contract version is published, the Engine copies action links from
 the previous latest version if their target steps still exist. Links to removed

@@ -24,7 +24,7 @@ func (f *traceFilterStore) Load(context.Context, string) (ingestion.Settings, er
 	f.loads++
 	return f.settings, f.err
 }
-func (f *traceFilterStore) Save(context.Context, string, string, []string) (ingestion.Settings, error) {
+func (f *traceFilterStore) Save(context.Context, string, string, []string, []string) (ingestion.Settings, error) {
 	panic("unused")
 }
 func (f *traceFilterStore) Record(_ context.Context, _ string, evaluated, dropped int) error {
@@ -152,4 +152,74 @@ func TestOTelMixedBatchKeepsContractInputsAndFiltersOnlyGeneralSpans(t *testing.
 	require.Equal(t, 1, policy.Dropped)
 	require.Equal(t, 1, store.evaluated)
 	require.Equal(t, 1, store.loads)
+}
+
+func TestOTelDropSpanFilteringBeforeThreadCreation(t *testing.T) {
+	for _, tc := range []struct {
+		name, spanName, contract string
+		keep                     bool
+	}{
+		{"matching span", "POST /graphql", "", false},
+		{"matching prefix", "POST /graphql/admin", "", false},
+		{"different span", "checkout", "", true},
+		{"contract bypass", "POST /graphql", "orders:1", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writer := newFakeOTelThreadWriter()
+			svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
+			span := validOTelSpan()
+			span.Name = tc.spanName
+			// Display overrides and URL attributes must not affect original-name matching.
+			span.Attributes = append(span.Attributes, otelKV("threadify.step_name", otelString("POST /graphql")), otelKV("url.path", otelString("/graphql")))
+			var attrs []*commonpb.KeyValue
+			if tc.contract != "" {
+				attrs = append(attrs, otelKV("threadify.contract", otelString(tc.contract)))
+			}
+			store := &traceFilterStore{settings: ingestion.Settings{Mode: ingestion.ModeInclude, Filters: []string{"*"}, Exclude: []string{"POST /graphql*"}}}
+			ctx, policy := WithOTelIngestionRules(context.Background(), store)
+			batch := otelRequest(span, attrs)
+			original := proto.Clone(batch)
+			response, err := svc.Ingest(ctx, batch, "owner", "company")
+			require.NoError(t, err)
+			require.Nil(t, response.PartialSuccess)
+			require.True(t, proto.Equal(original, batch))
+			if tc.keep {
+				require.Len(t, writer.records, 1)
+				require.Zero(t, policy.Dropped)
+			} else {
+				require.Empty(t, writer.starts)
+				require.Empty(t, writer.completions)
+				require.Equal(t, 1, policy.Dropped)
+			}
+			if tc.contract != "" {
+				require.Zero(t, store.loads)
+				require.Zero(t, store.evaluated)
+			} else {
+				require.Equal(t, 1, store.evaluated)
+			}
+		})
+	}
+}
+
+func TestOTelRegexFiltering(t *testing.T) {
+	writer := newFakeOTelThreadWriter()
+	svc := NewOTelTraceService(writer, newFakeOTelCorrelationRepository(), zap.NewNop())
+	span := validOTelSpan()
+	span.Name = "post /GraphQL"
+	store := &traceFilterStore{settings: ingestion.Settings{Mode: ingestion.ModeInclude, Filters: []string{`regex:(?i)^POST /`}, Exclude: []string{`regex:(?i)graphql`}}}
+	ctx, policy := WithOTelIngestionRules(context.Background(), store)
+	response, err := svc.Ingest(ctx, otelRequest(span, nil), "owner", "company")
+	require.NoError(t, err)
+	require.Nil(t, response.PartialSuccess)
+	require.Empty(t, writer.starts)
+	require.Empty(t, writer.records)
+	require.Equal(t, 1, policy.Dropped)
+	require.Equal(t, 1, store.loads)
+	// Invalid persisted expressions cannot silently admit a batch.
+	store.settings.Exclude = []string{"regex:["}
+	ctx, policy = WithOTelIngestionRules(context.Background(), store)
+	_, err = svc.Ingest(ctx, otelRequest(span, nil), "owner", "company")
+	require.ErrorContains(t, err, "invalid regex")
+	require.Zero(t, policy.evaluated)
+	require.Empty(t, writer.starts)
 }

@@ -2,38 +2,10 @@ import { useEffect, useState } from 'react';
 import { Check, RefreshCw } from 'lucide-react';
 import { api, type BrowserActionMappingRule, type BrowserActionMappings, type ObservedBrowserAction } from '~/lib/api';
 
+import { formatActionMappings as format, parseActionMappings as parse, draftMappingActions as draftActions } from '~/lib/action-mappings';
+
 type Props = { contractName: string; version: number; steps: string[] };
 const scoped = (rule: BrowserActionMappingRule, name: string, version: number) => rule.contract === name && rule.version === version;
-function format(rules: BrowserActionMappingRule[]) {
-  const byStep = new Map<string, string[]>();
-  for (const rule of rules) byStep.set(rule.step, [...(byStep.get(rule.step) ?? []), rule.action]);
-  return [...byStep].map(([step, actions]) => `${actions.join(',')}=${step}`).join('\n');
-}
-
-function draftActions(value: string) {
-  return value.split(/\r?\n/).flatMap(line => line.split('=')[0].split(',').map(action => action.trim()));
-}
-
-function parse(value: string, contract: string, version: number, steps: string[]): BrowserActionMappingRule[] {
-  const seen = new Set<string>();
-  return value.split(/\r?\n/).flatMap((line, index) => {
-    const text = line.trim();
-    if (!text) return [];
-    const equals = text.indexOf('=');
-    if (equals < 1 || equals !== text.lastIndexOf('=') || equals === text.length - 1)
-      throw new Error(`Line ${index + 1} must use action=contract_step.`);
-    const actions = text.slice(0, equals).split(',').map(action => action.trim());
-    const step = text.slice(equals + 1).trim();
-    if (actions.some(action => !action) || !step) throw new Error(`Line ${index + 1} needs action names and a step.`);
-    if (steps.length && !steps.includes(step)) throw new Error(`Line ${index + 1}: "${step}" is not a step in version ${version}.`);
-    return actions.map(action => {
-      if (seen.has(action)) throw new Error(`Line ${index + 1} repeats action "${action}".`);
-      seen.add(action);
-      return { action, contract, version, step };
-    });
-  });
-}
-
 export function BrowserActionMappings({ contractName, version, steps }: Props) {
   const [saved, setSaved] = useState<BrowserActionMappings | null>(null);
   const [value, setValue] = useState('');
@@ -102,8 +74,8 @@ export function BrowserActionMappings({ contractName, version, steps }: Props) {
     {saved && <>
       <div className="space-y-4 p-5 sm:p-6">
         <div><label htmlFor="browser-action-mappings" className="text-sm font-medium text-stone-800">Input name = contract step</label>
-          <p id="browser-mappings-hint" className="mt-1 text-xs leading-5 text-stone-500">Exact names or a trailing *. Separate names with commas: <code className="font-mono text-stone-700">checkout_clicked,checkout_confirmed=browser_checkout</code>. Applies to version {version}.</p></div>
-        <textarea id="browser-action-mappings" aria-describedby="browser-mappings-hint" value={value} onChange={event => { setValue(event.target.value); setError(''); setMessage(''); }} disabled={busy || !canEdit} rows={8} spellCheck={false} autoCapitalize="none" placeholder={'checkout_clicked,checkout_confirmed=browser_checkout\nreview_delivery_options=delivery_reviewed'} className="block min-h-52 w-full resize-y rounded-lg border border-stone-200 bg-[#fbfbfa] p-4 font-mono text-sm leading-7 text-stone-900 placeholder:text-stone-400 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60" />
+          <p id="browser-mappings-hint" className="mt-1 text-xs leading-5 text-stone-500">Exact names, trailing <code>*</code>, or <code>regex:(?i)...=step</code>. Group plain names with commas; one regex per line. Exact → longest prefix → first matching regex. Version {version}.</p></div>
+        <textarea id="browser-action-mappings" aria-describedby="browser-mappings-hint" value={value} onChange={event => { setValue(event.target.value); setError(''); setMessage(''); }} disabled={busy || !canEdit} rows={8} spellCheck={false} autoCapitalize="none" placeholder={'checkout_clicked,checkout_confirmed=browser_checkout\nregex:(?i)^POST /checkout=browser_checkout'} className="block min-h-52 w-full resize-y rounded-lg border border-stone-200 bg-[#fbfbfa] p-4 font-mono text-sm leading-7 text-stone-900 placeholder:text-stone-400 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60" />
         {steps.length > 0 && <p className="text-xs leading-5 text-stone-500">Steps in this version: <span className="font-mono text-stone-700">{steps.join(', ')}</span></p>}
         {canEdit && recent.length > 0 && <div className="flex flex-wrap items-center gap-2 border-t border-stone-100 pt-4">
           <span className="mr-1 text-xs font-medium text-stone-500">Recently captured</span>

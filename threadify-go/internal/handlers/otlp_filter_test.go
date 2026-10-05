@@ -31,7 +31,7 @@ type filterFixture struct {
 func (f *filterFixture) Load(context.Context, string) (ingestion.Settings, error) {
 	return ingestion.Settings{Filters: f.filters, Mode: f.mode}, f.err
 }
-func (f *filterFixture) Save(context.Context, string, string, []string) (ingestion.Settings, error) {
+func (f *filterFixture) Save(context.Context, string, string, []string, []string) (ingestion.Settings, error) {
 	panic("not used")
 }
 func (f *filterFixture) Record(_ context.Context, _ string, evaluated, dropped int) error {

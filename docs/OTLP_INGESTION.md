@@ -106,7 +106,11 @@ ref mapping.
 
 Contract version **Input config** maps OTel span names and auto-captured browser
 actions to contract steps. Exact mappings win over prefix mappings; the longest
-prefix wins. Mapped spans use normal contract validation and retain their trace
+prefix wins, followed by the first matching `regex:` mapping in authored order.
+For example, `regex:(?i)^POST /checkout=order_placed` maps case-insensitively to
+`order_placed`. Use one regex per line; the final `=` separates its target step.
+Regex uses the same Go/RE2 syntax as trace filters and is validated on save.
+Mapped spans use normal contract validation and retain their trace
 timestamps, context, status, and idempotency key. Explicit `threadify.step_name`
 and unmapped spans already named for a contract step still use the normal step path.
 Unmapped names use Jev, when configured, to suggest a step; candidates and unmatched
@@ -120,12 +124,57 @@ without contracts. Contract threads bypass this keep list and use the input
 mappings for their pinned contract version.
 It defaults to `*`, which keeps every span. Set exact names or prefix patterns
 such as `checkout.*` to keep only matching spans. An empty list keeps no spans.
-Matching is case-sensitive and uses the original span name. Excluded spans are
+Plain matching is case-sensitive and uses the original span name. Excluded spans are
 acknowledged so exporters do not retry them. Direct SDK events are unaffected.
 
-Previously saved exclusion rules retain their original behavior until an
-administrator saves a new keep list. The settings UI starts that replacement
-at `*` to avoid accidentally dropping spans during the switch.
+The **Span filters** editor uses two sections. Both accept exact span names,
+one trailing `*`, or an explicit `regex:` expression, one pattern per line:
+
+```text
+[keep spans]
+*
+
+[drop spans]
+regex:(?i)^POST /graphql
+regex:(?i)health|heartbeat
+internal.*
+```
+
+A span must match **keep spans** and must not match **drop spans**. Drop patterns
+win regardless of section order. Empty **keep spans** keeps nothing; empty
+**drop spans** excludes nothing further. Unheaded lines at the start are treated
+as keep-span patterns; unknown headers are rejected.
+
+Regex uses Go's RE2 syntax. `(?i)` enables case-insensitive matching. Regex
+matches anywhere in the name unless anchored with `^` or `$`; plain patterns
+remain case-sensitive. Lookarounds and backreferences are unsupported. Invalid
+expressions are rejected on save and preview. Compiled matchers are reused
+throughout each ingestion batch.
+
+Filtering uses the original OTel span name. A span name that looks like a path
+or URL is still matched as a name: `POST /graphql*` matches the method and path
+together. URL attributes and the optional `threadify.step_name` display override
+do not affect these rules.
+
+**Test your rules** accepts one span name per line and identifies matching drop
+patterns. Rules apply to future exports; existing records are unchanged.
+
+The settings API accepts `filters`, optional `exclude`, and `revision`:
+
+```json
+{
+  "filters": ["*"],
+  "exclude": ["regex:(?i)^POST /graphql", "internal.*"],
+  "revision": "<current revision>"
+}
+```
+
+Omitting `exclude` preserves the saved value; an empty array clears it. The
+preview API accepts `filters`, `exclude`, and `span_names`.
+
+Previously saved exclusion policies retain their behavior. The editor carries
+their span patterns into **drop spans** with `*` in **keep spans**, so saving
+preserves the same filtering.
 
 ## Collector example
 

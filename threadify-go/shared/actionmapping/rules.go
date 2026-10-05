@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -16,10 +17,11 @@ var ErrConflict = errors.New("action mappings changed; reload before saving")
 const MaxRules = 100
 
 type Rule struct {
-	Action   string `json:"action"`
-	Contract string `json:"contract"`
-	Version  int    `json:"version"`
-	Step     string `json:"step"`
+	expression *regexp.Regexp
+	Action     string `json:"action"`
+	Contract   string `json:"contract"`
+	Version    int    `json:"version"`
+	Step       string `json:"step"`
 }
 
 type Settings struct {
@@ -48,11 +50,23 @@ func Normalize(rules []Rule) ([]Rule, error) {
 				return nil, errors.New("action, contract, and step must be nonblank UTF-8 names of at most 128 bytes without control characters")
 			}
 		}
-		if rule.Action == "*" || strings.Contains(strings.TrimSuffix(rule.Action, "*"), "*") {
-			return nil, errors.New("action patterns support only one trailing * wildcard")
-		}
-		if strings.Contains(rule.Action, ",") {
-			return nil, errors.New("action names in mappings cannot contain commas")
+		rule.expression = nil
+		if expression, ok := strings.CutPrefix(rule.Action, "regex:"); ok {
+			if expression == "" {
+				return nil, errors.New("input mapping regex expression is empty")
+			}
+			var err error
+			rule.expression, err = regexp.Compile(expression)
+			if err != nil {
+				return nil, fmt.Errorf("invalid input mapping regex %q: %w", rule.Action, err)
+			}
+		} else {
+			if rule.Action == "*" || strings.Contains(strings.TrimSuffix(rule.Action, "*"), "*") {
+				return nil, errors.New("action patterns support only one trailing * wildcard; use regex: for regular expressions")
+			}
+			if strings.Contains(rule.Action, ",") {
+				return nil, errors.New("action names in mappings cannot contain commas")
+			}
 		}
 		key := fmt.Sprintf("%s\x00%d\x00%s", rule.Contract, rule.Version, rule.Action)
 		if seen[key] {
@@ -64,11 +78,26 @@ func Normalize(rules []Rule) ([]Rule, error) {
 	return out, nil
 }
 
-// Match prefers an exact action, then the longest matching prefix.
+// Match prefers an exact action, then the longest prefix, then the first matching regex.
+// Regex order is authored order, scoped to the thread's contract and version.
 func Match(rules []Rule, contract string, version int, action string) (Rule, bool) {
 	best, length := Rule{}, -1
+	regexMatch, regexFound := Rule{}, false
 	for _, rule := range rules {
 		if rule.Contract != contract || rule.Version != version {
+			continue
+		}
+		if expression, ok := strings.CutPrefix(rule.Action, "regex:"); ok {
+			if !regexFound {
+				compiled := rule.expression
+				// Loaded settings are normalized; allow direct callers to supply raw rules too.
+				if compiled == nil && expression != "" {
+					compiled, _ = regexp.Compile(expression)
+				}
+				if compiled != nil && compiled.MatchString(action) {
+					regexMatch, regexFound = rule, true
+				}
+			}
 			continue
 		}
 		if rule.Action == action {
@@ -81,5 +110,8 @@ func Match(rules []Rule, contract string, version int, action string) (Rule, boo
 			}
 		}
 	}
-	return best, length >= 0
+	if length >= 0 {
+		return best, true
+	}
+	return regexMatch, regexFound
 }
