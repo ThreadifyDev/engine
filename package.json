@@ -9,6 +9,6 @@
     "test:create-thread": "node customer-checkout-example.js"
   },
   "engines": {
-    "node": ">=24 <25"
+    "node": "^24.22.1"
   }
 }

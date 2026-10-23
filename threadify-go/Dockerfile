@@ -6,7 +6,7 @@ COPY scripts/build-valkey.sh /build-valkey.sh
 RUN sh /build-valkey.sh /bundle
 
 # Build on the host architecture and cross-compile for each Buildx target.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH

@@ -1,6 +1,6 @@
 module threadify-go/shared
 
-go 1.25.0
+go 1.27.3
 
 require (
 	github.com/Usefused/fused-open-core v0.0.0-20260925151058-b91e769354ae
