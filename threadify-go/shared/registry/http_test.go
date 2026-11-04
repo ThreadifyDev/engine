@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A handler's optimistic 200 must not mask a quota denial before any body is sent.
@@ -52,5 +53,36 @@ func TestMeteredResponsePreservesAllowedStatus(t *testing.T) {
 	}
 	if rec.Code != http.StatusCreated || rec.Body.String() != "created" {
 		t.Fatalf("unexpected response: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Verified dashboard sessions skip the request-rate check but not byte metering.
+func TestDashboardSessionSkipsRequestRateOnly(t *testing.T) {
+	// No JetStream meter: every admission check fails, so reaching the handler
+	// proves the request-rate check was skipped.
+	runtime := &Runtime{snapshot: testSnapshot(), verified: time.Now()}
+
+	reached := false
+	handler := runtime.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		if r.Body != nil {
+			if _, err := io.ReadAll(r.Body); err == nil && r.ContentLength > 0 {
+				t.Error("dashboard request body bypassed input bandwidth metering")
+			}
+		}
+	}))
+
+	plain := httptest.NewRequest(http.MethodGet, "/v1/contracts", nil)
+	plain.AddCookie(&http.Cookie{Name: "threadify_session", Value: "forged"})
+	handler.ServeHTTP(httptest.NewRecorder(), plain)
+	if reached {
+		t.Fatal("a cookie alone bypassed the request-rate check")
+	}
+
+	dashboard := httptest.NewRequest(http.MethodPost, "/v1/contracts", strings.NewReader("{}"))
+	dashboard = dashboard.WithContext(WithDashboardSession(dashboard.Context()))
+	handler.ServeHTTP(httptest.NewRecorder(), dashboard)
+	if !reached {
+		t.Fatal("verified dashboard request was rate limited")
 	}
 }

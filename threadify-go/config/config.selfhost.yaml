@@ -1,9 +1,6 @@
-# Single-process engine with embedded NATS and persistence workers.
-# Plan allowances are supplied by Registry; no subscription file is required.
-# A Threadify-enabled Registry license is required; browser sign-in uses Registry identity.
-registry:
-  browser_origin: "$THREADIFY_BROWSER_ORIGIN:"
-  license_key: "$THREADIFY_LICENSE_KEY"
+# Threadify Engine: dashboard, APIs and persistence workers in one process.
+# A Threadify license is required. Get one at https://threadify.dev/signup.
+license_key: "$THREADIFY_LICENSE_KEY"
 
 # Optional AI: start with `threadify serve --with-agent` and configure ai.gateway.
 # Alternatively set ai.agent.url to an external agent's HTTP(S) origin.
@@ -16,6 +13,8 @@ registry:
 server:
   # Public address for SDKs and exporters; Settings > Engine can override it.
   public_url: "$THREADIFY_PUBLIC_URL:"
+  # Exact origin users open the dashboard from (browser sign-in).
+  browser_origin: "$THREADIFY_BROWSER_ORIGIN:"
   port: 8081
   host: 0.0.0.0
 
@@ -30,8 +29,6 @@ postgres:
 #   url: "$REDIS_URL" # redis://default:ENCODED_PASSWORD@host:6379/0
 # Legacy host/port/password/db fields are not supported.
 # See docs/MANAGED_VALKEY.md for managed ownership and sharing between Engines.
-
-auth_provider: registry
 
 queue:
   ttl_seconds: 7776000

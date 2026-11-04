@@ -12,8 +12,8 @@ The dashboard is embedded in the Engine and uses the same origin for API calls.
 The Engine persists the installation ID in PostgreSQL when it is omitted.
 
 ```yaml
-registry:
-  license_key: "$THREADIFY_LICENSE_KEY"
+license_key: "$THREADIFY_LICENSE_KEY"
+server:
   browser_origin: "$THREADIFY_BROWSER_ORIGIN:"
 ```
 

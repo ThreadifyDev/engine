@@ -1,6 +1,8 @@
 server:
   # Public address for SDKs and exporters; Settings > Engine can override it.
   public_url: "$THREADIFY_PUBLIC_URL:"
+  # Exact origin users open the dashboard from (browser sign-in).
+  browser_origin: "$THREADIFY_BROWSER_ORIGIN:"
   port: 8081
   host: 0.0.0.0
 
@@ -43,8 +45,6 @@ redis:
   pool_timeout_ms: 5000           # Wait time for connection from pool (5s)
   conn_max_idle_time_ms: 300000   # How long idle connections stay alive (5 minutes)
 
-
-auth_provider: registry
 
 queue:
   ttl_seconds: 7776000
@@ -261,6 +261,3 @@ worker_pools:
     scale_down_after_ms: 60000   # 60 seconds
     job_timeout_ms: 30000        # 30 seconds
     submit_retry_wait_ms: 10     # Brief retry
-
-registry:
-  browser_origin: "$THREADIFY_BROWSER_ORIGIN:"

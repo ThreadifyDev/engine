@@ -59,7 +59,7 @@ func NewBrowserService(ctx context.Context, pool *pgxpool.Pool, r BrowserRegistr
 	}
 	origin := strings.TrimRight(r.BrowserOrigin(), "/")
 	if origin != "" && !validBrowserURL(origin, true) {
-		return nil, errors.New("registry.browser_origin must be an HTTPS origin (HTTP is allowed on loopback)")
+		return nil, errors.New("server.browser_origin must be an HTTPS origin (HTTP is allowed on loopback)")
 	}
 	s := &BrowserService{pool: pool, registry: r, key: r.BrowserKey(), origin: origin, now: time.Now}
 	tx, err := pool.Begin(ctx)

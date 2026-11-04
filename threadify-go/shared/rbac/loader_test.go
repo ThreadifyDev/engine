@@ -23,3 +23,16 @@ func TestLoaderResolvesAPILevelServiceAccountRoles(t *testing.T) {
 	assert.Equal(t, []string{"entity_profile_type.update"}, loader.GetPermissionsForRoles([]string{"standard_service"}, "api_level"))
 	assert.Empty(t, loader.GetPermissionsForRoles([]string{"standard_service"}, "app_level"))
 }
+
+func TestEmbeddedObserverIsReadOnly(t *testing.T) {
+	loader, err := NewEmbeddedLoader()
+	require.NoError(t, err)
+
+	observer := loader.GetPermissionsForRoles([]string{"observer"}, "runtime_level")
+	assert.True(t, loader.CheckPermission(observer, "thread.read.*"))
+	assert.False(t, loader.CheckPermission(observer, "thread.write.*"), "observers must not report steps")
+	assert.False(t, loader.CheckPermission(observer, "thread.end"))
+
+	participant := loader.GetPermissionsForRoles([]string{"participant"}, "runtime_level")
+	assert.True(t, loader.CheckPermission(participant, "thread.write.*"))
+}

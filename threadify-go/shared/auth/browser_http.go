@@ -62,7 +62,13 @@ func (s *BrowserService) Wrap(next http.Handler) http.Handler {
 				browserJSON(w, 200, map[string]any{"user": s.profile(r, claims)})
 				return
 			}
-			r = r.Clone(r.Context())
+			ctx := r.Context()
+			// People using the dashboard aren't rate limited alongside integrations.
+			// Sessions opened with an API key stay metered like the key itself.
+			if claims.PrincipalType == "user" {
+				ctx = registry.WithDashboardSession(ctx)
+			}
+			r = r.Clone(ctx)
 			r.Header.Set("Authorization", "Bearer "+cookie)
 		}
 		next.ServeHTTP(w, r)

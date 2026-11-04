@@ -73,8 +73,9 @@ func (r *RedisSettings) UnmarshalYAML(node *yaml.Node) error {
 }
 
 type Config struct {
-	Registry registry.Config `yaml:"registry"`
-	Postgres struct {
+	LicenseKey string          `yaml:"license_key"`
+	Registry   registry.Config `yaml:"registry"`
+	Postgres   struct {
 		URL                string `yaml:"url"`
 		Host               string `yaml:"host"`
 		Port               int    `yaml:"port"`
@@ -86,8 +87,9 @@ type Config struct {
 	} `yaml:"postgres"`
 
 	Server struct {
-		Port int    `yaml:"port"`
-		Host string `yaml:"host"`
+		Port          int    `yaml:"port"`
+		Host          string `yaml:"host"`
+		BrowserOrigin string `yaml:"browser_origin"`
 	} `yaml:"server"`
 
 	Redis RedisSettings `yaml:"redis"`
@@ -114,6 +116,9 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.expandEnvVars()
+	if err := cfg.applyLicenseSettings(); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 
@@ -126,6 +131,8 @@ func (c *Config) expandEnvVars() {
 	c.Registry.InstallationID = expand(c.Registry.InstallationID)
 	c.Registry.CompanyID = expand(c.Registry.CompanyID)
 	c.Registry.BrowserOrigin = expand(c.Registry.BrowserOrigin)
+	c.LicenseKey = expand(c.LicenseKey)
+	c.Server.BrowserOrigin = expand(c.Server.BrowserOrigin)
 
 	c.Redis.URL = expand(c.Redis.URL)
 
@@ -175,4 +182,26 @@ func expandEnv(value string) string {
 		return v
 	}
 	return def
+}
+
+// applyLicenseSettings resolves license_key and server.browser_origin, falling
+// back to the legacy registry.* keys.
+func (c *Config) applyLicenseSettings() error {
+	settings := []struct {
+		key, legacyKey string
+		value, legacy  *string
+	}{
+		{"license_key", "registry.license_key", &c.LicenseKey, &c.Registry.LicenseKey},
+		{"server.browser_origin", "registry.browser_origin", &c.Server.BrowserOrigin, &c.Registry.BrowserOrigin},
+	}
+	for _, s := range settings {
+		if *s.value != "" && *s.legacy != "" && *s.value != *s.legacy {
+			return fmt.Errorf("%s and %s are both set to different values; keep only %s", s.key, s.legacyKey, s.key)
+		}
+		if *s.value == "" {
+			*s.value = *s.legacy
+		}
+		*s.legacy = *s.value
+	}
+	return nil
 }

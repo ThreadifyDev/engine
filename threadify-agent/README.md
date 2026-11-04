@@ -128,7 +128,7 @@ export THREADIFY_CONFIG_PATH=/absolute/path/to/engine/config.yaml
 
 To use the stateless Threadify Web API gateway, set `ai.gateway.auth: threadify_license`,
 `base_url` to the deployed gateway's `/v1` URL, and `model: threadify-agent`.
-Harnest reuses the Engine's `registry.license_key` and optional `installation_id`
+Harnest reuses the Engine's `license_key` (or legacy `registry.license_key`) and optional `registry.installation_id`
 (or their `THREADIFY_LICENSE_KEY` / `THREADIFY_INSTALLATION_ID` environment fallbacks).
 No extra provider key is needed. This mode cannot be combined with `api_key_env`.
 It requires HTTPS except for loopback tests. The same TLS settings support private

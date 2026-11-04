@@ -93,7 +93,7 @@ when you want to retain its non-secret contract/thread IDs after cleanup.
 ## Browser sessions across Engine and Web API
 
 Run the compiled Engine and external Web API with the same local database,
-license, installation and `registry.browser_origin`, then run:
+license, installation and `server.browser_origin`, then run:
 
 ```sh
 THREADIFY_LIVE_DIR=/absolute/path/to/local/config-directory \

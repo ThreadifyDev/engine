@@ -151,7 +151,7 @@ chmod 755 "$staged"
 mv -f "$staged" "$bin_dir/$binary" || fail 'Cannot replace the binary; stop a running Windows Engine before upgrading'
 staged=
 printf '\nInstalled Threadify v%s at %s\n' "$version" "$bin_dir/$binary"
-printf 'Configure %s and supply your Registry license and PostgreSQL settings.\n' "$config_dir/config.yaml"
+printf 'Configure %s and supply your Threadify license and PostgreSQL settings.\n' "$config_dir/config.yaml"
 if [ "$bundled" = true ]; then
   printf 'Valkey starts automatically; keep libexec beside the Engine binary.\n'
 else

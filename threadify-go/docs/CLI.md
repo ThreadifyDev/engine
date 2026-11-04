@@ -28,7 +28,7 @@ THREADIFY_E2E_CLI_BINARY=/absolute/path/to/threadify-cli \
 
 The CLI workflow performs this compatibility test by checking out an explicit
 Engine repository/ref. Interactive login also requires the updated external UI
-and the Engine's configured `registry.browser_origin`.
+and the Engine's configured `server.browser_origin`.
 
 ## Optional agent commands
 

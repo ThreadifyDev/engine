@@ -53,9 +53,13 @@ func (r *Runtime) wrap(next http.Handler, acceptDelegated bool) http.Handler {
 			next.ServeHTTP(w, req)
 			return
 		}
-		if err := r.Check(req.Context(), InputRequests, 1); err != nil {
-			http.Error(w, http.StatusText(StatusCode(err)), StatusCode(err))
-			return
+		// Verified dashboard users skip the request-rate limit only; bandwidth is
+		// still metered below.
+		if !isDashboardSession(req.Context()) {
+			if err := r.Check(req.Context(), InputRequests, 1); err != nil {
+				http.Error(w, http.StatusText(StatusCode(err)), StatusCode(err))
+				return
+			}
 		}
 		writer := &meteredWriter{ResponseWriter: w, r: r, ctx: req.Context()}
 		if req.Body != nil {

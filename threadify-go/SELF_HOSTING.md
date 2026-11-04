@@ -75,7 +75,7 @@ threadify-cli profile-types create --file customers.yaml
 Use `threadify-cli help` or the [CLI guide](docs/CLI.md) for API-key setup, explicit
 profiles, thread references, integrity verification and logout. Client commands
 connect to your Engine without starting the server. Browser login requires the
-bundled dashboard and the correct `registry.browser_origin`.
+bundled dashboard and the correct `server.browser_origin`.
 
 ## Public Engine URL
 
@@ -100,7 +100,7 @@ setup sections. Reverse-proxy path prefixes are supported;
 the proxy must strip the prefix before forwarding requests to the Engine.
 The public URL is an advertised client address. It does not configure DNS, TLS,
 the listener or browser authentication origins. The embedded dashboard uses its
-serving origin; set `registry.browser_origin` to the public HTTPS origin behind a
+serving origin; set `server.browser_origin` to the public HTTPS origin behind a
 TLS-terminating proxy. The dashboard requires hosting at the root of its hostname. See [browser deployment](docs/BROWSER_AUTH.md).
 
 `GET /v1/engine/settings` returns the effective address, its config default,

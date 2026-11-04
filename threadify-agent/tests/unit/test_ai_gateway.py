@@ -217,6 +217,17 @@ def test_hosted_license_is_opt_in_and_reuses_engine_config(tmp_path, monkeypatch
     assert load_gateway(path).api_key == 'environment-license'
 
 
+def test_hosted_license_reads_top_level_license_key(tmp_path, monkeypatch):
+    monkeypatch.setenv('THREADIFY_LICENSE_KEY', 'environment-license')
+    path = write_config(tmp_path, {'base_url': 'https://ai.example.test/v1',
+                                  'model': 'threadify-agent', 'auth': 'threadify_license'})
+    document = yaml.safe_load(path.read_text())
+    document['license_key'] = 'top-level-license'
+    document['registry'] = {'license_key': 'legacy-license'}
+    path.write_text(yaml.safe_dump(document))
+    assert load_gateway(path).api_key == 'top-level-license'
+
+
 @pytest.mark.parametrize('gateway', [
     {'auth': 'wrong'}, {'auth': []},
     {'auth': 'threadify_license', 'base_url': 'http://remote.example/v1'},

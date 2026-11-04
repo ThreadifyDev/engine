@@ -46,6 +46,11 @@ func LoadFromViper(v *viper.Viper) (*Config, error) {
 	cfg.Registry.LicenseKey = expandEnv(cfg.Registry.LicenseKey)
 	cfg.Registry.InstallationID = expandEnv(cfg.Registry.InstallationID)
 	cfg.Registry.CompanyID = expandEnv(cfg.Registry.CompanyID)
+	cfg.LicenseKey = expandEnv(cfg.LicenseKey)
+	cfg.Server.BrowserOrigin = expandEnv(cfg.Server.BrowserOrigin)
+	if err := applyLicenseSettings(&cfg); err != nil {
+		return nil, err
+	}
 	cfg.NATS.URL = expandEnv(cfg.NATS.URL)
 	cfg.NATS.StoreDir = expandEnv(cfg.NATS.StoreDir)
 	// Persistent embedded storage follows the installed binary, never the shell's
@@ -192,7 +197,7 @@ func ValidateRuntime(cfg *Config) error {
 			return fmt.Errorf("classifier.auth must be custom or threadify_license")
 		}
 		if cfg.Classifier.Auth == "threadify_license" && cfg.Registry.LicenseKey == "" {
-			return fmt.Errorf("classifier.auth=threadify_license requires registry.license_key")
+			return fmt.Errorf("classifier.auth=threadify_license requires license_key")
 		}
 		if cfg.Classifier.TimeoutMs < 0 || cfg.Classifier.TimeoutMs > 30000 {
 			return fmt.Errorf("classifier.timeout_ms must be between 0 and 30000")
@@ -247,6 +252,29 @@ func ValidateRuntime(cfg *Config) error {
 	}
 	if cfg.RuntimeMode == "writer" && !cfg.Archiver.Enabled {
 		return fmt.Errorf("writer mode requires archiver.enabled=true")
+	}
+	return nil
+}
+
+// applyLicenseSettings resolves license_key and server.browser_origin, falling
+// back to the legacy registry.* keys so existing configurations keep working.
+// Both spellings are kept in sync after loading.
+func applyLicenseSettings(cfg *Config) error {
+	settings := []struct {
+		key, legacyKey string
+		value, legacy  *string
+	}{
+		{"license_key", "registry.license_key", &cfg.LicenseKey, &cfg.Registry.LicenseKey},
+		{"server.browser_origin", "registry.browser_origin", &cfg.Server.BrowserOrigin, &cfg.Registry.BrowserOrigin},
+	}
+	for _, s := range settings {
+		if *s.value != "" && *s.legacy != "" && *s.value != *s.legacy {
+			return fmt.Errorf("%s and %s are both set to different values; keep only %s", s.key, s.legacyKey, s.key)
+		}
+		if *s.value == "" {
+			*s.value = *s.legacy
+		}
+		*s.legacy = *s.value
 	}
 	return nil
 }

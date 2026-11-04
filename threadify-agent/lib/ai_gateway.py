@@ -114,10 +114,15 @@ def _license_credentials(document: dict, endpoint) -> tuple[str, str]:
         loopback = endpoint.hostname == "localhost"
     if endpoint.scheme != "https" and not loopback:
         raise ValueError("threadify_license auth requires HTTPS except on loopback")
-    registry = document.get("registry", {})
+    # license_key is current; registry.license_key is accepted from older configs.
+    registry = document.get("registry") or {}
     if not isinstance(registry, dict):
         raise ValueError("registry must be a mapping for threadify_license auth")
-    key = _text(registry.get("license_key", ""), "registry.license_key") or os.environ.get("THREADIFY_LICENSE_KEY", "").strip()
+    key = (
+        _text(document.get("license_key", ""), "license_key")
+        or _text(registry.get("license_key", ""), "registry.license_key")
+        or os.environ.get("THREADIFY_LICENSE_KEY", "").strip()
+    )
     if not key:
         raise ValueError("threadify_license auth requires the Engine's existing license")
     installation = _text(registry.get("installation_id", ""), "registry.installation_id") or os.environ.get("THREADIFY_INSTALLATION_ID", "").strip()

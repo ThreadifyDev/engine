@@ -114,7 +114,6 @@
       "description": "Read-only access, monitors critical violations",
       "permissions": [
         "thread.read.*",
-        "thread.write.*",
         "notification.rule.violated.critical",
         "notification.rule.violated.timeout.*",
         "notification.rule.violated.retry_limit.*"

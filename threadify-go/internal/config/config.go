@@ -15,7 +15,8 @@ type Config struct {
 	AgentRuntimeArchive string                   `yaml:"-" mapstructure:"-"`
 	AI                  *AIConfig                `yaml:"ai" mapstructure:"ai"`
 	Classifier          ClassifierConfig         `yaml:"classifier" mapstructure:"classifier"`
-	Registry            registry.Config          `yaml:"registry" mapstructure:"registry"`
+	LicenseKey          string                   `yaml:"license_key" mapstructure:"license_key"`
+	Registry            registry.Config          `yaml:"registry" mapstructure:"registry"` // legacy registry.* keys; resolved by applyLicenseSettings
 	RuntimeMode         string                   `yaml:"runtime_mode" mapstructure:"runtime_mode"`
 	Server              ServerConfig             `yaml:"server" mapstructure:"server"`
 	Postgres            PostgresConfig           `yaml:"postgres" mapstructure:"postgres"`
@@ -72,9 +73,10 @@ type AIConfig struct {
 
 // ServerConfig holds server configuration
 type ServerConfig struct {
-	PublicURL string `yaml:"public_url" mapstructure:"public_url"`
-	Port      int    `yaml:"port" mapstructure:"port"`
-	Host      string `yaml:"host" mapstructure:"host"`
+	PublicURL     string `yaml:"public_url" mapstructure:"public_url"`
+	BrowserOrigin string `yaml:"browser_origin" mapstructure:"browser_origin"`
+	Port          int    `yaml:"port" mapstructure:"port"`
+	Host          string `yaml:"host" mapstructure:"host"`
 }
 
 // PostgresConfig holds PostgreSQL configuration
