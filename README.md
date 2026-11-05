@@ -1,38 +1,45 @@
 # Threadify
 
-### Execution intelligence for work across services and AI agents.
+### The referee for your business processes.
 
-Threadify follows workflows across your services, partners, and AI agents in a
-shared execution history. It checks recorded steps against your contracts and
-gives people and systems the evidence to decide what happens next. Your systems
-still do the work; Threadify acts as a shared referee.
+Your services, partners, people and AI agents each do part of the work. Threadify
+follows every step, checks it against your rules, stops the actions that would
+break them, reacts when something goes wrong, and keeps a track record for every
+customer, partner and agent.
 
 [Website](https://threadify.dev) · [Documentation](https://docs.threadify.dev) · [Get a license](https://threadify.dev/signup)
 
-## What you can do
+## What it does
 
-- **Follow the work.** Bring steps from multiple systems into one shared thread.
-- **Check the rules.** Use contracts to validate required steps, their details, order, and timing.
-- **Decide what happens next.** Subscribe to violations or have your application wait for permission before a sensitive step.
-- **Learn from execution.** Entity profiles connect past threads so you can spot recurring failures and delays.
-- **Give agents the history.** Let agents inspect authorized threads through Threadify MCP.
-- **Use your existing telemetry.** Send OpenTelemetry traces or instrument services and browser apps with JavaScript, Python, and Go SDKs.
-- **Verify the record.** Check activity integrity with hash-chain verification.
+- **Watch every player.** Record steps from your services with the JavaScript,
+  Python or Go SDK, send the OpenTelemetry traces you already produce, capture
+  actions from your web app, or invite a partner into the same thread.
+- **Know the rules.** Write a contract in plain sentences: which steps a process
+  needs, in what order, who may perform them and what data they must carry.
+  Every step is checked against it, the same way every time.
+- **Stop the foul.** Before an action you can't undo, your code asks Threadify
+  and only continues if the contract allows it. Agents can ask what they're
+  allowed to do next, and human approvals are part of the contract.
+- **Blow the whistle.** Subscribe to broken rules, outcomes and finished threads,
+  and have your own services pause an account, halt a process or alert a team.
+- **Keep every player's record.** Entity profiles connect the threads that share a
+  customer, partner or agent, with their metrics and delivery health.
+- **Trust the record.** History is signed and chained, so you can verify it hasn't
+  been changed. Assistants can investigate it over MCP.
 
-The JavaScript SDK runs in Node.js services and browser apps. Browser apps use
-short-lived, scoped grants issued by their backend; Engine API keys stay on the
-server. See the [browser SDK guide](docs/browser-sdk.md).
+Your systems still do the work. Threadify checks it, gates it when you ask, and
+tells you when something breaks.
 
-Self-host with embedded NATS, database writers, and bundled Valkey on Linux/macOS.
-Bring PostgreSQL and keep your execution data in your infrastructure. Windows
-connects to an external Valkey server.
+## Run the Engine
 
-## Quick start
+The Engine is one process that serves the dashboard, the SDK and OpenTelemetry
+endpoints, and the GraphQL and MCP APIs. Bring PostgreSQL; on Linux and macOS
+the Engine starts its own Valkey and NATS.
 
-### 1. Get your license
+### 1. Get a license
 
-[Create your Threadify account](https://threadify.dev/signup), verify your email,
-and save your Threadify license key.
+[Create your Threadify account](https://threadify.dev/signup) and save your
+license key. You can also choose Threadify Cloud there instead of self-hosting.
 
 ### 2. Install
 
@@ -44,41 +51,38 @@ sh install.sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Available for **macOS ARM64**, **Linux AMD64**, and **Windows AMD64** (Git Bash).
-[Download release archives](https://github.com/ThreadifyDev/engine/releases) for manual installation.
+Available for macOS ARM64, Linux AMD64 and Windows AMD64 (Git Bash), or as the
+Docker image `ghcr.io/threadifydev/engine`. Release archives are on the
+[releases page](https://github.com/ThreadifyDev/engine/releases).
 
-### 3. Configure with YAML
+### 3. Configure
 
-Edit the installed `~/.config/threadify/config.yaml` (or
-`$XDG_CONFIG_HOME/threadify/config.yaml`). Update these sections in the supplied file:
+The installer writes `~/.config/threadify/config.yaml` (or
+`$XDG_CONFIG_HOME/threadify/config.yaml`). Set these values and keep the rest of
+the template:
 
 ```yaml
-registry:
-  license_key: "YOUR_THREADIFY_LICENSE_KEY"
+license_key: "$THREADIFY_LICENSE_KEY"
 
 server:
   host: "0.0.0.0"
   port: 8081
   public_url: "http://localhost:8081"
+  browser_origin: "http://localhost:8081"
 
 postgres:
-  url: "postgres://threadify:YOUR_PASSWORD@localhost:5432/threadify?sslmode=disable"
+  url: "$POSTGRES_URL"
 
 security:
   hash_chain_secrets:
-    v1: "YOUR_PERSISTENT_SECRET"
+    v1: "$HASH_CHAIN_SECRET_V1"
   hash_chain_current_version: "v1"
 ```
 
-Use a running PostgreSQL database. Valkey starts automatically on Linux/macOS;
-see [managed and shared Valkey](threadify-go/docs/MANAGED_VALKEY.md) for external
-servers, Windows, or multiple Engines. Generate the secret once
-with `openssl rand -hex 32` and retain it across restarts. The database URL above
-is for local development; configure TLS for a remote database.
-
-Keep the rest of the template. Registry supplies plan allowances; no
-`subscription.yaml` is needed. YAML is the
-main configuration file; `$ENV_VAR` references are also supported for secrets.
+Values starting with `$` are read from the environment. Generate the hash-chain
+secret once with `openssl rand -hex 32` and keep it: older history can only be
+verified with the secret it was signed with. Configs that use the earlier
+`registry:` keys keep working.
 
 ### 4. Start
 
@@ -86,31 +90,37 @@ main configuration file; `$ENV_VAR` references are also supported for secrets.
 threadify --config "${XDG_CONFIG_HOME:-$HOME/.config}/threadify/config.yaml"
 ```
 
-Open `http://localhost:8081` for the built-in dashboard. Point your SDK's Engine URL here,
-or send OTLP/HTTP traces to `/v1/traces` with a Threadify API key.
+Open `http://localhost:8081`, sign in, and create an API key. Point an SDK at that
+address, or send OTLP/HTTP traces to `/v1/traces`.
 
-## Build your first workflow
+For Docker, HTTPS, replicas and external Valkey or NATS, see
+[Run the Engine](https://docs.threadify.dev/self-hosting).
 
-| Start with | Guide |
+## Next steps
+
+| To | Read |
 | --- | --- |
-| Trace an order across services | [JavaScript SDK](https://github.com/ThreadifyDev/node-sdk) · [Python SDK](https://github.com/ThreadifyDev/python-sdk) · [Go SDK](https://github.com/ThreadifyDev/go-sdk) |
-| Capture actions in a browser | [Browser SDK](docs/browser-sdk.md) |
-| Send existing traces | [OpenTelemetry](docs/OTLP_INGESTION.md) |
-| Create contracts and entity profiles | [Threadify CLI](https://github.com/ThreadifyDev/cli#readme) |
-| Give an agent access to your threads | [Harnest + Threadify MCP example](examples/threadify-mcp-agent/README.md) |
-| Connect the dashboard | [Browser setup](threadify-go/docs/BROWSER_AUTH.md) |
-| Deploy with Docker or configure storage | [Self-hosting guide](threadify-go/SELF_HOSTING.md) |
+| Record your first thread | [Quick start](https://docs.threadify.dev/quickstart) |
+| Send existing traces | [OpenTelemetry](https://docs.threadify.dev/opentelemetry) |
+| Write a contract | [Write a contract](https://docs.threadify.dev/core-concepts/creating-contracts) |
+| Check before acting | [Check before acting](https://docs.threadify.dev/core-concepts/execution-waits) |
+| React to broken rules | [Subscribe to events](https://docs.threadify.dev/core-concepts/notifications/subscribing) |
+| Follow a customer, partner or agent | [Entity profiles](https://docs.threadify.dev/core-concepts/entity-profiles) |
+| Record from a web app | [Browser SDK](https://docs.threadify.dev/core-concepts/browser) |
+| Give an assistant access | [MCP](https://docs.threadify.dev/core-concepts/mcp-integration) |
+| Manage from a terminal | [CLI](https://docs.threadify.dev/cli) |
 
-The dashboard ships inside the Engine binary. The CLI is installed separately.
-The Docker image is
-`ghcr.io/threadifydev/engine:latest`.
+SDKs: [JavaScript](https://github.com/ThreadifyDev/node-sdk) ·
+[Python](https://github.com/ThreadifyDev/python-sdk) ·
+[Go](https://github.com/ThreadifyDev/go-sdk) ·
+[CLI](https://github.com/ThreadifyDev/cli)
 
-[Engine development and tests](threadify-go/README.md)
+## Developing the Engine
 
-The public website and hosted AI gateway are maintained in a separate private
-repository. The [dashboard](web/README.md) lives in `web/`. CI builds its static
-assets and embeds them in the Engine.
+See [Engine development and tests](threadify-go/README.md). The
+[dashboard](web/README.md) lives in `web/`; CI builds it and embeds it in the
+Engine binary.
 
-The SDKs and CLI are maintained in their linked repositories. Local checkouts in
-`threadify-sdk`, `threadify-sdk-go`, `threadify-sdk-python`, and `threadify-cli` are
-ignored by this repository; clone and commit them separately when developing those projects.
+The SDKs and CLI live in their own repositories. Local checkouts in
+`threadify-sdk`, `threadify-sdk-go`, `threadify-sdk-python` and `threadify-cli`
+are ignored by this repository; clone and commit them separately.
